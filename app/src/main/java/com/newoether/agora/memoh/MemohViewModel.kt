@@ -60,6 +60,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     var loadingSessions by mutableStateOf(false)
         private set
     private var nextSessionCursor: String? = null
+    var queueState by mutableStateOf<MemohQueueState?>(null)
+        private set
+    var queueBusy by mutableStateOf(false)
+        private set
+    private var queueRevision = 0
     var olderMessagesAvailable by mutableStateOf(false)
         private set
     var loadingOlderMessages by mutableStateOf(false)
@@ -123,6 +128,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         authRevision++
         botRevision++
         historyRevision++
+        queueRevision++
         closeSocket()
         api.configure(api.baseUrl)
         prefs.edit().remove("jwt").apply()
@@ -174,6 +180,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         }
         val revision = ++botRevision
         historyRevision++
+        queueRevision++
         closeSocket()
         bot = value
         session = null
@@ -208,10 +215,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             return
         }
         historyRevision++
+        queueRevision++
         resetCursor()
         val previous = session?.id
         session = value
         turns = emptyList()
+        queueState = null
         firstHistoryMessageId = null
         olderMessagesAvailable = false
         pendingUserText = null
@@ -221,10 +230,73 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         value?.let {
             sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", it.id))
             reloadHistory(it.id)
+            refreshQueue()
         }
     }
 
     fun newChat() = selectSession(null)
+
+    fun refreshQueue() {
+        val b = bot?.id ?: return
+        val sid = session?.id ?: return
+        val revision = queueRevision
+        viewModelScope.launch {
+            try {
+                val snapshot = api.sessionQueues(b, sid)
+                if (queueRevision == revision && bot?.id == b && session?.id == sid)
+                    queueState = snapshot
+            } catch (e: Exception) {
+                if (queueRevision == revision) error = e.message ?: "Failed to load message queues"
+            }
+        }
+    }
+
+    fun queueMessage(text: String, type: String): Boolean {
+        val b = bot?.id ?: return false
+        val sid = session?.id ?: return false
+        val value = text.trim()
+        if (value.isBlank() || !running || queueBusy || type !in setOf("steer", "follow_up")) return false
+        if (type == "steer" && queueState?.steerSupported != true) {
+            error = "Steering is not supported by this session."
+            return false
+        }
+        val revision = queueRevision
+        queueBusy = true
+        error = ""
+        viewModelScope.launch {
+            try {
+                // Fixed invocation ID per admission, no automatic network retries.
+                api.enqueueQueue(b, sid, type, value, UUID.randomUUID().toString())
+                if (queueRevision == revision) refreshQueue()
+            } catch (e: Exception) {
+                if (queueRevision == revision) {
+                    restoreDraft = value
+                    error = "Queue delivery is uncertain: ${e.message ?: "Request failed"}. Check the queue before resending."
+                }
+            } finally {
+                if (queueRevision == revision) queueBusy = false
+            }
+        }
+        return true
+    }
+
+    fun cancelQueued(item: MemohQueueItem) {
+        val b = bot?.id ?: return
+        val sid = session?.id ?: return
+        if (queueBusy || queueState?.items?.none { it.id == item.id && it.type == item.type } != false) return
+        val revision = queueRevision
+        queueBusy = true
+        viewModelScope.launch {
+            try {
+                api.cancelQueueItem(b, sid, item)
+                if (revision == queueRevision) refreshQueue()
+            } catch (e: Exception) {
+                if (revision == queueRevision) error = e.message ?: "Could not remove queued message"
+            } finally {
+                if (revision == queueRevision) queueBusy = false
+            }
+        }
+    }
 
     fun loadOlderSessions() {
         val b = bot?.id ?: return
