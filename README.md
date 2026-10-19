@@ -2,7 +2,7 @@
 
 Experimental native Android client for [Memoh](https://memoh.ai), built from [Agora](https://github.com/newo-ether/Agora). Memoh remains the server-side owner of conversations, Agents, and tool execution.
 
-**Preview:** This code has not yet passed an Android build or been tested with a live Memoh account. See [the native integration guide](docs/MEMOH_NATIVE.md) for setup, implemented paths and limitations. The package ID differs from upstream so both apps can be installed side by side. The upstream GPL-3.0 LICENSE and attribution are preserved.
+**Preview:** This code has not yet passed an Android build or been tested with a live Memoh account. See [the native integration guide](docs/MEMOH_NATIVE.md) for setup, implemented paths and limitations. The application ID is `in.kawaiis.memoh`, allowing side-by-side installation with Agora. The upstream GPL-3.0 LICENSE and attribution are preserved.
 
 ---
 
