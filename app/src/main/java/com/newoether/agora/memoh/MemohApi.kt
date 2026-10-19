@@ -191,6 +191,42 @@ internal class MemohApi {
         }
     }
 
+    suspend fun schedules(botId: String): List<MemohSchedule> {
+        val entries = request("/bots/${Uri.encode(botId)}/schedule")
+            .optJSONArray("items") ?: JSONArray()
+        return (0 until entries.length()).mapNotNull { i ->
+            val item = entries.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) null else MemohSchedule(
+                id = id,
+                name = item.optString("name"),
+                pattern = item.optString("pattern"),
+                command = item.optString("command"),
+                description = item.optString("description"),
+                enabled = item.optBoolean("enabled"),
+            )
+        }
+    }
+
+    suspend fun createSchedule(botId: String, name: String, pattern: String, command: String) {
+        require(name.isNotBlank() && pattern.isNotBlank() && command.isNotBlank()) {
+            "Schedule name, cron pattern and instruction are required"
+        }
+        request("/bots/${Uri.encode(botId)}/schedule",
+            JSONObject().put("name", name.trim()).put("pattern", pattern.trim())
+                .put("command", command.trim()).put("description", "")
+                .put("run_target", "new_session"))
+    }
+
+    suspend fun setScheduleEnabled(botId: String, scheduleId: String, enabled: Boolean) {
+        request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}",
+            JSONObject().put("enabled", enabled), method = "PUT")
+    }
+
+    suspend fun deleteSchedule(botId: String, scheduleId: String) {
+        request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}", method = "DELETE")
+    }
+
     /** Authenticate the native socket with a header, not a URL parameter. */
     fun socket(botId: String, listener: WebSocketListener): WebSocket {
         val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl()

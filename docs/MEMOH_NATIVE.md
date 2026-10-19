@@ -21,6 +21,7 @@ Log in using the Memoh server's username/password API. The Bearer JWT is stored 
 - Native Compose chat surface and multi-bot picker; paged conversation drawer and on-demand older history
 - Rename and delete server-side chat sessions (explicit deletion confirmation)
 - Per-bot workspace file browser for listing, viewing, revision-fenced text edits and system picker uploads
+- Server-side schedule list, creation, enable/disable and deletion (basic cron/new-session creation only)
 - In-band first-message session creation; client-minted `invocation_id` for replay-safe sends
 - WebSocket `/bots/{bot_id}/web/ws` with a bearer-authenticated handshake, runtime subscribe/unsubscribe, reconnect and admission replay
 - Runtime snapshot/delta text, reasoning, tool input/output/diff details, stop action and permission choices
@@ -34,7 +35,7 @@ This is **source-only and not build-verified or live-tested against an authentic
 
 - Chat-composer attachments and inline image previews are not implemented; the separate workspace file uploader is not a chat attachment API.
 - Workspace file browser currently supports single-file upload and text editing, not folder uploads, bulk actions or media preview.
-- Terminal, audio, schedules, slash commands, steering/follow-up queues and external-agent setup remain incomplete.
+- Advanced schedules (existing-session targets, cron editing, runs/logs), terminal, audio, slash commands, steering/follow-up queues and external-agent setup remain incomplete.
 - The runtime reducer handles the common snapshot/delta text and tool paths, but not the entire Memoh Web client's event/cursor/resync semantics. Do not use it for high-impact Agent operations without verifying reconnection and approval flows.
 - This fork launches directly into Memoh4A. The upstream Agora UI is not surfaced in the new navigation.
 - Supports username/password auth only; Cloud may require a different sign-in surface.

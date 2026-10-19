@@ -10,6 +10,14 @@ internal data class MemohSession(val id: String, val title: String)
 internal data class MemohSessionPage(val items: List<MemohSession>, val nextCursor: String?)
 internal data class MemohFile(val name: String, val path: String, val isDirectory: Boolean)
 internal data class MemohFileContent(val text: String, val revision: String)
+internal data class MemohSchedule(
+    val id: String,
+    val name: String,
+    val pattern: String,
+    val command: String,
+    val description: String,
+    val enabled: Boolean,
+)
 
 internal data class MemohBlock(
     val id: Int,
