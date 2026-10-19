@@ -114,6 +114,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var accountMenu by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
+    var filesOpen by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
     var composer by remember(vm.bot?.id, vm.session?.id) { mutableStateOf("") }
     LaunchedEffect(vm.restoreDraft) {
@@ -210,6 +211,12 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                 DropdownMenuItem(text = { Text("Refresh bots") }, onClick = {
                                     accountMenu = false; vm.refreshBots()
                                 })
+                                if (vm.bot != null) {
+                                    DropdownMenuItem(text = { Text("Workspace Files") }, onClick = {
+                                        accountMenu = false
+                                        filesOpen = true
+                                    })
+                                }
                                 if (vm.session != null) {
                                     DropdownMenuItem(text = { Text("Rename chat") }, onClick = {
                                         newTitle = vm.session?.title.orEmpty()
@@ -324,6 +331,9 @@ internal fun MemohScreen(vm: MemohViewModel) {
         }
     }
 
+    if (filesOpen && vm.bot != null) {
+        MemohWorkspaceDialog(vm.workspaceApi, vm.bot!!.id, onDismiss = { filesOpen = false })
+    }
     if (renameDialog) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { renameDialog = false },
