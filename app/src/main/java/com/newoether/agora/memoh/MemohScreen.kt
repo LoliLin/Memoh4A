@@ -123,8 +123,13 @@ internal fun MemohScreen(vm: MemohViewModel) {
         }
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(vm.session?.id, vm.turns.size) {
-        if (vm.turns.isNotEmpty()) listState.scrollToItem(vm.turns.lastIndex)
+    var initialScrollSession by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(vm.session?.id, vm.turns.isNotEmpty()) {
+        val id = vm.session?.id
+        if (id != null && vm.turns.isNotEmpty() && initialScrollSession != id) {
+            initialScrollSession = id
+            listState.scrollToItem(vm.turns.lastIndex)
+        }
     }
     val count = vm.turns.size + (if (vm.pendingUserText != null) 1 else 0) + (if (vm.liveBlocks.isNotEmpty() || vm.running) 1 else 0)
     LaunchedEffect(count, vm.liveBlocks.lastOrNull()?.text) {
@@ -385,40 +390,3 @@ private fun MemohTurnView(turn: MemohTurn, vm: MemohViewModel) {
     }
 }
 
-@Composable
-private fun ReasoningBlock(block: MemohBlock) {
-    var expanded by remember(block.id) { mutableStateOf(false) }
-    Column {
-        Text(if (expanded) "Hide thinking" else "Show thinking",
-            modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 6.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelMedium)
-        if (expanded) Surface(color = MaterialTheme.colorScheme.surfaceContainer,
-            shape = RoundedCornerShape(12.dp)) {
-            Text(block.text, modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-private fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(block.toolName.ifBlank { "Tool" }, fontWeight = FontWeight.Medium,
-                style = MaterialTheme.typography.bodyMedium)
-            Text(block.text, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall)
-            if (block.canApprove && block.approvalOptions.isNotEmpty()) {
-                Text("Approval required", style = MaterialTheme.typography.labelMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    block.approvalOptions.forEach { option ->
-                        OutlinedButton(onClick = { vm.decide(block, option) }, enabled = vm.connected) {
-                            Text(option.name.ifBlank { option.kind.ifBlank { "Choose" } })
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
