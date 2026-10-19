@@ -7,6 +7,7 @@ import java.io.IOException
 internal class MemohHttpException(val status: Int, message: String) : IOException(message)
 internal data class MemohBot(val id: String, val title: String)
 internal data class MemohSession(val id: String, val title: String)
+internal data class MemohSessionPage(val items: List<MemohSession>, val nextCursor: String?)
 
 internal data class MemohBlock(
     val id: Int,
@@ -30,7 +31,10 @@ internal data class MemohTurn(
 internal fun decodeTurn(obj: JSONObject): MemohTurn {
     val role = obj.optString("role")
     return MemohTurn(
-        id = obj.optString("turn_id").ifBlank { obj.optString("id") },
+        // Assistant and user turns may share turn_id. The row identity is unique.
+        id = obj.optString("id").ifBlank {
+            obj.optString("turn_id") + ":" + role
+        },
         role = role,
         text = obj.optString("text"),
         blocks = decodeBlocks(obj.optJSONArray("messages")),
