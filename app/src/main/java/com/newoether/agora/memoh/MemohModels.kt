@@ -18,9 +18,24 @@ internal data class MemohBlock(
     val approvalId: String = "",
     val canApprove: Boolean = false,
     val approvalOptions: List<MemohApprovalOption> = emptyList(),
+    val toolInput: String = "",
+    val toolOutput: String = "",
+    val toolDiff: String = "",
+    val userInputId: String = "",
+    val canRespond: Boolean = false,
+    val questions: List<MemohQuestion> = emptyList(),
 )
 
 internal data class MemohApprovalOption(val id: String, val name: String, val kind: String)
+internal data class MemohQuestionOption(val id: String, val label: String, val description: String)
+internal data class MemohQuestion(
+    val id: String,
+    val text: String,
+    val kind: String,
+    val required: Boolean,
+    val placeholder: String,
+    val options: List<MemohQuestionOption>,
+)
 internal data class MemohTurn(
     val id: String,
     val role: String,
@@ -48,6 +63,8 @@ internal fun decodeBlocks(array: JSONArray?): List<MemohBlock> {
         val kind = obj.optString("type")
         val approval = obj.optJSONObject("approval")
         val opts = approval?.optJSONArray("options")
+        val userInput = obj.optJSONObject("user_input")
+        val questionArray = userInput?.optJSONArray("questions")
         MemohBlock(
             id = obj.optInt("id", index),
             type = kind,
@@ -69,6 +86,28 @@ internal fun decodeBlocks(array: JSONArray?): List<MemohBlock> {
                 val entry = opts.optJSONObject(n) ?: return@mapNotNull null
                 MemohApprovalOption(entry.optString("id"), entry.optString("name"), entry.optString("kind"))
             },
+            toolInput = obj.opt("input")?.takeUnless { it == JSONObject.NULL }?.toString().orEmpty(),
+            toolOutput = obj.opt("output")?.takeUnless { it == JSONObject.NULL }?.toString().orEmpty(),
+            toolDiff = obj.optString("diff"),
+            userInputId = userInput?.optString("user_input_id").orEmpty(),
+            canRespond = userInput?.optBoolean("can_respond") ?: false,
+            questions = if (questionArray == null) emptyList() else
+                (0 until questionArray.length()).mapNotNull { q ->
+                    val question = questionArray.optJSONObject(q) ?: return@mapNotNull null
+                    val options = question.optJSONArray("options")
+                    MemohQuestion(
+                        id = question.optString("id"),
+                        text = question.optString("text"),
+                        kind = question.optString("kind"),
+                        required = question.optBoolean("required"),
+                        placeholder = question.optString("placeholder"),
+                        options = if (options == null) emptyList() else (0 until options.length()).mapNotNull { i ->
+                            val option = options.optJSONObject(i) ?: return@mapNotNull null
+                            MemohQuestionOption(option.optString("id"), option.optString("label"),
+                                option.optString("description"))
+                        },
+                    )
+                },
         )
     }
 }

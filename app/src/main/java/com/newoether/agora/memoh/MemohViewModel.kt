@@ -31,6 +31,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var socketGeneration = 0
     private var reconnectJob: Job? = null
     private val awaitingAdmission = linkedMapOf<String, JSONObject>()
+    private val pendingControls = mutableMapOf<String, String>()
+    var waitingForInteraction by mutableStateOf<Set<String>>(emptySet())
+        private set
     private var liveJson = JSONArray()
     private var currentRunStatus = ""
     private var settlingRunId = ""
@@ -292,7 +295,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
                     turns = (page + turns).distinctBy { it.id }
                     firstHistoryMessageId = page.firstOrNull()?.id ?: firstId
-                    olderMessagesAvailable = page.size >= 50 && firstHistoryMessageId != firstId
+                    olderMessagesAvailable = page.isNotEmpty() && firstHistoryMessageId != firstId
                 }
             } catch (e: Exception) {
                 if (revision == historyRevision)
@@ -327,20 +330,55 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun abort() {
         val sid = session?.id.orEmpty()
         if (!connected || runId.isEmpty() || sid.isEmpty()) return
+        val controlId = UUID.randomUUID().toString()
         sendNow(JSONObject().put("type", "abort")
             .put("run_id", runId).put("session_id", sid)
-            .put("control_id", UUID.randomUUID().toString()))
+            .put("control_id", controlId))
+    }
+
+    private fun submitInteraction(decisionId: String, payload: JSONObject) {
+        if (decisionId.isBlank() || !connected || runId.isBlank() || session == null ||
+            decisionId in waitingForInteraction) return
+        val controlId = UUID.randomUUID().toString()
+        payload.put("run_id", runId).put("session_id", session!!.id)
+            .put("control_id", controlId).put("decision_id", decisionId)
+        pendingControls[controlId] = decisionId
+        waitingForInteraction = waitingForInteraction + decisionId
+        sendNow(payload)
     }
 
     fun decide(approval: MemohBlock, choice: MemohApprovalOption) {
-        val sid = session?.id.orEmpty()
-        if (!connected || runId.isEmpty() || sid.isEmpty() || approval.approvalId.isEmpty()) return
+        if (!approval.canApprove || approval.approvalId.isBlank()) return
         val decision = if (choice.kind.startsWith("reject")) "reject" else "approve"
-        sendNow(JSONObject().put("type", "tool_approval_response")
-            .put("run_id", runId).put("session_id", sid)
-            .put("control_id", UUID.randomUUID().toString())
-            .put("decision_id", approval.approvalId)
+        submitInteraction(approval.approvalId, JSONObject().put("type", "tool_approval_response")
             .put("decision", decision).put("option_id", choice.id))
+    }
+
+    fun answerUserInput(
+        block: MemohBlock,
+        options: Map<String, Set<String>>,
+        texts: Map<String, String>,
+        canceled: Boolean = false,
+    ) {
+        if (!block.canRespond || block.userInputId.isBlank()) return
+        val payload = JSONObject().put("type", "user_input_response")
+        if (canceled) {
+            payload.put("canceled", true)
+        } else {
+            val answers = JSONArray()
+            for (question in block.questions) {
+                val answer = JSONObject().put("question_id", question.id)
+                if (question.kind == "text") {
+                    answer.put("text", texts[question.id].orEmpty())
+                } else {
+                    val selected = options[question.id].orEmpty()
+                    answer.put("option_ids", JSONArray(selected.toList()))
+                }
+                answers.put(answer)
+            }
+            payload.put("answers", answers)
+        }
+        submitInteraction(block.userInputId, payload)
     }
 
     private fun reloadHistory(sid: String) {
@@ -354,7 +392,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     turns = (older + result).distinctBy { it.id }
                     if (firstHistoryMessageId == null) {
                         firstHistoryMessageId = result.firstOrNull()?.id
-                        olderMessagesAvailable = result.size >= 50
+                        olderMessagesAvailable = result.isNotEmpty()
                     }
                     if (!running && awaitingAdmission.isEmpty()) pendingUserText = null
                 }
@@ -412,6 +450,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             if (generation != socketGeneration || bot?.id != botId) return@launch
             connected = false
             resetCursor()
+            if (pendingControls.isNotEmpty()) {
+                error = "Connection lost. A tool decision may have been applied; check the run before retrying."
+                pendingControls.clear()
+                waitingForInteraction = emptySet()
+            }
             // Do not infer a run failed from a lost observation connection.
             reconnectJob?.cancel()
             reconnectJob = launch {
@@ -487,8 +530,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 requestFreshSnapshot(target)
                 reloadHistory(target)
             }
-            "control_ack" -> if (!event.optBoolean("applied", false)) {
-                error = "Action not applied: ${event.optString("code")}"
+            "control_ack" -> {
+                val controlId = event.optString("control_id")
+                val decisionId = pendingControls.remove(controlId)
+                if (decisionId != null) waitingForInteraction = waitingForInteraction - decisionId
+                if (!event.optBoolean("applied", false))
+                    error = "Action not applied: ${event.optString("code")}"
             }
         }
     }
@@ -590,6 +637,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         socket = null
         connected = false
         resetCursor()
+        pendingControls.clear()
+        waitingForInteraction = emptySet()
         awaitingAdmission.clear()
     }
 
