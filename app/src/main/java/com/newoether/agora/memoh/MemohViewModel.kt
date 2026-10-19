@@ -27,6 +27,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var seq = -1L
     private var awaitingSnapshot = true
     private val api = MemohApi()
+    internal val workspaceApi: MemohApi get() = api
     private var socket: WebSocket? = null
     private var socketGeneration = 0
     private var reconnectJob: Job? = null
