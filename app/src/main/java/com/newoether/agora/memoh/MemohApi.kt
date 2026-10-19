@@ -227,6 +227,35 @@ internal class MemohApi {
         request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}", method = "DELETE")
     }
 
+    suspend fun sessionQueues(botId: String, sessionId: String): MemohQueueState {
+        val data = request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/queue")
+        val items = mutableListOf<MemohQueueItem>()
+        for ((type, key) in listOf("steer" to "steer", "follow_up" to "follow_up")) {
+            val array = data.optJSONArray(key) ?: continue
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val id = item.optString("item_id")
+                if (id.isNotBlank()) items.add(MemohQueueItem(
+                    id, type, item.optString("text"), item.optString("status")))
+            }
+        }
+        return MemohQueueState(data.optBoolean("steer_supported"), items)
+    }
+
+    suspend fun enqueueQueue(botId: String, sessionId: String, type: String,
+                             text: String, invocationId: String) {
+        require(type == "steer" || type == "follow_up") { "Invalid queue type" }
+        val path = if (type == "steer") "steer-queue" else "follow-up-queue"
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/$path",
+            JSONObject().put("invocation_id", invocationId).put("text", text))
+    }
+
+    suspend fun cancelQueueItem(botId: String, sessionId: String, item: MemohQueueItem) {
+        val path = if (item.type == "steer") "steer-queue" else "follow-up-queue"
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/$path/${Uri.encode(item.id)}",
+            method = "DELETE")
+    }
+
     /** Authenticate the native socket with a header, not a URL parameter. */
     fun socket(botId: String, listener: WebSocketListener): WebSocket {
         val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl()

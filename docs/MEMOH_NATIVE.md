@@ -26,6 +26,7 @@ Log in using the Memoh server's username/password API. The Bearer JWT is stored 
 - WebSocket `/bots/{bot_id}/web/ws` with a bearer-authenticated handshake, runtime subscribe/unsubscribe, reconnect and admission replay
 - Runtime snapshot/delta text, reasoning, tool input/output/diff details, stop action and permission choices
 - Structured Agent user-input responses (text, single-select, multi-select); control acknowledgement tracking and reconnect fencing
+- Server-side follow-up and steer queues for active runs, plus queue viewing and removal
 - Server-backed JSON history and session list, Markdown replies, optimistic pending user text
 - Original Agora conversations/settings unchanged
 
@@ -35,7 +36,7 @@ This is **source-only and not build-verified or live-tested against an authentic
 
 - Chat-composer attachments and inline image previews are not implemented; the separate workspace file uploader is not a chat attachment API.
 - Workspace file browser currently supports single-file upload and text editing, not folder uploads, bulk actions or media preview.
-- Advanced schedules (existing-session targets, cron editing, runs/logs), terminal, audio, slash commands, steering/follow-up queues and external-agent setup remain incomplete.
+- Advanced schedules (existing-session targets, cron editing, runs/logs), terminal, audio, slash commands, queue reorder/edit, and external-agent setup remain incomplete.
 - The runtime reducer handles the common snapshot/delta text and tool paths, but not the entire Memoh Web client's event/cursor/resync semantics. Do not use it for high-impact Agent operations without verifying reconnection and approval flows.
 - This fork launches directly into Memoh4A. The upstream Agora UI is not surfaced in the new navigation.
 - Supports username/password auth only; Cloud may require a different sign-in surface.

@@ -116,6 +116,8 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var deleteDialog by remember { mutableStateOf(false) }
     var filesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
+    var queueOpen by remember { mutableStateOf(false) }
+    var sendQueueMenu by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
     var composer by remember(vm.bot?.id, vm.session?.id) { mutableStateOf("") }
     LaunchedEffect(vm.restoreDraft) {
@@ -223,6 +225,11 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                     })
                                 }
                                 if (vm.session != null) {
+                                    DropdownMenuItem(text = { Text("Message Queue") }, onClick = {
+                                        accountMenu = false
+                                        queueOpen = true
+                                        vm.refreshQueue()
+                                    })
                                     DropdownMenuItem(text = { Text("Rename chat") }, onClick = {
                                         newTitle = vm.session?.title.orEmpty()
                                         renameDialog = true
@@ -257,8 +264,27 @@ internal fun MemohScreen(vm: MemohViewModel) {
                         )
                         Spacer(Modifier.width(8.dp))
                         if (vm.running && vm.runId.isNotBlank()) {
-                            IconButton(onClick = vm::abort, enabled = vm.connected) {
+                            IconButton(onClick = vm::abort, enabled = vm.controlsReady) {
                                 Icon(Icons.Default.Stop, "Stop run")
+                            }
+                            Box {
+                                IconButton(onClick = { sendQueueMenu = true },
+                                    enabled = composer.isNotBlank() && !vm.queueBusy) {
+                                    Icon(Icons.AutoMirrored.Filled.Send, "Queue message")
+                                }
+                                DropdownMenu(expanded = sendQueueMenu,
+                                    onDismissRequest = { sendQueueMenu = false }) {
+                                    DropdownMenuItem(text = { Text("Add Follow-Up") }, onClick = {
+                                        if (vm.queueMessage(composer, "follow_up")) composer = ""
+                                        sendQueueMenu = false
+                                    })
+                                    DropdownMenuItem(text = { Text("Steer Current Run") },
+                                        enabled = vm.queueState?.steerSupported == true,
+                                        onClick = {
+                                            if (vm.queueMessage(composer, "steer")) composer = ""
+                                            sendQueueMenu = false
+                                        })
+                                }
                             }
                         } else {
                             IconButton(onClick = {
@@ -342,6 +368,9 @@ internal fun MemohScreen(vm: MemohViewModel) {
     if (schedulesOpen && vm.bot != null) {
         MemohSchedulesDialog(vm.workspaceApi, vm.bot!!.id,
             onDismiss = { schedulesOpen = false })
+    }
+    if (queueOpen && vm.session != null) {
+        MemohQueueDialog(vm, onDismiss = { queueOpen = false })
     }
     if (renameDialog) {
         androidx.compose.material3.AlertDialog(

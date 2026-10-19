@@ -8,6 +8,12 @@ internal class MemohHttpException(val status: Int, message: String) : IOExceptio
 internal data class MemohBot(val id: String, val title: String)
 internal data class MemohSession(val id: String, val title: String)
 internal data class MemohSessionPage(val items: List<MemohSession>, val nextCursor: String?)
+internal data class MemohQueueItem(
+    val id: String, val type: String, val text: String, val status: String,
+)
+internal data class MemohQueueState(
+    val steerSupported: Boolean, val items: List<MemohQueueItem>,
+)
 internal data class MemohFile(val name: String, val path: String, val isDirectory: Boolean)
 internal data class MemohFileContent(val text: String, val revision: String)
 internal data class MemohSchedule(
