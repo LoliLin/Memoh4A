@@ -28,6 +28,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var awaitingSnapshot = true
     private val api = MemohApi()
     internal val workspaceApi: MemohApi get() = api
+    internal val agentController = MemohAgentController(api)
     private var socket: WebSocket? = null
     private var socketGeneration = 0
     private var reconnectJob: Job? = null
@@ -136,6 +137,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         loading = false
         password = ""
         bots = emptyList()
+        agentController.clear()
         bot = null
         sessions = emptyList()
         nextSessionCursor = null
@@ -183,6 +185,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         queueRevision++
         closeSocket()
         bot = value
+        agentController.select("")
         session = null
         turns = emptyList()
         sessions = emptyList()
@@ -190,6 +193,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         olderSessionsAvailable = false
         clearRun()
         pendingUserText = null
+        viewModelScope.launch {
+            runCatching { agentController.refresh(value.id) }
+        }
         viewModelScope.launch {
             loadingSessions = true
             try {
@@ -217,6 +223,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         historyRevision++
         queueRevision++
         resetCursor()
+        if (value != null) agentController.selectFromSession(value.botAgentId)
         val previous = session?.id
         session = value
         turns = emptyList()
@@ -235,6 +242,15 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun newChat() = selectSession(null)
+
+    fun selectAgentForNewChat(agentId: String) {
+        if (running || pendingUserText != null || awaitingAdmission.isNotEmpty()) {
+            error = "Finish or stop the current run before starting a chat with another Agent."
+            return
+        }
+        agentController.select(agentId)
+        selectSession(null)
+    }
 
     fun refreshQueue() {
         val b = bot?.id ?: return
@@ -393,15 +409,42 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         error = ""
         restoreDraft = null
         val invocation = UUID.randomUUID().toString()
-        val payload = JSONObject()
-            .put("type", "message")
-            .put("invocation_id", invocation)
-            .put("text", value)
-        session?.id?.let { payload.put("session_id", it) }
+        val payload = JSONObject().put("type", "message")
+            .put("invocation_id", invocation).put("text", value)
+        val existingSession = session
+        existingSession?.id?.let { payload.put("session_id", it) }
         awaitingAdmission[invocation] = payload
         pendingUserText = value
-        if (connected) sendNow(payload)
-        else if (socket == null) connectSocket(selectedBot.id)
+        if (existingSession != null) {
+            if (connected) sendNow(payload)
+            else if (socket == null) connectSocket(selectedBot.id)
+        } else {
+            val authRevisionAtSend = authRevision
+            val botRevisionAtSend = botRevision
+            viewModelScope.launch {
+                try {
+                    val created = api.createSession(selectedBot.id, agentController.selectedAgentId)
+                    if (authRevisionAtSend != authRevision || botRevisionAtSend != botRevision ||
+                        !awaitingAdmission.containsKey(invocation)) return@launch
+                    historyRevision++
+                    resetCursor()
+                    session = created
+                    sessions = listOf(created) + sessions.filterNot { it.id == created.id }
+                    payload.put("session_id", created.id)
+                    if (connected) {
+                        sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", created.id))
+                        sendNow(payload)
+                    } else if (socket == null) connectSocket(selectedBot.id)
+                } catch (e: Exception) {
+                    if (authRevisionAtSend == authRevision && botRevisionAtSend == botRevision &&
+                        awaitingAdmission.remove(invocation) != null) {
+                        pendingUserText = null
+                        restoreDraft = value
+                        error = e.message ?: "Failed to create conversation"
+                    }
+                }
+            }
+        }
         return true
     }
 
@@ -556,7 +599,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     resetCursor()
                     val sid = target
                     awaitingAdmission[invocation]?.put("session_id", sid)
-                    val created = MemohSession(sid, "New conversation")
+                    val created = MemohSession(sid, "New conversation", agentController.selectedAgentId)
                     sessions = listOf(created) + sessions.filterNot { it.id == sid }
                     session = created
                     sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", sid))
