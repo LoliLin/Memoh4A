@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,7 +39,7 @@ internal fun MemohQueueDialog(vm: MemohViewModel, onDismiss: () -> Unit) {
                 if (snapshot == null) Text("Loading queue…")
                 else if (snapshot.items.isEmpty()) Text("No pending messages")
                 else {
-                    LazyColumn {
+                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
                         items(snapshot.items, key = { it.type + ":" + it.id }) { item ->
                             Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
                                 Text(if (item.type == "steer") "Steer · ${item.status}"

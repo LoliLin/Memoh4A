@@ -128,11 +128,20 @@ private fun UserInputForm(block: MemohBlock, vm: MemohViewModel) {
                         }
                     }
                 }
+                if (question.allowCustom) {
+                    OutlinedTextField(value = texts[question.id].orEmpty(),
+                        onValueChange = { value ->
+                            texts = texts + (question.id to value)
+                            if (value.isNotBlank()) selections = selections + (question.id to emptySet())
+                        },
+                        label = { Text("Custom Answer") },
+                        modifier = Modifier.fillMaxWidth())
+                }
             }
         }
         val valid = block.questions.all { q ->
             !q.required || if (q.kind == "text") texts[q.id]?.isNotBlank() == true
-            else selections[q.id]?.isNotEmpty() == true
+            else selections[q.id]?.isNotEmpty() == true || (q.allowCustom && texts[q.id]?.isNotBlank() == true)
         }
         val canSend = vm.controlsReady && block.userInputId !in vm.waitingForInteraction
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

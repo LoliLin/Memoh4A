@@ -451,6 +451,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 } else {
                     val selected = options[question.id].orEmpty()
                     answer.put("option_ids", JSONArray(selected.toList()))
+                    if (question.allowCustom && texts[question.id].orEmpty().isNotBlank())
+                        answer.put("custom_text", texts[question.id].orEmpty())
                 }
                 answers.put(answer)
             }
@@ -563,6 +565,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             "run_accepted" -> {
                 awaitingAdmission.remove(invocation)
                 if (session?.id == target) {
+                    refreshQueue()
                     settlingRunId = ""
                     runId = event.optString("run_id")
                     running = true
@@ -612,7 +615,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             "control_ack" -> {
                 val controlId = event.optString("control_id")
                 val decisionId = pendingControls.remove(controlId)
-                if (decisionId != null) waitingForInteraction = waitingForInteraction - decisionId
+                if (decisionId != null && !event.optBoolean("applied", false))
+                    waitingForInteraction = waitingForInteraction - decisionId
                 if (!event.optBoolean("applied", false))
                     error = "Action not applied: ${event.optString("code")}"
             }
@@ -636,6 +640,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         currentRunStatus = view.optString("status")
         liveJson = view.optJSONArray("messages") ?: JSONArray()
         liveBlocks = decodeBlocks(liveJson)
+        pruneResolvedDecisions()
         settleIfTerminal()
     }
 
@@ -663,7 +668,18 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             if (patch.has("status")) currentRunStatus = patch.optString("status")
         }
         liveBlocks = decodeBlocks(liveJson)
+        pruneResolvedDecisions()
         settleIfTerminal(sid)
+    }
+
+    private fun pruneResolvedDecisions() {
+        val unresolved = liveBlocks.flatMap { block ->
+            buildList {
+                if (block.canApprove) add(block.approvalId)
+                if (block.canRespond) add(block.userInputId)
+            }
+        }.filter { it.isNotBlank() }.toSet()
+        waitingForInteraction = waitingForInteraction.intersect(unresolved)
     }
 
     private fun upsertBlock(block: JSONObject) {
@@ -708,6 +724,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         runId = ""
         currentRunStatus = ""
         settlingRunId = ""
+        waitingForInteraction = emptySet()
+        pendingControls.clear()
     }
 
     private fun closeSocket() {
