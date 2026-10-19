@@ -111,8 +111,7 @@ internal class MemohApi {
 
     /** Authenticate the native socket with a header, not a URL parameter. */
     fun socket(botId: String, listener: WebSocketListener): WebSocket {
-        val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl().newBuilder()
-             .build()
+        val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl()
         val wsUrl = url.toString().replaceFirst(if (url.isHttps) "https://" else "http://", if (url.isHttps) "wss://" else "ws://")
         return http.newWebSocket(Request.Builder().url(wsUrl).header("Authorization", "Bearer $token").build(), listener)
     }

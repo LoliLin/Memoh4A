@@ -20,6 +20,12 @@ import java.util.UUID
 
 internal class MemohViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("memoh_native", 0)
+    private var authRevision = 0
+    private var botRevision = 0
+    private var historyRevision = 0
+    private var epoch = ""
+    private var seq = -1L
+    private var awaitingSnapshot = true
     private val api = MemohApi()
     private var socket: WebSocket? = null
     private var socketGeneration = 0
@@ -79,10 +85,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (user.isEmpty() || pwd.isEmpty()) { error = "Enter your username and password"; return }
         loading = true
         error = ""
+        val revision = ++authRevision
         viewModelScope.launch {
             try {
                 api.configure(loginServer)
                 val jwt = api.login(user, pwd)
+                if (revision != authRevision) return@launch
                 withContext(Dispatchers.IO) {
                     prefs.edit().putString("server", loginServer)
                         .putString("jwt", MemohTokenStore.seal(jwt)).apply()
@@ -91,16 +99,21 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 signedIn = true
                 loadBots()
             } catch (t: Exception) {
-                error = "Connection failed: ${t.message ?: "Unknown error"}"
-            } finally { loading = false }
+                if (revision == authRevision) error = "Connection failed: ${t.message ?: "Unknown error"}"
+            } finally { if (revision == authRevision) loading = false }
         }
     }
 
     fun logout() {
+        authRevision++
+        botRevision++
+        historyRevision++
         closeSocket()
-        api.configure(server)
+        api.configure(api.baseUrl)
         prefs.edit().remove("jwt").apply()
         signedIn = false
+        loading = false
+        password = ""
         bots = emptyList()
         bot = null
         sessions = emptyList()
@@ -116,19 +129,34 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private suspend fun loadBots() {
+        val revision = authRevision
         try {
             val results = api.bots()
+            if (!signedIn || revision != authRevision) return
             bots = results
             error = ""
             if (bot == null || results.none { it.id == bot?.id }) {
                 results.firstOrNull()?.let(::selectBot)
             }
         } catch (e: MemohHttpException) {
-            if (e.status == 401) logout() else error = e.message.orEmpty()
-        } catch (e: Exception) { error = e.message ?: "Failed to load bots" }
+            if (revision == authRevision) {
+                if (e.status == 401) {
+                    logout()
+                    error = "Session expired. Sign in again."
+                } else error = e.message.orEmpty()
+            }
+        } catch (e: Exception) {
+            if (revision == authRevision) error = e.message ?: "Failed to load bots"
+        }
     }
 
     fun selectBot(value: MemohBot) {
+        if (awaitingAdmission.isNotEmpty()) {
+            error = "Wait until your message is accepted before switching bots."
+            return
+        }
+        val revision = ++botRevision
+        historyRevision++
         closeSocket()
         bot = value
         session = null
@@ -137,13 +165,24 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         clearRun()
         pendingUserText = null
         viewModelScope.launch {
-            try { sessions = api.sessions(value.id) }
-            catch (e: Exception) { error = e.message ?: "Failed to load sessions" }
+            try {
+                val loaded = api.sessions(value.id)
+                if (revision == botRevision && bot?.id == value.id) sessions = loaded
+            } catch (e: Exception) {
+                if (revision == botRevision && bot?.id == value.id)
+                    error = e.message ?: "Failed to load sessions"
+            }
         }
         connectSocket(value.id)
     }
 
     fun selectSession(value: MemohSession?) {
+        if (awaitingAdmission.isNotEmpty() && value?.id != session?.id) {
+            error = "Wait until your message is accepted before switching chats."
+            return
+        }
+        historyRevision++
+        resetCursor()
         val previous = session?.id
         session = value
         turns = emptyList()
@@ -161,10 +200,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     fun consumeRestoredDraft() { restoreDraft = null }
 
-    fun send(text: String) {
+    fun send(text: String): Boolean {
         val value = text.trim()
-        val selectedBot = bot ?: return
-        if (value.isEmpty() || pendingUserText != null || running) return
+        val selectedBot = bot ?: return false
+        if (value.isEmpty() || pendingUserText != null || running || awaitingAdmission.isNotEmpty()) return false
         error = ""
         restoreDraft = null
         val invocation = UUID.randomUUID().toString()
@@ -177,6 +216,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         pendingUserText = value
         if (connected) sendNow(payload)
         else if (socket == null) connectSocket(selectedBot.id)
+        return true
     }
 
     fun abort() {
@@ -200,14 +240,17 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     private fun reloadHistory(sid: String) {
         val b = bot?.id ?: return
+        val revision = historyRevision
         viewModelScope.launch {
             try {
                 val result = api.history(b, sid)
-                if (bot?.id == b && session?.id == sid) {
+                if (bot?.id == b && session?.id == sid && revision == historyRevision) {
                     turns = result
+                    if (!running && awaitingAdmission.isEmpty()) pendingUserText = null
                 }
             } catch (e: Exception) {
-                if (session?.id == sid) error = e.message ?: "Failed to load history"
+                if (session?.id == sid && revision == historyRevision)
+                    error = e.message ?: "Failed to load history"
             }
         }
     }
@@ -239,7 +282,14 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                disconnected(generation, botId)
+                if (response?.code == 401) {
+                    viewModelScope.launch {
+                        if (generation == socketGeneration && bot?.id == botId) {
+                            logout()
+                            error = "Session expired. Sign in again."
+                        }
+                    }
+                } else disconnected(generation, botId)
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 disconnected(generation, botId)
@@ -251,6 +301,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             if (generation != socketGeneration || bot?.id != botId) return@launch
             connected = false
+            resetCursor()
             // Do not infer a run failed from a lost observation connection.
             reconnectJob?.cancel()
             reconnectJob = launch {
@@ -266,7 +317,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val invocation = event.optString("invocation_id")
         when (kind) {
             "session_created" -> {
-                if (invocation.isNotEmpty() && awaitingAdmission.containsKey(invocation)) {
+                if (target.isNotBlank() && invocation.isNotEmpty() && awaitingAdmission.containsKey(invocation)) {
+                    historyRevision++
+                    resetCursor()
                     val sid = target
                     awaitingAdmission[invocation]?.put("session_id", sid)
                     val created = MemohSession(sid, "New conversation")
@@ -284,7 +337,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 }
             }
             "run_rejected", "error" -> {
-                if (awaitingAdmission.remove(invocation) != null) {
+                if (invocation.isNotBlank() && awaitingAdmission.remove(invocation) != null) {
                     restoreDraft = pendingUserText
                     pendingUserText = null
                 }
@@ -294,6 +347,13 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 }
             }
             "runtime_snapshot" -> if (session?.id == target) {
+                val nextEpoch = event.optString("epoch")
+                val nextSeq = event.optLong("seq", -1L)
+                if (nextEpoch.isBlank() || nextSeq < 0L) return
+                if (!awaitingSnapshot && nextEpoch == epoch && nextSeq <= seq) return
+                epoch = nextEpoch
+                seq = nextSeq
+                awaitingSnapshot = false
                 val snapshot = event.optJSONObject("snapshot")
                 val view = snapshot?.optJSONObject("current_run_view")
                 if (view == null) {
@@ -302,17 +362,37 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 } else applyRunView(view)
             }
             "runtime_delta" -> if (session?.id == target) {
+                if (awaitingSnapshot) return
+                val nextEpoch = event.optString("epoch")
+                val nextSeq = event.optLong("seq", -1L)
+                if (nextEpoch != epoch || nextSeq != seq + 1L) {
+                    if (nextSeq > seq || nextEpoch != epoch) requestFreshSnapshot(target)
+                    return
+                }
+                seq = nextSeq
                 applyDelta(event.optJSONObject("delta") ?: JSONObject(), target)
             }
             "runtime_dropped" -> if (session?.id == target) {
-                error = "Live updates were dropped. Reconnecting to the server state."
-                sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", target))
+                error = "Live updates were dropped. Refreshing server state."
+                requestFreshSnapshot(target)
                 reloadHistory(target)
             }
             "control_ack" -> if (!event.optBoolean("applied", false)) {
                 error = "Action not applied: ${event.optString("code")}"
             }
         }
+    }
+
+    private fun resetCursor() {
+        epoch = ""
+        seq = -1L
+        awaitingSnapshot = true
+    }
+
+    private fun requestFreshSnapshot(sid: String) {
+        if (awaitingSnapshot) return
+        awaitingSnapshot = true
+        sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", sid))
     }
 
     private fun applyRunView(view: JSONObject) {
@@ -394,6 +474,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         socket?.cancel()
         socket = null
         connected = false
+        resetCursor()
         awaitingAdmission.clear()
     }
 

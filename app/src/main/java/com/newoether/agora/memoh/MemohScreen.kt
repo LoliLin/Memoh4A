@@ -120,6 +120,9 @@ internal fun MemohScreen(vm: MemohViewModel) {
         }
     }
     val listState = rememberLazyListState()
+    LaunchedEffect(vm.session?.id, vm.turns.size) {
+        if (vm.turns.isNotEmpty()) listState.scrollToItem(vm.turns.lastIndex)
+    }
     val count = vm.turns.size + (if (vm.pendingUserText != null) 1 else 0) + (if (vm.liveBlocks.isNotEmpty() || vm.running) 1 else 0)
     LaunchedEffect(count, vm.liveBlocks.lastOrNull()?.text) {
         if (count > 0) {
@@ -221,8 +224,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
                         } else {
                             IconButton(onClick = {
                                 if (composer.isNotBlank()) {
-                                    vm.send(composer)
-                                    composer = ""
+                                    if (vm.send(composer)) composer = ""
                                 }
                             }, enabled = composer.isNotBlank() && vm.bot != null && vm.pendingUserText == null && !vm.running) {
                                 Icon(Icons.AutoMirrored.Filled.Send, "Send")
