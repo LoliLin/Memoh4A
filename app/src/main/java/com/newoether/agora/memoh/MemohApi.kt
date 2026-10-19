@@ -47,12 +47,12 @@ internal class MemohApi {
     private fun isLocalhost(host: String): Boolean =
         host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
 
-    private suspend fun request(path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
+    private suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url(baseUrl + path)
             .header("Accept", "application/json")
         if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
-        if (body != null) {
-            builder.post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+        if (method != "GET") {
+            builder.method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()))
         }
         val call = http.newCall(builder.build())
         call.execute().use { response ->
@@ -91,19 +91,35 @@ internal class MemohApi {
         }
     }
 
-    suspend fun sessions(botId: String): List<MemohSession> {
-        val array = request("/bots/${Uri.encode(botId)}/sessions?limit=100")
-            .optJSONArray("items") ?: JSONArray()
-        return (0 until array.length()).mapNotNull { i ->
+    suspend fun sessionsPage(botId: String, cursor: String = ""): MemohSessionPage {
+        val path = "/bots/${Uri.encode(botId)}/sessions?types=chat,discuss,acp_agent,schedule&hide_schedule_runs=true&limit=50" +
+            if (cursor.isBlank()) "" else "&cursor=${Uri.encode(cursor)}"
+        val response = request(path)
+        val array = response.optJSONArray("items") ?: JSONArray()
+        val items = (0 until array.length()).mapNotNull { i ->
             val item = array.optJSONObject(i) ?: return@mapNotNull null
             val id = item.optString("id")
             if (id.isBlank()) null else MemohSession(id, item.optString("title").ifBlank { "Untitled" })
         }
+        return MemohSessionPage(items, response.optString("next_cursor").takeIf { it.isNotBlank() })
     }
 
-    suspend fun history(botId: String, sessionId: String): List<MemohTurn> {
-        val array = request("/bots/${Uri.encode(botId)}/messages?session_id=${Uri.encode(sessionId)}&limit=100")
-            .optJSONArray("items") ?: JSONArray()
+    suspend fun sessions(botId: String): List<MemohSession> = sessionsPage(botId).items
+
+    suspend fun renameSession(botId: String, sessionId: String, title: String) {
+        require(title.isNotBlank()) { "Name must not be blank" }
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}",
+            JSONObject().put("title", title.trim()), method = "PATCH")
+    }
+
+    suspend fun deleteSession(botId: String, sessionId: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}", method = "DELETE")
+    }
+
+    suspend fun history(botId: String, sessionId: String, beforeMessageId: String = ""): List<MemohTurn> {
+        val path = "/bots/${Uri.encode(botId)}/messages?session_id=${Uri.encode(sessionId)}&limit=50" +
+            if (beforeMessageId.isBlank()) "" else "&before_message_id=${Uri.encode(beforeMessageId)}"
+        val array = request(path).optJSONArray("items") ?: JSONArray()
         return (0 until array.length()).mapNotNull { i ->
             array.optJSONObject(i)?.let(::decodeTurn)
         }

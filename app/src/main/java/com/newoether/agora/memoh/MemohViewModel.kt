@@ -50,6 +50,16 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         private set
     var sessions by mutableStateOf<List<MemohSession>>(emptyList())
         private set
+    var olderSessionsAvailable by mutableStateOf(false)
+        private set
+    var loadingSessions by mutableStateOf(false)
+        private set
+    private var nextSessionCursor: String? = null
+    var olderMessagesAvailable by mutableStateOf(false)
+        private set
+    var loadingOlderMessages by mutableStateOf(false)
+        private set
+    private var firstHistoryMessageId: String? = null
     var session by mutableStateOf<MemohSession?>(null)
         private set
     var turns by mutableStateOf<List<MemohTurn>>(emptyList())
@@ -117,6 +127,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         bots = emptyList()
         bot = null
         sessions = emptyList()
+        nextSessionCursor = null
+        olderSessionsAvailable = false
         session = null
         turns = emptyList()
         pendingUserText = null
@@ -162,15 +174,24 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         session = null
         turns = emptyList()
         sessions = emptyList()
+        nextSessionCursor = null
+        olderSessionsAvailable = false
         clearRun()
         pendingUserText = null
         viewModelScope.launch {
+            loadingSessions = true
             try {
-                val loaded = api.sessions(value.id)
-                if (revision == botRevision && bot?.id == value.id) sessions = loaded
+                val page = api.sessionsPage(value.id)
+                if (revision == botRevision && bot?.id == value.id) {
+                    sessions = page.items
+                    nextSessionCursor = page.nextCursor
+                    olderSessionsAvailable = page.nextCursor != null
+                }
             } catch (e: Exception) {
                 if (revision == botRevision && bot?.id == value.id)
                     error = e.message ?: "Failed to load sessions"
+            } finally {
+                if (revision == botRevision) loadingSessions = false
             }
         }
         connectSocket(value.id)
@@ -186,6 +207,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val previous = session?.id
         session = value
         turns = emptyList()
+        firstHistoryMessageId = null
+        olderMessagesAvailable = false
         pendingUserText = null
         clearRun()
         if (!previous.isNullOrEmpty()) sendNow(JSONObject()
@@ -197,6 +220,88 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun newChat() = selectSession(null)
+
+    fun loadOlderSessions() {
+        val b = bot?.id ?: return
+        val cursor = nextSessionCursor ?: return
+        if (loadingSessions) return
+        val revision = botRevision
+        loadingSessions = true
+        viewModelScope.launch {
+            try {
+                val page = api.sessionsPage(b, cursor)
+                if (revision == botRevision && bot?.id == b && cursor == nextSessionCursor) {
+                    sessions = (sessions + page.items).distinctBy { it.id }
+                    nextSessionCursor = page.nextCursor?.takeIf { it != cursor }
+                    olderSessionsAvailable = nextSessionCursor != null
+                }
+            } catch (e: Exception) {
+                if (revision == botRevision) error = e.message ?: "Failed to load sessions"
+            } finally {
+                if (revision == botRevision) loadingSessions = false
+            }
+        }
+    }
+
+    fun renameSelectedSession(title: String) {
+        val b = bot?.id ?: return
+        val sid = session?.id ?: return
+        val name = title.trim()
+        if (name.isBlank()) return
+        val revision = historyRevision
+        viewModelScope.launch {
+            try {
+                api.renameSession(b, sid, name)
+                if (bot?.id == b && session?.id == sid && revision == historyRevision) {
+                    sessions = sessions.map { if (it.id == sid) it.copy(title = name) else it }
+                    session = session?.copy(title = name)
+                }
+            } catch (e: Exception) {
+                if (revision == historyRevision) error = e.message ?: "Unable to rename conversation"
+            }
+        }
+    }
+
+    fun deleteSelectedSession() {
+        val b = bot?.id ?: return
+        val sid = session?.id ?: return
+        val revision = historyRevision
+        viewModelScope.launch {
+            try {
+                api.deleteSession(b, sid)
+                if (bot?.id == b) {
+                    sessions = sessions.filterNot { it.id == sid }
+                    if (session?.id == sid && revision == historyRevision) selectSession(null)
+                }
+            } catch (e: Exception) {
+                if (revision == historyRevision) error = e.message ?: "Unable to delete conversation"
+            }
+        }
+    }
+
+    fun loadOlderMessages() {
+        val sid = session?.id ?: return
+        val b = bot?.id ?: return
+        val firstId = firstHistoryMessageId ?: return
+        if (loadingOlderMessages || !olderMessagesAvailable) return
+        val revision = historyRevision
+        loadingOlderMessages = true
+        viewModelScope.launch {
+            try {
+                val page = api.history(b, sid, firstId)
+                if (bot?.id == b && session?.id == sid && revision == historyRevision) {
+                    turns = (page + turns).distinctBy { it.id }
+                    firstHistoryMessageId = page.firstOrNull()?.id ?: firstId
+                    olderMessagesAvailable = page.size >= 50 && firstHistoryMessageId != firstId
+                }
+            } catch (e: Exception) {
+                if (revision == historyRevision)
+                    error = e.message ?: "Failed to load earlier messages"
+            } finally {
+                if (revision == historyRevision) loadingOlderMessages = false
+            }
+        }
+    }
 
     fun consumeRestoredDraft() { restoreDraft = null }
 
@@ -245,7 +350,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val result = api.history(b, sid)
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
-                    turns = result
+                    val older = turns
+                    turns = (older + result).distinctBy { it.id }
+                    if (firstHistoryMessageId == null) {
+                        firstHistoryMessageId = result.firstOrNull()?.id
+                        olderMessagesAvailable = result.size >= 50
+                    }
                     if (!running && awaitingAdmission.isEmpty()) pendingUserText = null
                 }
             } catch (e: Exception) {
@@ -447,10 +557,15 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 try {
                     val settled = api.history(botId, sid)
                     if (bot?.id == botId && session?.id == sid && runId == finishedRun && !running) {
-                        turns = settled
+                        turns = (turns + settled).distinctBy { it.id }
                         pendingUserText = null
                         clearRun()
-                        sessions = api.sessions(botId)
+                        val refreshed = api.sessionsPage(botId)
+                        if (bot?.id == botId && session?.id == sid) {
+                            sessions = (refreshed.items + sessions).distinctBy { it.id }
+                            nextSessionCursor = refreshed.nextCursor
+                            olderSessionsAvailable = nextSessionCursor != null
+                        }
                     }
                 } catch (e: Exception) {
                     if (session?.id == sid) error = e.message ?: "Failed to load settled messages"

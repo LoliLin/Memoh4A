@@ -112,6 +112,9 @@ internal fun MemohScreen(vm: MemohViewModel) {
     val scope = rememberCoroutineScope()
     var botMenu by remember { mutableStateOf(false) }
     var accountMenu by remember { mutableStateOf(false) }
+    var renameDialog by remember { mutableStateOf(false) }
+    var deleteDialog by remember { mutableStateOf(false) }
+    var newTitle by remember { mutableStateOf("") }
     var composer by remember(vm.bot?.id, vm.session?.id) { mutableStateOf("") }
     LaunchedEffect(vm.restoreDraft) {
         vm.restoreDraft?.let { rejected ->
@@ -151,6 +154,14 @@ internal fun MemohScreen(vm: MemohViewModel) {
                             selected = vm.session?.id == item.id,
                             onClick = { vm.selectSession(item); scope.launch { drawer.close() } },
                             modifier = Modifier.padding(horizontal = 10.dp))
+                    }
+                    if (vm.olderSessionsAvailable || vm.loadingSessions) {
+                        item {
+                            TextButton(onClick = vm::loadOlderSessions, enabled = !vm.loadingSessions,
+                                modifier = Modifier.fillMaxWidth()) {
+                                Text(if (vm.loadingSessions) "Loading…" else "Load older chats")
+                            }
+                        }
                     }
                 }
             }
@@ -194,6 +205,17 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                 DropdownMenuItem(text = { Text("Refresh bots") }, onClick = {
                                     accountMenu = false; vm.refreshBots()
                                 })
+                                if (vm.session != null) {
+                                    DropdownMenuItem(text = { Text("Rename chat") }, onClick = {
+                                        newTitle = vm.session?.title.orEmpty()
+                                        renameDialog = true
+                                        accountMenu = false
+                                    })
+                                    DropdownMenuItem(text = { Text("Delete chat") }, onClick = {
+                                        deleteDialog = true
+                                        accountMenu = false
+                                    })
+                                }
                                 DropdownMenuItem(text = { Text("Sign out") }, onClick = {
                                     accountMenu = false; vm.logout()
                                 })
@@ -263,6 +285,15 @@ internal fun MemohScreen(vm: MemohViewModel) {
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        if (vm.olderMessagesAvailable || vm.loadingOlderMessages) {
+                            item(key = "older-messages") {
+                                TextButton(onClick = vm::loadOlderMessages,
+                                    enabled = !vm.loadingOlderMessages,
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    Text(if (vm.loadingOlderMessages) "Loading…" else "Load earlier messages")
+                                }
+                            }
+                        }
                         items(vm.turns, key = { it.id.ifBlank { "${it.role}:${vm.turns.indexOf(it)}" } }) { turn ->
                             MemohTurnView(turn, vm)
                         }
@@ -286,6 +317,41 @@ internal fun MemohScreen(vm: MemohViewModel) {
                 }
             }
         }
+    }
+
+    if (renameDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renameDialog = false },
+            title = { Text("Rename Conversation") },
+            text = {
+                OutlinedTextField(value = newTitle, onValueChange = { newTitle = it },
+                    label = { Text("Name") }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.renameSelectedSession(newTitle)
+                    renameDialog = false
+                }, enabled = newTitle.isNotBlank()) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+    if (deleteDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { deleteDialog = false },
+            title = { Text("Delete Conversation?") },
+            text = { Text("This permanently deletes the conversation on the Memoh server.") },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteSelectedSession(); deleteDialog = false }) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteDialog = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
