@@ -18,10 +18,13 @@ Log in using the Memoh server's username/password API. The Bearer JWT is stored 
 
 ## Implemented
 
-- Native Compose chat surface and multi-bot picker; conversation drawer with remote session history
+- Native Compose chat surface and multi-bot picker; paged conversation drawer and on-demand older history
+- Rename and delete server-side chat sessions (explicit deletion confirmation)
+- Per-bot workspace file browser for listing, viewing, revision-fenced text edits and system picker uploads
 - In-band first-message session creation; client-minted `invocation_id` for replay-safe sends
 - WebSocket `/bots/{bot_id}/web/ws` with a bearer-authenticated handshake, runtime subscribe/unsubscribe, reconnect and admission replay
-- Runtime snapshot/delta text, reasoning and tool-status rendering, stop action and explicit permission choices
+- Runtime snapshot/delta text, reasoning, tool input/output/diff details, stop action and permission choices
+- Structured Agent user-input responses (text, single-select, multi-select); control acknowledgement tracking and reconnect fencing
 - Server-backed JSON history and session list, Markdown replies, optimistic pending user text
 - Original Agora conversations/settings unchanged
 
@@ -29,12 +32,14 @@ Log in using the Memoh server's username/password API. The Bearer JWT is stored 
 
 This is **source-only and not build-verified or live-tested against an authenticated Memoh deployment**. It is a first integration slice, not a polished replacement for the full Memoh Web UI. In particular:
 
-- Message history is limited to the newest 100 API rows (no older-page pagination yet).
-- Uploads, images, structured attachments, workspace file explorer, terminal, audio, schedules, slash commands, steering/follow-up queues, external-agent setup and user-input forms are not implemented.
+- Chat-composer attachments and inline image previews are not implemented; the separate workspace file uploader is not a chat attachment API.
+- Workspace file browser currently supports single-file upload and text editing, not folder uploads, bulk actions or media preview.
+- Terminal, audio, schedules, slash commands, steering/follow-up queues and external-agent setup remain incomplete.
 - The runtime reducer handles the common snapshot/delta text and tool paths, but not the entire Memoh Web client's event/cursor/resync semantics. Do not use it for high-impact Agent operations without verifying reconnection and approval flows.
 - This fork launches directly into Memoh4A. The upstream Agora UI is not surfaced in the new navigation.
 - Supports username/password auth only; Cloud may require a different sign-in surface.
-- Tool output detail and code/diff viewers are intentionally deferred.
+- Tool details provide bounded raw input/output/diff text, not syntax-highlighted code/diff editors.
+- Cloud account-specific identity/login flows have not been confirmed against a live server.
 
 ## Contract / next slice
 

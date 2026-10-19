@@ -35,6 +35,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private val pendingControls = mutableMapOf<String, String>()
     var waitingForInteraction by mutableStateOf<Set<String>>(emptySet())
         private set
+    val controlsReady: Boolean get() = connected && !awaitingSnapshot && runId.isNotBlank()
     private var liveJson = JSONArray()
     private var currentRunStatus = ""
     private var settlingRunId = ""
@@ -270,6 +271,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val b = bot?.id ?: return
         val sid = session?.id ?: return
         val revision = historyRevision
+        if (running || awaitingAdmission.isNotEmpty()) {
+            error = "Stop or finish the running Agent before deleting this conversation."
+            return
+        }
         viewModelScope.launch {
             try {
                 api.deleteSession(b, sid)
@@ -330,7 +335,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     fun abort() {
         val sid = session?.id.orEmpty()
-        if (!connected || runId.isEmpty() || sid.isEmpty()) return
+        if (!controlsReady || sid.isEmpty()) return
         val controlId = UUID.randomUUID().toString()
         sendNow(JSONObject().put("type", "abort")
             .put("run_id", runId).put("session_id", sid)
@@ -338,7 +343,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private fun submitInteraction(decisionId: String, payload: JSONObject) {
-        if (decisionId.isBlank() || !connected || runId.isBlank() || session == null ||
+        if (decisionId.isBlank() || !controlsReady || session == null ||
             decisionId in waitingForInteraction) return
         val controlId = UUID.randomUUID().toString()
         payload.put("run_id", runId).put("session_id", session!!.id)
@@ -390,7 +395,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 val result = api.history(b, sid)
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
                     val older = turns
-                    turns = (older + result).distinctBy { it.id }
+                    val updatedIds = result.mapTo(HashSet()) { it.id }
+                    turns = (older.filterNot { it.id in updatedIds } + result).distinctBy { it.id }
                     if (firstHistoryMessageId == null) {
                         firstHistoryMessageId = result.firstOrNull()?.id
                         olderMessagesAvailable = result.isNotEmpty()
@@ -605,7 +611,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 try {
                     val settled = api.history(botId, sid)
                     if (bot?.id == botId && session?.id == sid && runId == finishedRun && !running) {
-                        turns = (turns + settled).distinctBy { it.id }
+                        val updatedIds = settled.mapTo(HashSet()) { it.id }
+                        turns = (turns.filterNot { it.id in updatedIds } + settled).distinctBy { it.id }
                         pendingUserText = null
                         clearRun()
                         val refreshed = api.sessionsPage(botId)

@@ -68,7 +68,7 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     block.approvalOptions.forEach { option ->
                         OutlinedButton(onClick = { vm.decide(block, option) },
-                            enabled = vm.connected && block.approvalId !in vm.waitingForInteraction) {
+                            enabled = vm.controlsReady && block.approvalId !in vm.waitingForInteraction) {
                             Text(option.name.ifBlank { option.kind.ifBlank { "Choose" } })
                         }
                     }
@@ -134,7 +134,7 @@ private fun UserInputForm(block: MemohBlock, vm: MemohViewModel) {
             !q.required || if (q.kind == "text") texts[q.id]?.isNotBlank() == true
             else selections[q.id]?.isNotEmpty() == true
         }
-        val canSend = vm.connected && block.userInputId !in vm.waitingForInteraction
+        val canSend = vm.controlsReady && block.userInputId !in vm.waitingForInteraction
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { vm.answerUserInput(block, selections, texts) },
                 enabled = canSend && valid) { Text("Submit Answers") }
