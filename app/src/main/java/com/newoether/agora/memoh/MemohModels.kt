@@ -6,7 +6,26 @@ import java.io.IOException
 
 internal class MemohHttpException(val status: Int, message: String) : IOException(message)
 internal data class MemohBot(val id: String, val title: String)
-internal data class MemohSession(val id: String, val title: String)
+internal data class MemohSession(
+    val id: String,
+    val title: String,
+    val botAgentId: String = "",
+    val runtimeType: String = "",
+    val type: String = "chat",
+)
+internal data class MemohAccount(
+    val id: String, val username: String, val email: String, val role: String,
+    val displayName: String, val avatarUrl: String, val timezone: String,
+    val titleModelId: String, val isActive: Boolean,
+)
+internal data class MemohAgent(
+    val id: String, val name: String, val runtime: String, val enabled: Boolean,
+    val credentialConnected: Boolean, val dependencyId: String, val metadata: JSONObject,
+)
+internal data class MemohAgentProfile(val id: String, val name: String, val description: String)
+internal data class MemohAgentOption(val id: String, val label: String, val runtime: String, val description: String = "")
+internal data class MemohDeviceLogin(val loginId: String, val userCode: String, val verificationUrl: String, val expiresAt: String = "")
+internal data class MemohDeviceLoginResult(val status: String, val message: String = "")
 internal data class MemohSessionPage(val items: List<MemohSession>, val nextCursor: String?)
 internal data class MemohQueueItem(
     val id: String, val type: String, val text: String, val status: String,
@@ -58,6 +77,32 @@ internal data class MemohTurn(
     val role: String,
     val text: String = "",
     val blocks: List<MemohBlock> = emptyList(),
+)
+
+internal fun decodeAccount(obj: JSONObject): MemohAccount = MemohAccount(
+    id = obj.optString("id"), username = obj.optString("username"), email = obj.optString("email"),
+    role = obj.optString("role"), displayName = obj.optString("display_name"),
+    avatarUrl = obj.optString("avatar_url"), timezone = obj.optString("timezone").ifBlank { "UTC" },
+    titleModelId = obj.optString("title_model_id"),
+    isActive = obj.optBoolean("is_active", true) && obj.optBoolean("principal_is_active", true)
+        && obj.optBoolean("membership_is_active", true),
+)
+
+internal fun decodeAgent(obj: JSONObject): MemohAgent {
+    val dependency = obj.optJSONObject("dependency")
+    return MemohAgent(
+        id = obj.optString("id"), name = obj.optString("name"), runtime = obj.optString("runtime"),
+        enabled = obj.optBoolean("enabled", true),
+        credentialConnected = obj.optString("agent_credential_id").isNotBlank(),
+        dependencyId = dependency?.optString("dependency_id").orEmpty(),
+        metadata = JSONObject(obj.optJSONObject("metadata")?.toString() ?: "{}"),
+    )
+}
+
+internal fun decodeSession(obj: JSONObject): MemohSession = MemohSession(
+    id = obj.optString("id"), title = obj.optString("title").ifBlank { "Untitled" },
+    botAgentId = obj.optString("bot_agent_id"), runtimeType = obj.optString("runtime_type"),
+    type = obj.optString("type").ifBlank { "chat" },
 )
 
 internal fun decodeTurn(obj: JSONObject): MemohTurn {

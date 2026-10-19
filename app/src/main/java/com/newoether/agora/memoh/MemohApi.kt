@@ -84,6 +84,20 @@ internal class MemohApi {
         return result
     }
 
+    suspend fun account(): MemohAccount = decodeAccount(request("/users/me"))
+
+    suspend fun updateAccount(displayName: String, avatarUrl: String, timezone: String, titleModelId: String): MemohAccount =
+        decodeAccount(request("/users/me", JSONObject()
+            .put("display_name", displayName.trim()).put("avatar_url", avatarUrl.trim())
+            .put("timezone", timezone.trim().ifBlank { "UTC" }).put("title_model_id", titleModelId.trim()),
+            method = "PUT"))
+
+    suspend fun changePassword(currentPassword: String, newPassword: String) {
+        require(newPassword.length >= 8) { "New password must contain at least 8 characters." }
+        request("/users/me/password", JSONObject().put("current_password", currentPassword)
+            .put("new_password", newPassword), method = "PUT")
+    }
+
     suspend fun bots(): List<MemohBot> {
         val array = request("/bots").optJSONArray("items") ?: JSONArray()
         return (0 until array.length()).mapNotNull { i ->
@@ -95,6 +109,89 @@ internal class MemohApi {
         }
     }
 
+    suspend fun agents(botId: String): List<MemohAgent> {
+        val items = request("/bots/${Uri.encode(botId)}/agents").optJSONArray("items") ?: JSONArray()
+        return (0 until items.length()).mapNotNull { i ->
+            items.optJSONObject(i)?.let(::decodeAgent)?.takeIf { it.id.isNotBlank() }
+        }
+    }
+
+    suspend fun agentProfiles(): List<MemohAgentProfile> {
+        val items = request("/acp/profiles").optJSONArray("items") ?: JSONArray()
+        return (0 until items.length()).mapNotNull { i ->
+            val item = items.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) null else MemohAgentProfile(id, item.optString("display_name").ifBlank { id },
+                item.optString("description"))
+        }
+    }
+
+    suspend fun createAgent(botId: String, name: String, option: MemohAgentOption): MemohAgent {
+        require(name.isNotBlank()) { "Agent name is required" }
+        val metadata = JSONObject().put("provider", option.id)
+        val body = JSONObject().put("name", name.trim()).put("runtime", option.runtime).put("metadata", metadata)
+        if (option.runtime != "acp") {
+            metadata.put("auth", when (option.runtime) {
+                "codex" -> "chatgpt"
+                "claude-code" -> "workspace"
+                "grok-build" -> "grok_account"
+                else -> "api_key"
+            })
+            body.put("enabled", false)
+        }
+        return decodeAgent(request("/bots/${Uri.encode(botId)}/agents", body))
+    }
+
+    suspend fun updateAgent(botId: String, agentId: String, name: String? = null,
+        enabled: Boolean? = null, metadata: JSONObject? = null): MemohAgent {
+        val body = JSONObject()
+        name?.let { body.put("name", it.trim()) }
+        enabled?.let { body.put("enabled", it) }
+        metadata?.let { body.put("metadata", JSONObject(it.toString())) }
+        require(body.length() > 0) { "No Agent changes supplied" }
+        return decodeAgent(request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}", body, method = "PATCH"))
+    }
+
+    suspend fun deleteAgent(botId: String, agentId: String) {
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}", method = "DELETE")
+    }
+
+    suspend fun saveAgentCredential(botId: String, agent: MemohAgent, secret: String) {
+        val auth = agent.metadata.optString("auth")
+        val (authKind, secretKey) = when {
+            auth == "oauth_token" -> "claude_code_oauth" to "oauth_token"
+            agent.runtime == "codex" -> "openai_api_key" to "api_key"
+            agent.runtime == "claude-code" -> "anthropic_api_key" to "api_key"
+            agent.runtime == "grok-build" -> "xai_api_key" to "api_key"
+            else -> throw IOException("This Agent runtime does not accept a manual credential")
+        }
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agent.id)}/credential",
+            JSONObject().put("auth_kind", authKind).put("secret", JSONObject().put(secretKey, secret)), method = "PUT")
+    }
+
+    suspend fun deleteAgentCredential(botId: String, agentId: String) {
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/credential", method = "DELETE")
+    }
+
+    suspend fun startDeviceLogin(botId: String, agentId: String): MemohDeviceLogin {
+        val data = request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/authorize", JSONObject())
+        val loginId = data.optString("login_id")
+        if (loginId.isBlank()) throw IOException("Memoh did not return a device login ID")
+        return MemohDeviceLogin(loginId, data.optString("user_code"), data.optString("verification_url"),
+            data.optString("expires_at"))
+    }
+
+    suspend fun pollDeviceLogin(botId: String, agentId: String, loginId: String): MemohDeviceLoginResult {
+        val data = request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/poll",
+            JSONObject().put("login_id", loginId))
+        return MemohDeviceLoginResult(data.optString("status"), data.optString("message"))
+    }
+
+    suspend fun cancelDeviceLogin(botId: String, agentId: String, loginId: String) {
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/cancel",
+            JSONObject().put("login_id", loginId))
+    }
+
     suspend fun sessionsPage(botId: String, cursor: String = ""): MemohSessionPage {
         val path = "/bots/${Uri.encode(botId)}/sessions?types=chat,discuss,acp_agent,schedule&hide_schedule_runs=true&limit=50" +
             if (cursor.isBlank()) "" else "&cursor=${Uri.encode(cursor)}"
@@ -103,12 +200,20 @@ internal class MemohApi {
         val items = (0 until array.length()).mapNotNull { i ->
             val item = array.optJSONObject(i) ?: return@mapNotNull null
             val id = item.optString("id")
-            if (id.isBlank()) null else MemohSession(id, item.optString("title").ifBlank { "Untitled" })
+            if (id.isBlank()) null else decodeSession(item)
         }
         return MemohSessionPage(items, response.optString("next_cursor").takeIf { it.isNotBlank() })
     }
 
     suspend fun sessions(botId: String): List<MemohSession> = sessionsPage(botId).items
+
+    suspend fun createSession(botId: String, botAgentId: String = ""): MemohSession {
+        val body = JSONObject().put("title", "").put("channel_type", "local")
+        if (botAgentId.isNotBlank()) body.put("bot_agent_id", botAgentId)
+        val created = decodeSession(request("/bots/${Uri.encode(botId)}/sessions", body))
+        if (created.id.isBlank()) throw IOException("Memoh did not return a session ID")
+        return created
+    }
 
     suspend fun renameSession(botId: String, sessionId: String, title: String) {
         require(title.isNotBlank()) { "Name must not be blank" }
