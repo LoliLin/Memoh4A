@@ -49,6 +49,7 @@ internal data class MemohQuestion(
     val text: String,
     val kind: String,
     val required: Boolean,
+    val allowCustom: Boolean,
     val placeholder: String,
     val options: List<MemohQuestionOption>,
 )
@@ -116,6 +117,7 @@ internal fun decodeBlocks(array: JSONArray?): List<MemohBlock> {
                         text = question.optString("text"),
                         kind = question.optString("kind"),
                         required = question.optBoolean("required"),
+                        allowCustom = question.optBoolean("allow_custom"),
                         placeholder = question.optString("placeholder"),
                         options = if (options == null) emptyList() else (0 until options.length()).mapNotNull { i ->
                             val option = options.optJSONObject(i) ?: return@mapNotNull null
