@@ -29,6 +29,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontWeight
 import androidx.test.core.app.ApplicationProvider
 import com.newoether.agora.R
 import com.newoether.agora.model.ChatMessage
@@ -199,10 +200,10 @@ class AutomaticUserMessageBubbleTest {
         val raw = "Worker (8f13ce72-8888-4444-9999-82cd77c4e890) [failed]\nPRIVATE RESULT BODY\n\nLast line."
         var selected = 0
         var deleted = 0
-        var gray = Color.Unspecified
+        var expectedText = Color.Unspecified
         lateinit var clipboard: ClipboardManager
         content {
-            gray = MaterialTheme.colorScheme.onSurfaceVariant
+            expectedText = MaterialTheme.colorScheme.onPrimaryContainer
             clipboard = LocalClipboardManager.current
             bubble(
                 message(completion("failed", "Connection closed", "E_CONNECTION"), raw),
@@ -216,7 +217,7 @@ class AutomaticUserMessageBubbleTest {
         compose.onNodeWithText("8f13ce72", substring = true, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText("Connection closed", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText("E_CONNECTION", useUnmergedTree = true).assertDoesNotExist()
-        assertEquals(gray, textColor(label(R.string.subagent_failed)))
+        assertEquals(expectedText, textColor(label(R.string.subagent_failed)))
         openMenu()
         compose.onNodeWithText(label(R.string.copy)).performClick()
         compose.runOnIdle { assertEquals(raw, clipboard.getText()?.text) }
@@ -261,6 +262,33 @@ class AutomaticUserMessageBubbleTest {
         }
         compose.runOnIdle { current = message(MessageSource(MessageSource.Kind.SUBAGENT), "Inspect the native bubble") }
         compose.onNodeWithText("Inspect the native bubble", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun completionTextUsesUserBubblePaletteAndKeepsExistingTypography() {
+        var expectedName = Color.Unspecified
+        var expectedStatus = Color.Unspecified
+        content {
+            expectedName = MaterialTheme.colorScheme.onPrimaryContainer
+            expectedStatus = MaterialTheme.colorScheme.onPrimaryContainer
+            bubble(message(completion()))
+        }
+        fun style(text: String): androidx.compose.ui.text.TextStyle {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(text, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            return layouts.single().layoutInput.style
+        }
+        val name = style("Worker")
+        val status = style(label(R.string.subagent_completed))
+        assertEquals(expectedName, name.color)
+        assertEquals(FontWeight.SemiBold, name.fontWeight)
+        assertEquals(14f, name.fontSize.value, 0f)
+        assertEquals(20f, name.lineHeight.value, 0f)
+        assertEquals(expectedStatus, status.color)
+        assertEquals(FontWeight.Medium, status.fontWeight)
+        assertEquals(12f, status.fontSize.value, 0f)
+        assertEquals(16f, status.lineHeight.value, 0f)
     }
 
     @Test

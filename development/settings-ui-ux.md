@@ -112,8 +112,10 @@ and WebUI share this contract.
   content, and a full-row ripple.
 - Keep counts and status details on a second line. Do not place them beside the
   primary label.
-- Destructive actions use the error color. Primary creation and save actions
-  use the primary color. Disabled appearance is owned by the component.
+- Destructive actions use the error color. Primary creation and save buttons
+  use the primary color. Top-bar Save icon actions use the scaffold's normal
+  foreground, including Add Provider; they do not set a primary tint.
+  Disabled appearance is owned by the component.
 - Settings destination rows never use a passive next-page chevron. Details,
   more, refresh, external-link, and other actual action icons use the full
   `onSurfaceVariant` color.
@@ -228,6 +230,30 @@ and WebUI share this contract.
   partial values. Save trims the name and URL and returns to the existing Providers list.
 - Provider documentation uses the shared FAB, visibility setting and bottom clearance.
 
+## Shell device names
+
+- Shell device names are required and unique after trimming, ignoring case, matching shell-tool
+  routing. Editing a device excludes its own stable ID from conflicts. `Local Sandbox` is reserved.
+- The existing inline Add/Save editor retains its layout. A new device remains a local draft until
+  explicit Save succeeds; Back/navigation/field changes never create blank records. Duplicate names
+  use the existing localized name-error presentation and disable Save without changing the draft.
+- The persisted decision rechecks the latest list inside one DataStore edit. Concurrent creates or
+  renames cannot bypass validation through stale UI snapshots; failed admission preserves all data.
+  Import/secret restoration keeps its separate legacy compatibility and identity rules.
+
+## Interaction timeout
+
+- Interaction adds a Timeout slider directly below the Ask User enable switch, using the existing
+  Local Model Idle Retention slider layout and `PersistedSliderFeedbackGate`. It stays configurable
+  while Ask User is disabled, has no Save action, and saves once when the gesture finishes.
+- Use seven discrete minute presets: 1, 2, 5, 10, 15, 30 and 60, default 5. The track has seven
+  positions rather than sixty ticks. Show the localized selected duration beside the title.
+- One blocking Ask User call, including a question set, shares this time budget. Expiry preserves
+  already submitted answers and returns other questions unanswered without choosing for the user.
+  Non-blocking questions are unchanged. Newly captured generation contexts receive new settings;
+  editing the slider does not restart an existing wait.
+- Timeout is a portable Settings preference governed by `import-export.md`.
+
 ## Todo List and Subagent settings
 
 - Tools contains separate Todo List (Checklist icon) and Subagents (AccountTree icon) destinations.
@@ -267,7 +293,7 @@ and WebUI share this contract.
   child execution per parent; extra work waits through the existing execution admission owner.
   Lowering either limit never stops or deletes existing children and lets running work finish.
 - Subagents includes an immediate-save Capsule display row with its leading icon, description,
-  current value and existing selected-check dropdown: Individual (default) and Grouped. It stays
+  current value and existing selected-check dropdown: Individual and Grouped (default). It stays
   available when delegation is disabled because existing child navigation stays available. Chinese
   copy is胶囊显示方式/独立显示/合并显示. There is no Save action. Native/WebUI capsule and sheet behavior
   belongs to application-ui.md39; persistence/default/restore belongs to import-export.md.

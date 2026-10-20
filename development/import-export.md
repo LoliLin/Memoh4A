@@ -183,6 +183,7 @@ The following JSON field names are the complete current portable allowlist.
 | Provider and reasoning | `codeExecutionEnabled`, `googleSearchEnabled`, `thinkingEnabled`, `thinkingLevel`, `thinkingBudgetEnabled`, `thinkingBudgetTokens`, `openAiServiceTierEnabled`, `openAiServiceTier`, `openAiResponsesApiEnabled`, `anthropicCacheEnabled`, `anthropicCacheTtl`, `providerBaseUrls` |
 | Title generation | `titleGenerationEnabled`, `titleGenerationModel`, `titleGenerationPrompt`, `titleGenerationNotificationsEnabled` |
 | Tool access | `accessPastConversations`, `accessSavedMemories`, `accessActiveMemory`, `accessSkills`, `todoEnabled`, `subagentToolsEnabled`, `subagentMaxTotal`, `subagentMaxConcurrent`, `subagentEnabledModels`, `subagentRecommendedModel`, `subagentCapsuleDisplayMode` |
+| Interaction | `askUserEnabled`, `askUserTimeoutMinutes` |
 | Search and embedding | `ragSearchEnabled`, `modelSearchMethod`, `manualSearchMethod`, `remoteEmbeddingModels`, `activeRemoteEmbeddingModelId`, `searchContextWindow`, `searchMatchLimit`, `ragThreshold`, `autoCacheEnabled`, `showUncachedNotification` |
 | Language, Web Search, and image generation | `appLanguage`, `webSearchEnabled`, `webSearchProvider`, `webSearchNumResults`, `webSearchBaseUrl`, `imageGenEnabled`, `imageGenModel`, `imageGenSize`, `autoUpdateCheck` |
 | Image transcription | `imageTranscriptionEnabled`, `imageTranscriptionEnabledModels`, `imageTranscriptionModel`, `imageTranscriptionBatchSize`, `imageTranscriptionPrompt` |
@@ -217,6 +218,12 @@ its portable key before restore, so older archives resolve to false without rede
 device value so the restored setting follows the portable `accessSkills` compatibility fallback;
 `MERGE` leaves an existing explicit modify value unchanged.
 
+`askUserEnabled` defaults to true. `askUserTimeoutMinutes` is a secret-free integer selected from
+1, 2, 5, 10, 15, 30 and 60 minutes, default 5. Stored reads, saves and imported integers outside
+these presets normalize to 5. MERGE preserves either absent field. REPLACE clears both keys before
+restoring present fields, so older archives restore enabled/five-minute defaults. Export writes the
+effective values. These preferences never restore pending questions or restart an admitted wait.
+
 `todoEnabled` and `subagentToolsEnabled` are default-true portable booleans. MERGE preserves each
 local preference when its field is absent. REPLACE clears both keys before restoring present fields,
 so older archives resolve to true. They control tool admission, not conversation Todo contents or
@@ -243,10 +250,10 @@ older missing fields restore an effectively empty candidate list and no recommen
 empty set under REPLACE keeps it empty. Existing children and their model IDs are never rewritten by
 these global preferences.
 
-`subagentCapsuleDisplayMode` is a secret-free presentation string: `individual` (default) or
-`grouped`. Unknown or invalid values normalize to `individual`, following existing display-mode
-preferences. Export writes the resolved value. MERGE leaves an absent field unchanged; REPLACE
-clears its key before restoring, so old archives without it resolve to `individual`. This setting
+`subagentCapsuleDisplayMode` is a secret-free presentation string: `individual` or `grouped` (default).
+Unknown, invalid or absent values normalize to `grouped`; an explicitly saved `individual` remains
+unchanged. Export writes the resolved value. MERGE leaves an absent field unchanged; REPLACE clears
+its key before restoring, so old archives without it resolve to `grouped`. This setting
 never changes child ownership, order, generation state, tool access, or the model list.
 
 Only remote Embedding configurations are portable. They are stripped of API keys and local file

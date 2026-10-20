@@ -483,6 +483,11 @@ output from the preceding pass does not disqualify the new `SENDING` pass. Once 
 produces any Provider output, these failures are terminal and must not replay it. This rule reuses
 the existing initial request plus at most five retries, delays `[5s, 5s, 5s, 30s, 30s]`, `Retrying`
 presentation, cancellation, and exhaustion behavior; it does not make every `IOException` retryable.
+Before substantive output, the existing stream normalizer holds formatting-only Answer/Thought
+chunks and any following metadata in their arrival order until that attempt produces output or finishes.
+`Retrying` discards only the failed attempt's held formatting and forwards held metadata before retry;
+a successful attempt retains its exact prefix, including signatures and whitespace.
+No cleanup may change output accumulated from an earlier Tool pass.
 
 Temporary rate limiting and explicitly transient upstream errors remain eligible for that bounded
 sequence. Known exhausted quota, balance or billing limits, authentication failures, and invalid
@@ -574,6 +579,21 @@ and drawer queries never read or enumerate Todo payloads. Native and browser cap
 projections described in application-ui.md. Required checks cover replacement/clear, stale Run/pass,
 Stop-before-write, unrelated-owner isolation, selected-only observation and archive compatibility.
 
+### 8.13a Ask User waiting
+
+`AskUserController` remains the exact-request waiter and answer owner. Blocking calls use one
+configured timeout for the whole question set, captured in `GenerationContext` at admission.
+`AskUserToolProvider` delegates that wait to the controller. The default is five minutes; Settings
+provides 1, 2, 5, 10, 15, 30 and 60 minute presets. The generic tool execution deadline does not
+shorten this budget. Expiry returns already submitted answers in question order and marks all
+remaining questions unanswered, removes those exact requests/waiters, and ignores late answers.
+It never invents approval or a selected option. The controller serializes answer claim/completion
+with the expiry snapshot and exact-request removal in one bounded decision; no suspending wait
+holds that lock. Stop/cancellation propagates normally and cleans
+all questions in the call without delivering a tool result or queued message. Non-blocking calls
+return immediately and retain their existing deferred-answer delivery without this timer. Settings
+changes affect future captured contexts only; no global timer, request state owner or restart is added.
+
 ## 8.14 Isolated Subagents
 Subagents are ordinary conversations with indexed `parentConversationId` ownership, reachable through
 parent-family navigation and using the canonical generation, tools, Stop and branch pipelines.
@@ -604,7 +624,9 @@ Existing workers retain one allowance across Compact/ordinary handoffs; nested g
 Release follows the canonical durable terminal and installed-Job barriers. Lowering concurrency leaves
 running work intact and delays further admission until below the limit; increasing it wakes waiting work.
 Terminal completion payloads keep generated `text` separate from `errorText` and optional `errorCode`
-read from the exact terminal message's persisted error segment. Failed completions apply the same
+read from the exact terminal message's persisted error segment. Engine failures carry that terminal
+message ID even after the streaming overlay is cleared; completion projection never substitutes a
+chronological message or partial answer for it. Failed completions apply the same
 error-text formatter and localized missing-detail fallback as the child timeline's gray terminal
 text, so hiding diagnostics in the receipt bubble never hides them from the parent model. Generated
 partial answers must not supply that fallback. list_agents demand-loads available
@@ -885,7 +907,9 @@ retained-message calculation.
 5. **Durable-before-external.** Provider execution begins only after the Run/message graph commits
    and the process state binds that exact Run.
 6. **Terminal-before-handoff.** Compact, queue, or loop continuation starts only after the origin
-   Run's legal terminal boundary. Checkpoint writers close before terminal persistence.
+   Run's legal terminal boundary. Checkpoint writers close before terminal persistence. A worker
+   awaiting settlement tracks its exact generation owner through both durable and installed-Job
+   barriers; a successor's claimed slot must not extend that wait while it needs the worker's lock.
 7. **Short lock scope.** Queue mutexes and graph/selection locks protect only decisions and
    transactions; never hold them across Provider streams, tool execution, or UI waits.
 8. **Revalidation.** UI-derived targets, parent links, terminal status, Run ownership, and selected
