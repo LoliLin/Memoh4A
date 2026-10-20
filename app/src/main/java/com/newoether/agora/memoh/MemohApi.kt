@@ -361,6 +361,60 @@ internal class MemohApi {
             method = "DELETE")
     }
 
+    suspend fun memoryConfig(): JSONObject =
+        request("/memory/config")
+
+    suspend fun updateMemoryConfig(embeddingModelId: String): JSONObject =
+        request("/memory/config", JSONObject().put("embedding_model_id", embeddingModelId.trim()), method = "PUT")
+
+    suspend fun listMemories(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory?no_stats=true")
+
+    suspend fun addMemory(botId: String, memory: String): JSONObject {
+        require(memory.isNotBlank()) { "Memory content is required" }
+        return request("/bots/${Uri.encode(botId)}/memory", JSONObject().put("message", memory.trim()))
+    }
+
+    suspend fun updateMemory(botId: String, id: String, memory: String): JSONObject {
+        require(memory.isNotBlank()) { "Memory content is required" }
+        return request("/bots/${Uri.encode(botId)}/memory/${Uri.encode(id)}",
+            JSONObject().put("memory", memory.trim()), method = "PUT")
+    }
+
+    suspend fun deleteMemory(botId: String, id: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/${Uri.encode(id)}", method = "DELETE")
+
+    suspend fun deleteMemories(botId: String, ids: List<String>): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory",
+            JSONObject().put("memory_ids", JSONArray(ids)), method = "DELETE")
+
+    suspend fun searchMemories(botId: String, query: String): JSONObject {
+        require(query.isNotBlank()) { "Search text is required" }
+        return request("/bots/${Uri.encode(botId)}/memory/search", JSONObject().put("query", query.trim()))
+    }
+
+    suspend fun compactMemories(botId: String, ratio: Double, decayDays: Int?): JSONObject {
+        require(ratio > 0.0 && ratio <= 1.0) { "Ratio must be greater than 0 and at most 1" }
+        val body = JSONObject().put("ratio", ratio)
+        decayDays?.let { body.put("decay_days", it) }
+        return request("/bots/${Uri.encode(botId)}/memory/compact", body)
+    }
+
+    suspend fun memoryGraph(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/graph")
+
+    suspend fun ingestMemories(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/ingest", JSONObject())
+
+    suspend fun rebuildMemories(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/rebuild", JSONObject())
+
+    suspend fun memoryStatus(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/status")
+
+    suspend fun memoryUsage(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/usage")
+
     /** Authenticate the native socket with a header, not a URL parameter. */
     fun socket(botId: String, listener: WebSocketListener): WebSocket {
         val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl()
