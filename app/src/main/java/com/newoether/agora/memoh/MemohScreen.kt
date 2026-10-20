@@ -1,5 +1,8 @@
 package com.newoether.agora.memoh
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +64,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -130,6 +134,26 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var memoriesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
     var queueOpen by remember { mutableStateOf(false) }
+    var backupOpen by remember { mutableStateOf(false) }
+    var importUri by remember { mutableStateOf<Uri?>(null) }
+    var backupStatus by remember { mutableStateOf("") }
+    var pendingBackupSections by remember { mutableStateOf<List<String>>(emptyList()) }
+    var pendingBackupPassphrase by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val backupScope = rememberCoroutineScope()
+    val createBackupDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val selectedBot = vm.bot
+        if (uri != null && selectedBot != null) backupScope.launch {
+            backupStatus = "Saving backup…"
+            runCatching { vm.workspaceApi.exportBotBackup(selectedBot.id, uri, context.contentResolver, pendingBackupSections, pendingBackupPassphrase) }
+                .onSuccess { backupStatus = "Backup saved." }
+                .onFailure { backupStatus = "Export failed: ${it.message ?: "Unknown error"}" }
+                .also { pendingBackupSections = emptyList(); pendingBackupPassphrase = "" }
+        }
+    }
+    val openBackupDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        importUri = uri
+    }
     var sendQueueMenu by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
     var composer by remember(vm.bot?.id, vm.session?.id) { mutableStateOf("") }
@@ -228,6 +252,11 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                     accountMenu = false; vm.refreshBots()
                                 })
                                 if (vm.bot != null) {
+                                    DropdownMenuItem(text = { Text("Bot Backup") }, onClick = {
+                                        accountMenu = false
+                                        backupStatus = ""
+                                        backupOpen = true
+                                    })
                                     DropdownMenuItem(text = { Text("Workspace Files") }, onClick = {
                                         accountMenu = false
                                         filesOpen = true
@@ -379,6 +408,30 @@ internal fun MemohScreen(vm: MemohViewModel) {
         }
     }
 
+    if (backupOpen && vm.bot != null) {
+        MemohBackupDialog(vm.workspaceApi, vm.bot!!, backupStatus,
+            onExport = { sections, passphrase ->
+                pendingBackupSections = sections
+                pendingBackupPassphrase = passphrase
+                createBackupDocument.launch("${vm.bot!!.title.replace(Regex("[^A-Za-z0-9._-]"), "_")}-backup.zip")
+            },
+            onChooseImport = { backupOpen = false; openBackupDocument.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+            onDismiss = { backupOpen = false })
+    }
+    importUri?.let { uri ->
+        val selectedBot = vm.bot
+        if (selectedBot != null) MemohBackupImportDialog(vm.workspaceApi, selectedBot, context, uri,
+            onDismiss = { importUri = null },
+            onImported = { vm.refreshBots() })
+    }
+    if (backupStatus.isNotBlank() && !backupOpen && importUri == null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { backupStatus = "" },
+            title = { Text("Bot backup") },
+            text = { Text(backupStatus) },
+            confirmButton = { TextButton(onClick = { backupStatus = "" }) { Text("OK") } },
+        )
+    }
     if (memoriesOpen && vm.bot != null) {
         MemohMemoryDialog(vm.workspaceApi, vm.bot!!.id, onDismiss = { memoriesOpen = false })
     }
