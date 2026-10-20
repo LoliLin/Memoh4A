@@ -1,6 +1,6 @@
-# Memoh4A: native Memoh client (preview)
+# Memoh Android client
 
-This patch adds a **separate Android-native Memoh chat entry** to the existing Agora application. It deliberately does not turn Memoh into an OpenAI-compatible model provider, intercept Agora's local Room conversation graph, or reimplement Memoh's server-side agent runtime.
+This patch adds a **native Android Memoh chat and management client** to the existing Agora codebase. It deliberately does not turn Memoh into an OpenAI-compatible model provider, intercept Agora's local Room conversation graph, or reimplement Memoh's server-side agent runtime.
 
 ## Install
 
@@ -19,6 +19,7 @@ Log in using the Memoh server's username/password API. The Bearer JWT is stored 
 ## Implemented
 
 - Native Compose chat surface and multi-bot picker; paged conversation drawer and on-demand older history
+- Per-bot Memory manager: list/search/add/edit/delete, confirmed bulk/delete-all, graph, status/usage, ingest/rebuild/compact; team-wide embedding configuration is clearly separated and permission-aware
 - Rename and delete server-side chat sessions (explicit deletion confirmation)
 - Per-bot workspace file browser for listing, viewing, revision-fenced text edits and system picker uploads
 - Server-side schedule list, creation, enable/disable and deletion (basic cron/new-session creation only)
@@ -45,6 +46,10 @@ This is **source-only and not build-verified or live-tested against an authentic
 
 ## Contract / next slice
 
-Memoh API endpoints were checked against `felinics/Memoh` handlers and `apps/web/src/composables/api/useChat.ws.ts`, as observed on 2026-10-19. Remote server sessions are the source of truth; on a disconnected socket, **never** infer that a run stopped. `invocation_id` is an idempotency key; `run_id` addresses stop/decisions. A runtime subscription merely observes work and closing it must not abort the work.
+The client treats Memoh as a remote runtime and server-owned session history as the source of truth. On a disconnected socket, **never** infer that a run stopped. `invocation_id` is an idempotency key; `run_id` addresses stop/decisions. A runtime subscription merely observes work and closing it must not abort the work.
 
-This is an experimental fork of [newo-ether/Agora](https://github.com/newo-ether/Agora) under GPL-3.0. The existing LICENSE and attribution are preserved. Complete CI build verification and live-device authentication/WebSocket testing before any release.
+The full API reference for the audited backend snapshot is [MEMOH_API_COVERAGE.md](MEMOH_API_COVERAGE.md): 338 documented operations, 260 paths, and all 475 Swagger schema definitions, pinned to `felinics/Memoh` commit `f3e8199560d42109be4b63bfc82ac62f260a66e2`. Routes registered in Go but absent from Swagger are listed separately in [MEMOH_UNDOCUMENTED_ROUTES.md](MEMOH_UNDOCUMENTED_ROUTES.md). The inventory is the backend surface; it does not claim every server/admin endpoint is a mobile user feature. Use it as the coverage ledger while native user flows continue to be implemented.
+
+The Memory manager now calls all 12 bot-scoped Memory operations plus the two team-wide Memory configuration operations directly. Destructive operations require confirmation, and team configuration permissions do not block bot-scoped Memory access.
+
+This is an experimental fork of [newo-ether/Agora](https://github.com/newo-ether/Agora) under GPL-3.0. The existing LICENSE and attribution are preserved. The current environment has no configured Android SDK, so the latest client changes have not been build-verified or live-tested against an authenticated Memoh deployment; complete CI build and live-device authentication/WebSocket verification before release.

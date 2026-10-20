@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,12 +63,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.launch
 
 @Composable
 private fun MemohLogin(vm: MemohViewModel) {
+    var passwordVisible by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             Text("Memoh", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
@@ -83,7 +87,15 @@ private fun MemohLogin(vm: MemohViewModel) {
                 modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = vm.password, onValueChange = { vm.password = it },
                 label = { Text("Password") }, singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                        )
+                    }
+                },
                 modifier = Modifier.fillMaxWidth())
             if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall)
@@ -115,6 +127,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var renameDialog by remember { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
     var filesOpen by remember { mutableStateOf(false) }
+    var memoriesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
     var queueOpen by remember { mutableStateOf(false) }
     var sendQueueMenu by remember { mutableStateOf(false) }
@@ -218,6 +231,10 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                     DropdownMenuItem(text = { Text("Workspace Files") }, onClick = {
                                         accountMenu = false
                                         filesOpen = true
+                                    })
+                                    DropdownMenuItem(text = { Text("Memory") }, onClick = {
+                                        accountMenu = false
+                                        memoriesOpen = true
                                     })
                                     DropdownMenuItem(text = { Text("Schedules") }, onClick = {
                                         accountMenu = false
@@ -362,6 +379,9 @@ internal fun MemohScreen(vm: MemohViewModel) {
         }
     }
 
+    if (memoriesOpen && vm.bot != null) {
+        MemohMemoryDialog(vm.workspaceApi, vm.bot!!.id, onDismiss = { memoriesOpen = false })
+    }
     if (filesOpen && vm.bot != null) {
         MemohWorkspaceDialog(vm.workspaceApi, vm.bot!!.id, onDismiss = { filesOpen = false })
     }
