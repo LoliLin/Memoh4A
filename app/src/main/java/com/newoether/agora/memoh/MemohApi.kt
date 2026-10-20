@@ -262,6 +262,93 @@ internal class MemohApi {
         return response.optString("revision")
     }
 
+    suspend fun botBackupSummary(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/backup/summary")
+
+    suspend fun exportBotBackup(
+        botId: String,
+        destination: Uri,
+        resolver: ContentResolver,
+        sections: List<String>,
+        passphrase: String,
+    ) = withContext(Dispatchers.IO) {
+        val payload = JSONObject().put("sections", JSONArray(sections))
+        if (passphrase.isNotBlank()) payload.put("passphrase", passphrase)
+        val requestBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url(baseUrl + "/bots/${Uri.encode(botId)}/backup/export")
+            .header("Authorization", "Bearer $token")
+            .header("Accept", "application/octet-stream, application/zip, */*")
+            .post(requestBody)
+            .build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
+            val body = response.body ?: throw IOException("Memoh returned an empty backup")
+            val output = resolver.openOutputStream(destination, "w")
+                ?: throw IOException("Cannot open destination for writing")
+            output.use { sink -> body.byteStream().use { input -> input.copyTo(sink) } }
+        }
+    }
+
+    suspend fun previewBotBackup(
+        uri: Uri,
+        resolver: ContentResolver,
+        mode: String,
+        targetBotId: String,
+        sections: List<String>,
+        passphrase: String,
+    ): JSONObject = botBackupMultipart("/bots/backup/import/preview", uri, resolver,
+        mode, targetBotId, sections, passphrase)
+
+    suspend fun importBotBackup(
+        uri: Uri,
+        resolver: ContentResolver,
+        mode: String,
+        targetBotId: String,
+        sections: List<String>,
+        passphrase: String,
+    ): JSONObject = botBackupMultipart("/bots/backup/import", uri, resolver,
+        mode, targetBotId, sections, passphrase)
+
+    private suspend fun botBackupMultipart(
+        path: String,
+        uri: Uri,
+        resolver: ContentResolver,
+        mode: String,
+        targetBotId: String,
+        sections: List<String>,
+        passphrase: String,
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val filename = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?.takeIf { it.isNotBlank() } ?: "backup.zip"
+        val source = object : RequestBody() {
+            override fun contentType() = (resolver.getType(uri) ?: "application/octet-stream").toMediaType()
+            override fun writeTo(sink: BufferedSink) {
+                val input = resolver.openInputStream(uri) ?: throw IOException("Cannot read selected backup")
+                input.use { it.copyTo(sink.outputStream()) }
+            }
+        }
+        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", filename, source)
+            .addFormDataPart("mode", mode)
+            .apply {
+                if (targetBotId.isNotBlank()) addFormDataPart("target_bot_id", targetBotId)
+                if (sections.isNotEmpty()) addFormDataPart("sections", JSONArray(sections).toString())
+                if (passphrase.isNotEmpty()) addFormDataPart("passphrase", passphrase)
+            }
+            .build()
+        val request = Request.Builder().url(baseUrl + path)
+            .header("Authorization", "Bearer $token")
+            .header("Accept", "application/json")
+            .post(multipart).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
+            val raw = response.body?.string().orEmpty()
+            if (raw.isBlank()) JSONObject() else JSONObject(raw)
+        }
+    }
+
     suspend fun uploadFile(
         botId: String,
         path: String,
