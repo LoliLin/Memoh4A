@@ -71,6 +71,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.launch
+import com.newoether.agora.ui.common.LocalAgoraHaptics
 
 @Composable
 private fun MemohLogin(vm: MemohViewModel) {
@@ -142,6 +143,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var pendingBackupPassphrase by remember { mutableStateOf("") }
     val context = LocalContext.current
     val backupScope = rememberCoroutineScope()
+    val haptics = LocalAgoraHaptics.current
     val createBackupDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val selectedBot = vm.bot
         if (uri != null && selectedBot != null) backupScope.launch {
@@ -244,7 +246,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
                         Icon(Icons.Default.Menu, "Open conversations")
                     } },
                     actions = {
-                        IconButton(onClick = { vm.newChat() }) { Icon(Icons.Default.Add, "New chat") }
+                        IconButton(onClick = { haptics.selection(); vm.newChat() }) { Icon(Icons.Default.Add, "New chat") }
                         Box {
                             IconButton(onClick = { accountMenu = true }) {
                                 Icon(Icons.Default.MoreVert, "Account")
@@ -325,7 +327,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
                         )
                         Spacer(Modifier.width(8.dp))
                         if (vm.running && vm.runId.isNotBlank()) {
-                            IconButton(onClick = vm::abort, enabled = vm.controlsReady) {
+                            IconButton(onClick = { haptics.interrupt(); vm.abort() }, enabled = vm.controlsReady) {
                                 Icon(Icons.Default.Stop, "Stop run")
                             }
                             Box {
@@ -502,7 +504,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
             title = { Text("Delete Conversation?") },
             text = { Text("This permanently deletes the conversation on the Memoh server.") },
             confirmButton = {
-                TextButton(onClick = { vm.deleteSelectedSession(); deleteDialog = false }) {
+                TextButton(onClick = { haptics.destructiveConfirmed(); vm.deleteSelectedSession(); deleteDialog = false }) {
                     Text("Delete")
                 }
             },

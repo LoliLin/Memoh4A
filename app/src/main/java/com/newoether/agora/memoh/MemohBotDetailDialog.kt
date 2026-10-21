@@ -26,7 +26,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import com.newoether.agora.ui.common.LocalAgoraHaptics
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -51,13 +56,13 @@ import org.json.JSONObject
 private val BOT_TABS = listOf(
     "overview" to "Overview",
     "general" to "General",
-    "remote-runtime" to "Runtime",
+    "agents" to "Agents",
+    "access" to "Access",
     "container" to "Container",
     "memory" to "Memory",
     "channels" to "Channels",
+    "remote-runtime" to "Runtime",
     "advanced" to "Advanced",
-    "access" to "Access",
-    "agents" to "Agents",
     "mcp" to "MCP",
     "apps" to "Apps",
 )
@@ -78,6 +83,7 @@ internal fun MemohBotDetailDialog(
     onOpenWorkspace: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val haptics = LocalAgoraHaptics.current
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var currentBot by remember(bot.id) { mutableStateOf(bot) }
     var loadingBot by remember { mutableStateOf(false) }
@@ -103,8 +109,22 @@ internal fun MemohBotDetailDialog(
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.92f), shape = MaterialTheme.shapes.large) {
-            Column(Modifier.padding(16.dp)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.94f),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Box(Modifier.fillMaxWidth().padding(bottom = 6.dp), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+                    )
+                }
                 // Header
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -141,15 +161,18 @@ internal fun MemohBotDetailDialog(
                 }
 
                 // 11 Tabs matching detail.vue
-                ScrollableTabRow(
+                PrimaryScrollableTabRow(
                     selectedTabIndex = selectedTabIndex,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    edgePadding = 0.dp
+                    edgePadding = 8.dp
                 ) {
                     BOT_TABS.forEachIndexed { index, (_, label) ->
                         Tab(
                             selected = selectedTabIndex == index,
-                            onClick = { selectedTabIndex = index },
+                            onClick = {
+                                haptics.selection()
+                                selectedTabIndex = index
+                            },
                             text = { Text(label) }
                         )
                     }
