@@ -1,0 +1,82 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools ndk;28.2.13676358"
+
+      - name: Restore signing key
+        if: ${{ env.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > ${{ github.workspace }}/release.jks
+          cat >> local.properties <<EOF
+          storeFile=${{ github.workspace }}/release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build PRoot runtime
+        continue-on-error: true
+        run: |
+          chmod +x ./build-proot.sh
+          ./build-proot.sh
+
+      - name: Build Memoh APKs
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assemblePlayDebug assemblePlayRelease assembleFdroidRelease --no-daemon --stacktrace
+
+      - name: Verify PRoot runtime packaging
+        continue-on-error: true
+        run: |
+          apk_path=$(find app/build/outputs/apk/fdroid/release -name '*.apk' -print -quit)
+          test -n "$apk_path"
+          apk_entries=$(mktemp)
+          trap 'rm -f "$apk_entries"' EXIT
+          unzip -Z1 "$apk_path" > "$apk_entries"
+          for library in libproot_exec.so libproot_loader.so libtalloc.so; do
+            entry="lib/arm64-v8a/$library"
+            grep -Fxq "$entry" "$apk_entries" || {
+              echo "Missing PRoot runtime library: $library" >&2
+              exit 1
+            }
+          done
+
+      - name: Upload Memoh APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoh-apks
+          path: |
+            app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
