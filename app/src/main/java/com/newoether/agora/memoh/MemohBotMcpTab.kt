@@ -1,0 +1,562 @@
+package com.newoether.agora.memoh
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.newoether.agora.ui.common.LocalAgoraHaptics
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun MemohBotMcpTab(
+    api: MemohApi,
+    botId: String,
+    canManage: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = LocalAgoraHaptics.current
+    val scope = rememberCoroutineScope()
+    var servers by remember { mutableStateOf<List<MemohMcpConnection>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    var probingId by remember { mutableStateOf<String?>(null) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var deleteCandidate by remember { mutableStateOf<MemohMcpConnection?>(null) }
+
+    fun refresh() {
+        loading = true
+        error = ""
+        scope.launch {
+            runCatching { api.mcpList(botId) }
+                .onSuccess {
+                    servers = it
+                    loading = false
+                }
+                .onFailure {
+                    error = it.message ?: "Failed to load MCP servers"
+                    loading = false
+                }
+        }
+    }
+
+    LaunchedEffect(botId) {
+        refresh()
+    }
+
+    Column(modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 2.dp)) {
+        // Action Bar
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "MCP Servers (${servers.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Model Context Protocol tools & resources",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = {
+                    haptics.selection()
+                    refresh()
+                }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                }
+                if (canManage) {
+                    Button(
+                        onClick = {
+                            haptics.selection()
+                            showAddDialog = true
+                        },
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add")
+                    }
+                }
+            }
+        }
+
+        if (error.isNotBlank()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = error,
+                    modifier = Modifier.padding(8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+
+        if (message.isNotBlank()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = message,
+                    modifier = Modifier.padding(8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+
+        if (loading && servers.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (servers.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Sensors,
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "No MCP Servers Connected",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Model Context Protocol connects your bot to external tools, databases, and APIs. Add a server via SSE or stdio process.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(servers, key = { it.id }) { server ->
+                    McpServerCard(
+                        server = server,
+                        canManage = canManage,
+                        isProbing = probingId == server.id,
+                        onToggleActive = { active ->
+                            haptics.selection()
+                            scope.launch {
+                                runCatching {
+                                    api.updateMcpConnection(
+                                        botId = botId,
+                                        id = server.id,
+                                        name = server.name,
+                                        transport = server.transport,
+                                        url = server.url,
+                                        command = server.command,
+                                        isActive = active
+                                    )
+                                }.onSuccess {
+                                    refresh()
+                                }.onFailure {
+                                    error = it.message ?: "Failed to update MCP server"
+                                }
+                            }
+                        },
+                        onProbe = {
+                            haptics.selection()
+                            probingId = server.id
+                            message = ""
+                            error = ""
+                            scope.launch {
+                                runCatching { api.probeMcpConnection(botId, server.id) }
+                                    .onSuccess {
+                                        message = "Server '${server.name}' probed successfully"
+                                        refresh()
+                                    }
+                                    .onFailure {
+                                        error = "Probe failed: ${it.message}"
+                                    }
+                                probingId = null
+                            }
+                        },
+                        onDelete = {
+                            deleteCandidate = server
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // Add Server Dialog
+    if (showAddDialog) {
+        AddMcpServerDialog(
+            onDismiss = { showAddDialog = false },
+            onAdd = { name, transport, target ->
+                showAddDialog = false
+                loading = true
+                scope.launch {
+                    runCatching {
+                        api.createMcpConnection(
+                            botId = botId,
+                            name = name,
+                            transport = transport,
+                            url = if (transport == "sse") target else "",
+                            command = if (transport == "stdio") target else "",
+                            isActive = true
+                        )
+                    }.onSuccess {
+                        haptics.confirm()
+                        message = "MCP Server '$name' added"
+                        refresh()
+                    }.onFailure {
+                        haptics.reject()
+                        error = it.message ?: "Failed to add MCP server"
+                        loading = false
+                    }
+                }
+            }
+        )
+    }
+
+    // Delete Confirmation Dialog
+    deleteCandidate?.let { server ->
+        AlertDialog(
+            onDismissRequest = { deleteCandidate = null },
+            title = { Text("Delete MCP Server") },
+            text = { Text("Are you sure you want to remove '${server.name}'? Tools provided by this server will no longer be available to the bot.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toDelete = server
+                        deleteCandidate = null
+                        scope.launch {
+                            runCatching { api.deleteMcpConnection(botId, toDelete.id) }
+                                .onSuccess {
+                                    haptics.confirm()
+                                    message = "MCP Server '${toDelete.name}' deleted"
+                                    refresh()
+                                }
+                                .onFailure {
+                                    haptics.reject()
+                                    error = it.message ?: "Failed to delete MCP server"
+                                }
+                        }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { deleteCandidate = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun McpServerCard(
+    server: MemohMcpConnection,
+    canManage: Boolean,
+    isProbing: Boolean,
+    onToggleActive: (Boolean) -> Unit,
+    onProbe: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var expandedTools by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = server.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        // Transport Badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = server.transport.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    if (server.url.isNotBlank() || server.command.isNotBlank()) {
+                        Text(
+                            text = server.url.ifBlank { server.command },
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+                if (canManage) {
+                    Switch(
+                        checked = server.isActive,
+                        onCheckedChange = onToggleActive,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+
+            // Status and Last Probe Info
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val statusColor = when (server.status.lowercase()) {
+                        "ready", "connected", "active" -> MaterialTheme.colorScheme.primary
+                        "error", "failed" -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.tertiary
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(statusColor)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = server.status.ifBlank { "ready" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = statusColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (server.lastProbedAt.isNotBlank()) {
+                        Text(
+                            text = " • Probed: ${server.lastProbedAt.take(19).replace('T', ' ')}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            if (server.statusMessage.isNotBlank()) {
+                Text(
+                    text = server.statusMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            // Tools Section
+            if (server.tools.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { expandedTools = !expandedTools }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "${server.tools.size} tool${if (server.tools.size > 1) "s" else ""} exposed",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Icon(
+                        imageVector = if (expandedTools) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                AnimatedVisibility(visible = expandedTools) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        server.tools.forEach { tool ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = tool.name,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bottom Actions
+            if (canManage) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = onProbe,
+                        enabled = !isProbing
+                    ) {
+                        if (isProbing) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text("Probe Connection")
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddMcpServerDialog(
+    onDismiss: () -> Unit,
+    onAdd: (name: String, transport: String, target: String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var transport by remember { mutableStateOf("sse") }
+    var target by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add MCP Server") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Server Name") },
+                    placeholder = { Text("e.g. filesystem-tools") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = transport == "sse",
+                        onClick = { transport = "sse" },
+                        label = { Text("SSE (HTTP)") }
+                    )
+                    FilterChip(
+                        selected = transport == "stdio",
+                        onClick = { transport = "stdio" },
+                        label = { Text("Stdio (Command)") }
+                    )
+                }
+                OutlinedTextField(
+                    value = target,
+                    onValueChange = { target = it },
+                    label = { Text(if (transport == "sse") "Server SSE URL" else "Execution Command") },
+                    placeholder = {
+                        Text(if (transport == "sse") "https://mcp.domain.com/sse" else "npx -y @modelcontextprotocol/...")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onAdd(name, transport, target) },
+                enabled = name.isNotBlank() && target.isNotBlank()
+            ) { Text("Add Server") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}

@@ -68,15 +68,15 @@ Swagger 告诉你「后端能做什么」，`apps/web` 告诉你「产品实际�
 | --- | --- | --- | --- |
 | 1 | `overview` | BotOverview | ✅ 已做（MemohBotDetailDialog 状态/时区/创建时间/卡片概览） |
 | 2 | `general` | BotSettings（名称/头像/时区/启停） | ✅ 已做（支持编辑并保存到服务端，带删除 Bot 二次确认） |
-| 3 | `remote-runtime` | BotRemoteRuntime | ⚠️ 框架占位已接入 |
+| 3 | `remote-runtime` | BotRemoteRuntime | ✅ 已做（MemohBotRuntimeTab：外部 Worker 列表、在线状态、系统/架构/版本、令牌注册与吊销） |
 | 4 | `container` | BotContainer（仅 container workspace 显示） | ✅ 已做（容器状态、工作目录、快捷直达工作区） |
 | 5 | `memory` | BotMemory | ✅ 已做（可从 Bot 管理页直通 MemohMemoryDialog） |
 | 6 | `channels` | BotChannels | ✅ 已做（MemohBotChannelsTab：渠道列表、启停Switch、配置Token/Webhook、解绑确认） |
-| 7 | `advanced` | BotAdvanced | ⚠️ 框架占位已接入 |
+| 7 | `advanced` | BotAdvanced | ✅ 已做（MemohBotAdvancedTab：默认ACL策略Allow/Deny、开场提示词与刷新、健康检查、日志清除） |
 | 8 | `access` | BotAccess（ACL/权限） | ✅ 已做（候选人搜索、授权新增、权限调整、撤销授权带确认） |
 | 9 | `agents` | BotAgents | ✅ 已做（MemohBotAgentsTab：启停、凭据配置、设备码登录轮询、删除确认） |
-| 10 | `mcp` | BotMcp | ⚠️ 框架占位已接入 |
-| 11 | `apps` | BotApps（含待处理角标） | ⚠️ 框架占位已接入 |
+| 10 | `mcp` | BotMcp | ✅ 已做（MemohBotMcpTab：SSE/Stdio 服务列表、启停Switch、连通性探测Probe、暴露工具展示、新增与删除） |
+| 11 | `apps` | BotApps（含待处理角标） | ✅ 已做（MemohBotAppsTab：已安装应用、版本/状态、更新检查、卸载、工作区Skills列表） |
 
 `canManageBot` 权限门（`current_user_permissions` 含 `manage` 才开放编辑，无权限时顶部显示只读提醒横幅，只允许查看）。**Android 端已完整实现该权限门**。
 
