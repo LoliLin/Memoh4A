@@ -51,7 +51,7 @@ internal class MemohApi {
     private fun isLocalhost(host: String): Boolean =
         host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
 
-    private suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject = withContext(Dispatchers.IO) {
+    suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url(baseUrl + path)
             .header("Accept", "application/json")
         if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
@@ -98,15 +98,122 @@ internal class MemohApi {
             .put("new_password", newPassword), method = "PUT")
     }
 
+    private fun decodeBot(item: JSONObject): MemohBot? {
+        val id = item.optString("id")
+        if (id.isBlank()) return null
+        val displayName = item.optString("display_name")
+        val name = item.optString("name")
+        val title = displayName.ifBlank { name.ifBlank { "Bot" } }
+        val perms = item.optJSONArray("current_user_permissions")?.let { arr ->
+            (0 until arr.length()).mapNotNull { idx -> arr.optString(idx).takeIf { it.isNotBlank() } }
+        } ?: emptyList()
+        return MemohBot(
+            id = id,
+            title = title,
+            name = name,
+            displayName = displayName,
+            avatarUrl = item.optString("avatar_url"),
+            timezone = item.optString("timezone"),
+            status = item.optString("status"),
+            isActive = item.optBoolean("is_active", true),
+            createdAt = item.optString("created_at"),
+            currentUserPermissions = perms,
+        )
+    }
+
     suspend fun bots(): List<MemohBot> {
         val array = request("/bots").optJSONArray("items") ?: JSONArray()
         return (0 until array.length()).mapNotNull { i ->
-            val item = array.optJSONObject(i) ?: return@mapNotNull null
-            val id = item.optString("id")
-            if (id.isBlank()) null else MemohBot(id, item.optString("display_name").ifBlank {
-                item.optString("name").ifBlank { "Bot" }
-            })
+            array.optJSONObject(i)?.let(::decodeBot)
         }
+    }
+
+    suspend fun botContainer(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/container")
+
+    suspend fun getBot(botId: String): MemohBot {
+        val item = request("/bots/${Uri.encode(botId)}")
+        return decodeBot(item) ?: throw IOException("Invalid bot response")
+    }
+
+    suspend fun updateBot(
+        botId: String,
+        displayName: String? = null,
+        name: String? = null,
+        avatarUrl: String? = null,
+        timezone: String? = null,
+        isActive: Boolean? = null,
+    ): MemohBot {
+        val body = JSONObject()
+        displayName?.let { body.put("display_name", it.trim()) }
+        name?.let { body.put("name", it.trim()) }
+        avatarUrl?.let { body.put("avatar_url", it.trim()) }
+        timezone?.let { body.put("timezone", it.trim()) }
+        isActive?.let { body.put("is_active", it) }
+        val item = request("/bots/${Uri.encode(botId)}", body, method = "PUT")
+        return decodeBot(item) ?: throw IOException("Invalid bot response")
+    }
+
+    suspend fun deleteBot(botId: String) {
+        request("/bots/${Uri.encode(botId)}", method = "DELETE")
+    }
+
+    suspend fun botUserGrants(botId: String): List<MemohUserGrant> {
+        val array = request("/bots/${Uri.encode(botId)}/user-access").optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = obj.optString("id")
+            if (id.isBlank()) return@mapNotNull null
+            val perms = obj.optJSONArray("permissions")?.let { arr ->
+                (0 until arr.length()).mapNotNull { idx -> arr.optString(idx).takeIf { it.isNotBlank() } }
+            } ?: emptyList()
+            MemohUserGrant(
+                id = id,
+                botId = obj.optString("bot_id"),
+                userId = obj.optString("user_id"),
+                userDisplayName = obj.optString("user_display_name"),
+                userUsername = obj.optString("user_username"),
+                userAvatarUrl = obj.optString("user_avatar_url"),
+                isOwner = obj.optBoolean("is_owner"),
+                permissions = perms,
+            )
+        }
+    }
+
+    suspend fun botUserCandidates(botId: String, query: String = ""): List<MemohUserCandidate> {
+        val path = "/bots/${Uri.encode(botId)}/user-access/candidates" +
+            (if (query.isNotBlank()) "?q=${Uri.encode(query.trim())}" else "")
+        val array = request(path).optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = obj.optString("id")
+            if (id.isBlank()) null else MemohUserCandidate(
+                id = id,
+                username = obj.optString("username"),
+                displayName = obj.optString("display_name"),
+                avatarUrl = obj.optString("avatar_url"),
+            )
+        }
+    }
+
+    suspend fun createBotUserGrant(botId: String, userId: String, permissions: List<String>): JSONObject {
+        require(userId.isNotBlank()) { "User ID is required" }
+        require(permissions.isNotEmpty()) { "At least one permission is required" }
+        val body = JSONObject()
+            .put("user_id", userId.trim())
+            .put("permissions", JSONArray(permissions))
+            .put("subject_type", "user")
+        return request("/bots/${Uri.encode(botId)}/user-access", body)
+    }
+
+    suspend fun updateBotUserGrant(botId: String, grantId: String, permissions: List<String>): JSONObject {
+        require(permissions.isNotEmpty()) { "At least one permission is required" }
+        val body = JSONObject().put("permissions", JSONArray(permissions))
+        return request("/bots/${Uri.encode(botId)}/user-access/${Uri.encode(grantId)}", body, method = "PUT")
+    }
+
+    suspend fun deleteBotUserGrant(botId: String, grantId: String) {
+        request("/bots/${Uri.encode(botId)}/user-access/${Uri.encode(grantId)}", method = "DELETE")
     }
 
     suspend fun agents(botId: String): List<MemohAgent> {
