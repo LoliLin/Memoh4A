@@ -207,27 +207,15 @@ internal fun MemohBotDetailDialog(
                             },
                             onError = { notify(it, isError = true) }
                         )
-                        "remote-runtime" -> BotPlaceholderTab(
-                            title = "Remote Runtime",
-                            description = "Allows the bot to connect to an external runtime execution environment (e.g. self-hosted daemon or custom cluster node). Configurable via server agent policy."
-                        )
+                        "remote-runtime" -> MemohBotRuntimeTab(api = api, botId = currentBot.id, canManage = canManage)
                         "container" -> BotContainerTab(api = api, botId = currentBot.id, onOpenWorkspace = onOpenWorkspace)
                         "memory" -> BotMemoryTabShortcut(onOpenMemory = onOpenMemory)
                         "channels" -> MemohBotChannelsTab(api = api, botId = currentBot.id, canManage = canManage)
-                        "advanced" -> BotPlaceholderTab(
-                            title = "Advanced Settings",
-                            description = "Execution budgets, reasoning effort defaults, timeout parameters, and server lifecycle hook overrides."
-                        )
+                        "advanced" -> MemohBotAdvancedTab(api = api, botId = currentBot.id, canManage = canManage)
                         "access" -> BotAccessTab(api = api, botId = currentBot.id, canManage = canManage, onError = { notify(it, isError = true) })
                         "agents" -> BotAgentsTab(api = api, botId = currentBot.id, controller = agentController, canManage = canManage, onError = { notify(it, isError = true) })
-                        "mcp" -> BotPlaceholderTab(
-                            title = "MCP Servers",
-                            description = "Model Context Protocol servers registered to this bot workspace. Provides external tool definitions and OAuth resources."
-                        )
-                        "apps" -> BotPlaceholderTab(
-                            title = "Installed Apps",
-                            description = "Packaged app extensions and skills installed into the bot workspace environment."
-                        )
+                        "mcp" -> MemohBotMcpTab(api = api, botId = currentBot.id, canManage = canManage)
+                        "apps" -> MemohBotAppsTab(api = api, botId = currentBot.id, canManage = canManage)
                     }
                 }
             }

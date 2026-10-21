@@ -62,7 +62,7 @@ internal class MemohApi {
         call.execute().use { response ->
             if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
             val raw = response.body?.string().orEmpty()
-            if (raw.isBlank()) JSONObject() else JSONObject(raw)
+            if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("[")) JSONObject().put("items", org.json.JSONArray(raw.trim())) else JSONObject(raw)
         }
     }
 
@@ -468,7 +468,7 @@ internal class MemohApi {
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
             val raw = response.body?.string().orEmpty()
-            if (raw.isBlank()) JSONObject() else JSONObject(raw)
+            if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("[")) JSONObject().put("items", org.json.JSONArray(raw.trim())) else JSONObject(raw)
         }
     }
 
