@@ -31,6 +31,62 @@
 > 正确的读法是：**清单要全，功能要真，UI 要有选择**。
 > 详见下方"API 清单"与"明确未实现"两节的边界说明。
 
+## ⭐ 对齐目标：app.memoh.net（洛铃 2026-10-21 16:57 补充）
+
+> 「目标是对齐 https://app.memoh.net/，memoh的云产品」
+
+这条把验收标准从「把 API 用起来」升级为「**界面与能力对齐云端 Web 产品**」。
+app.memoh.net 需要登录，公开抓不到；但它的前端源码就在上游仓库里：
+
+- **`apps/web/`（Vue 3 + vue-router + @felinic/ui + Tailwind）** ← 这就是 app.memoh.net
+- `apps/desktop/`（Electron 壳，复用同一套页面，路由多出 `:sessionId`）
+- 真相源：`apps/web/src/routes.ts`（站点地图）与 `apps/web/src/pages/`
+
+**结论：以后判断"该不该做、做成什么样"，去看 `apps/web` 的页面，不是只翻 Swagger。**
+Swagger 告诉你「后端能做什么」，`apps/web` 告诉你「产品实际暴露了什么」。
+
+### 站点地图（来自 routes.ts，实测核对）
+
+| 区域 | 路径 | 说明 |
+| --- | --- | --- |
+| 聊天 | `/`、`/bot/:botName` | 主区（侧栏 + dockview）常驻在 App.vue，路由组件渲染 null |
+| 引导 | `/onboarding` | |
+| 登录 | `/login` | |
+| OAuth | `/oauth/mcp/callback` | MCP 授权回调 |
+| Provider 深链 | `/providers/connect` | `#payload=` base64url，确认后才保存 key |
+| 设置 | `/settings` | 移动端是列表页，桌面重定向到 `/settings/bots` |
+
+设置区子页：`bots`（含 `new`、`new/progress`、`:botName` 详情）、`providers`、`runtimes`、
+`usage`、`people`（adminOnly）、`appearance`、`keyboard`、`profile`、
+`supermarket`（含 `category/:id`、`:registryId/:appId`）、`about`。
+另有重定向别名：`web-search`/`voice`/`video`/`speech`/`transcription` → `providers?tab=…`，
+`memory` → `bots`（注意：**独立的 Memory 设置页已被删除**，Memory 现在只在每个 bot 的标签页里）。
+
+### Bot 详情页 11 个标签页（`pages/bots/detail.vue`，实测）
+
+| # | tab | 组件 | Android 现状 |
+| --- | --- | --- | --- |
+| 1 | `overview` | BotOverview | ❌ 未做 |
+| 2 | `general` | BotSettings（名称/头像/模型等） | ⚠️ 部分（只能选 bot，不能改名/改头像） |
+| 3 | `remote-runtime` | BotRemoteRuntime | ❌ 未做 |
+| 4 | `container` | BotContainer（仅 container workspace 显示） | ❌ 未做 |
+| 5 | `memory` | BotMemory | ✅ 已做（MemohMemoryDialog） |
+| 6 | `channels` | BotChannels | ❌ 未做 |
+| 7 | `advanced` | BotAdvanced | ❌ 未做 |
+| 8 | `access` | BotAccess（ACL/权限） | ❌ 未做 |
+| 9 | `agents` | BotAgents | ⚠️ API 齐全，UI 未接 |
+| 10 | `mcp` | BotMcp | ❌ 未做 |
+| 11 | `apps` | BotApps（含待处理角标） | ❌ 未做 |
+
+另有 `canManageBot` 权限门（`current_user_permissions` 含 `manage` 才显示管理页；
+字段缺失时默认放行，后端仍会拦截）。**Android 端没有做这个权限门**，是个已知缺陷。
+
+### 覆盖度实况（别被"50 个 API 方法"误导）
+
+- API 层：50 个 suspend 方法，覆盖登录/聊天/WebSocket/队列/Agent/文件/定时/Memory/备份。
+- 界面层：11 个 bot 标签页里**只有 1 个完整对齐**（memory），1 个部分（general），1 个仅有 API（agents）。
+- 结论：**离"对齐 app.memoh.net"还很远**，之前那份"已实现能力"清单是 API 视角，不是产品视角。
+
 ## 仓库状态
 
 - 路径：本仓库根目录，分支 `feat/memoh-native-client`
@@ -100,18 +156,24 @@ API 客户端 `MemohApi.kt` 有 **50 个 suspend 方法**，全部走真实服�
 
 ## 建议的下一步优先级
 
-按"离'能日常使用'还差多远"排序，不是按端点数量排：
+按"离对齐 app.memoh.net / 能日常使用还差多远"排序，不是按端点数量排：
 
 1. **先让它能编译** —— 配好 Android SDK（`local.properties` 或 `ANDROID_HOME`），
    `./gradlew :app:assembleFdroidDebug` 跑通。这一步不做，后面全是空中楼阁。
 2. **连真实 Memoh 实例跑一遍主链路** —— 登录 → 选 Bot → 发消息 → WebSocket 流式 → 工具审批 → 历史回读。
    目前这些一条都没在真服务器上验证过。
-3. **聊天附件** —— 聊天输入框目前不能发图/文件，这是手机上最影响日常使用的缺口。
-4. 定时任务补全（已有会话目标、cron 编辑、运行日志）。
-5. 工作区文件补全（文件夹上传、批量操作、媒体预览）。
+3. **补 Bot 详情页骨架** —— 按 `apps/web/src/pages/bots/detail.vue` 的 11 个 tab 做一个
+   移动端的 bot 管理入口（先 `overview` / `general` / `access`，这三个管理价值最高）。
+   这是"对齐云产品"最直接的一步，也是当前最大结构性缺口。
+4. **`agents` 标签页** —— API 已经写好了（列表/创建/启停/删除/凭据/设备码登录），只差 UI。
+   投入产出比最高，属于"已有零件没装"。
+5. **聊天附件** —— 聊天输入框目前不能发图/文件，手机日常使用最痛。
+6. 定时任务补全（已有会话目标、cron 编辑、运行日志）。
+7. 工作区文件补全（文件夹上传、批量操作、媒体预览）。
 
-不建议先做的：Apps 安装/更新（SSE 流式响应，复杂度高、手机端收益低）、
-terminal WebSocket（手机上体验差）、各类运维/管理端点。
+不建议先做的：Apps 安装/更新（SSE 流式响应，复杂度高）、`container`/`remote-runtime`（移动端价值低）、
+terminal WebSocket、各类运维/管理端点。
+
 
 ## 继续开发时的约定
 
