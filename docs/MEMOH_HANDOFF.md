@@ -71,7 +71,7 @@ Swagger 告诉你「后端能做什么」，`apps/web` 告诉你「产品实际�
 | 3 | `remote-runtime` | BotRemoteRuntime | ⚠️ 框架占位已接入 |
 | 4 | `container` | BotContainer（仅 container workspace 显示） | ✅ 已做（容器状态、工作目录、快捷直达工作区） |
 | 5 | `memory` | BotMemory | ✅ 已做（可从 Bot 管理页直通 MemohMemoryDialog） |
-| 6 | `channels` | BotChannels | ⚠️ 框架占位已接入 |
+| 6 | `channels` | BotChannels | ✅ 已做（MemohBotChannelsTab：渠道列表、启停Switch、配置Token/Webhook、解绑确认） |
 | 7 | `advanced` | BotAdvanced | ⚠️ 框架占位已接入 |
 | 8 | `access` | BotAccess（ACL/权限） | ✅ 已做（候选人搜索、授权新增、权限调整、撤销授权带确认） |
 | 9 | `agents` | BotAgents | ✅ 已做（MemohBotAgentsTab：启停、凭据配置、设备码登录轮询、删除确认） |

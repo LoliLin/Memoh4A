@@ -216,6 +216,22 @@ internal class MemohApi {
         request("/bots/${Uri.encode(botId)}/user-access/${Uri.encode(grantId)}", method = "DELETE")
     }
 
+    suspend fun botChannels(botId: String): List<JSONObject> {
+        val array = request("/bots/${Uri.encode(botId)}/channel").optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+    }
+
+    suspend fun updateBotChannelStatus(botId: String, platform: String, enabled: Boolean): JSONObject =
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}/status",
+            JSONObject().put("enabled", enabled), method = "PATCH")
+
+    suspend fun deleteBotChannel(botId: String, platform: String) {
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}", method = "DELETE")
+    }
+
+    suspend fun upsertBotChannel(botId: String, platform: String, config: JSONObject): JSONObject =
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}", config, method = "PUT")
+
     suspend fun agents(botId: String): List<MemohAgent> {
         val items = request("/bots/${Uri.encode(botId)}/agents").optJSONArray("items") ?: JSONArray()
         return (0 until items.length()).mapNotNull { i ->

@@ -213,10 +213,7 @@ internal fun MemohBotDetailDialog(
                         )
                         "container" -> BotContainerTab(api = api, botId = currentBot.id, onOpenWorkspace = onOpenWorkspace)
                         "memory" -> BotMemoryTabShortcut(onOpenMemory = onOpenMemory)
-                        "channels" -> BotPlaceholderTab(
-                            title = "Channels",
-                            description = "Channel integrations (Telegram, Discord, Slack, Feishu, Webhook). Configure bot tokens and messaging endpoints."
-                        )
+                        "channels" -> MemohBotChannelsTab(api = api, botId = currentBot.id, canManage = canManage)
                         "advanced" -> BotPlaceholderTab(
                             title = "Advanced Settings",
                             description = "Execution budgets, reasoning effort defaults, timeout parameters, and server lifecycle hook overrides."
