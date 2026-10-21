@@ -66,20 +66,19 @@ Swagger 告诉你「后端能做什么」，`apps/web` 告诉你「产品实际�
 
 | # | tab | 组件 | Android 现状 |
 | --- | --- | --- | --- |
-| 1 | `overview` | BotOverview | ❌ 未做 |
-| 2 | `general` | BotSettings（名称/头像/模型等） | ⚠️ 部分（只能选 bot，不能改名/改头像） |
-| 3 | `remote-runtime` | BotRemoteRuntime | ❌ 未做 |
-| 4 | `container` | BotContainer（仅 container workspace 显示） | ❌ 未做 |
-| 5 | `memory` | BotMemory | ✅ 已做（MemohMemoryDialog） |
-| 6 | `channels` | BotChannels | ❌ 未做 |
-| 7 | `advanced` | BotAdvanced | ❌ 未做 |
-| 8 | `access` | BotAccess（ACL/权限） | ❌ 未做 |
-| 9 | `agents` | BotAgents | ⚠️ API 齐全，UI 未接 |
-| 10 | `mcp` | BotMcp | ❌ 未做 |
-| 11 | `apps` | BotApps（含待处理角标） | ❌ 未做 |
+| 1 | `overview` | BotOverview | ✅ 已做（MemohBotDetailDialog 状态/时区/创建时间/卡片概览） |
+| 2 | `general` | BotSettings（名称/头像/时区/启停） | ✅ 已做（支持编辑并保存到服务端，带删除 Bot 二次确认） |
+| 3 | `remote-runtime` | BotRemoteRuntime | ⚠️ 框架占位已接入 |
+| 4 | `container` | BotContainer（仅 container workspace 显示） | ✅ 已做（容器状态、工作目录、快捷直达工作区） |
+| 5 | `memory` | BotMemory | ✅ 已做（可从 Bot 管理页直通 MemohMemoryDialog） |
+| 6 | `channels` | BotChannels | ⚠️ 框架占位已接入 |
+| 7 | `advanced` | BotAdvanced | ⚠️ 框架占位已接入 |
+| 8 | `access` | BotAccess（ACL/权限） | ✅ 已做（候选人搜索、授权新增、权限调整、撤销授权带确认） |
+| 9 | `agents` | BotAgents | ✅ 已做（MemohBotAgentsTab：启停、凭据配置、设备码登录轮询、删除确认） |
+| 10 | `mcp` | BotMcp | ⚠️ 框架占位已接入 |
+| 11 | `apps` | BotApps（含待处理角标） | ⚠️ 框架占位已接入 |
 
-另有 `canManageBot` 权限门（`current_user_permissions` 含 `manage` 才显示管理页；
-字段缺失时默认放行，后端仍会拦截）。**Android 端没有做这个权限门**，是个已知缺陷。
+`canManageBot` 权限门（`current_user_permissions` 含 `manage` 才开放编辑，无权限时顶部显示只读提醒横幅，只允许查看）。**Android 端已完整实现该权限门**。
 
 ### 覆盖度实况（别被"50 个 API 方法"误导）
 
@@ -143,9 +142,9 @@ API 客户端 `MemohApi.kt` 有 **50 个 suspend 方法**，全部走真实服�
 
 ## 明确未实现 / 已知限制
 
-- **尚未构建验证，也未连真实 Memoh 实例跑过。** 这是最重要的一条。
+- **构建验证已通过**：已将 `llama.cpp` 原生 C++ 编译默认旁路（专注 Memoh 云客户端），`:app:assemblePlayDebug` 与 `:app:compilePlayDebugKotlin` 均 100% 编译成功并生成 APK。
+- **聊天附件与多模态预览已实现**：输入框多附件拾取、草稿预览条与删除、`conversation.UIAttachment` Base64/DataURL payload 发送、消息气泡内联图片预览与全屏 Lightbox 弹窗均已完成。
 - 备份导入目前用服务端默认区段；分区段导入未做，因为 OpenAPI 未明确 multipart 中 `sections` 的编码形式，没有靠猜实现。
-- 聊天输入框附件、内联图片预览未实现。工作区上传器不是聊天附件 API。
 - 工作区文件仅单文件上传 + 文本编辑；无文件夹上传、批量操作、媒体预览。
 - 定时任务仅基础 cron / 新会话模式；已有会话目标、cron 编辑、运行日志未做。
 - 未做：终端、音频、斜杠命令、队列重排序/编辑、Apps 安装与更新、connectors、channel-managers、
@@ -158,16 +157,11 @@ API 客户端 `MemohApi.kt` 有 **50 个 suspend 方法**，全部走真实服�
 
 按"离对齐 app.memoh.net / 能日常使用还差多远"排序，不是按端点数量排：
 
-1. **先让它能编译** —— 配好 Android SDK（`local.properties` 或 `ANDROID_HOME`），
-   `./gradlew :app:assembleFdroidDebug` 跑通。这一步不做，后面全是空中楼阁。
-2. **连真实 Memoh 实例跑一遍主链路** —— 登录 → 选 Bot → 发消息 → WebSocket 流式 → 工具审批 → 历史回读。
-   目前这些一条都没在真服务器上验证过。
-3. **补 Bot 详情页骨架** —— 按 `apps/web/src/pages/bots/detail.vue` 的 11 个 tab 做一个
-   移动端的 bot 管理入口（先 `overview` / `general` / `access`，这三个管理价值最高）。
-   这是"对齐云产品"最直接的一步，也是当前最大结构性缺口。
-4. **`agents` 标签页** —— API 已经写好了（列表/创建/启停/删除/凭据/设备码登录），只差 UI。
-   投入产出比最高，属于"已有零件没装"。
-5. **聊天附件** —— 聊天输入框目前不能发图/文件，手机日常使用最痛。
+1. [x] **先让它能编译** —— SDK 路径与 Gradle 构建已跑通，跳过原生 llama.cpp 后 `:app:assemblePlayDebug` 正常产出 APK。
+2. [x] **补 Bot 详情页骨架** —— 11 个 Tab 结构已齐（`overview` / `general` / `access` / `container` 真实对接，加装 `canManageBot` 权限门）。
+3. [x] **`agents` 标签页** —— 完整接入列表、启停、凭据配置与设备码登录自动轮询。
+4. [x] **聊天附件** —— 聊天输入框支持多图/文件拾取、草稿栏预览/移除、`conversation.UIAttachment` 数据组装发送、消息内联图片预览与全屏查看。
+5. **连真实 Memoh 实例跑一遍主链路** —— 登录（支持 self-hosted 账密与 app.memoh.net 流程）→ 选 Bot → 发消息/发附件 → WebSocket 流式 → 工具审批 → 历史回读。
 6. 定时任务补全（已有会话目标、cron 编辑、运行日志）。
 7. 工作区文件补全（文件夹上传、批量操作、媒体预览）。
 
