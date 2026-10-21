@@ -234,6 +234,7 @@ internal fun decodeBlocks(array: JSONArray?): List<MemohBlock> {
                         },
                     )
                 },
+            attachments = decodeAttachments(obj.optJSONArray("attachments")),
         )
     }
 }
