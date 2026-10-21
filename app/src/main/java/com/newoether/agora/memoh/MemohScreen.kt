@@ -158,6 +158,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var sendQueueMenu by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
     var composer by remember(vm.bot?.id, vm.session?.id) { mutableStateOf("") }
+    var selectedAttachments by remember(vm.bot?.id, vm.session?.id) { mutableStateOf<List<MemohAttachment>>(emptyList()) }
     LaunchedEffect(vm.restoreDraft) {
         vm.restoreDraft?.let { rejected ->
             if (composer.isBlank()) composer = rejected
@@ -302,8 +303,17 @@ internal fun MemohScreen(vm: MemohViewModel) {
             bottomBar = {
                 Column(Modifier.imePadding()) {
                     HorizontalDivider()
+                    AttachmentDraftStrip(
+                        attachments = selectedAttachments,
+                        onRemove = { selectedAttachments = selectedAttachments - it }
+                    )
                     Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.Bottom) {
+                        AttachmentPickerButton(
+                            enabled = vm.bot != null,
+                            onAttachmentsPicked = { selectedAttachments = selectedAttachments + it }
+                        )
+                        Spacer(Modifier.width(4.dp))
                         OutlinedTextField(
                             value = composer,
                             onValueChange = { composer = it },
@@ -339,10 +349,13 @@ internal fun MemohScreen(vm: MemohViewModel) {
                             }
                         } else {
                             IconButton(onClick = {
-                                if (composer.isNotBlank()) {
-                                    if (vm.send(composer)) composer = ""
+                                if (composer.isNotBlank() || selectedAttachments.isNotEmpty()) {
+                                    if (vm.send(composer, selectedAttachments)) {
+                                        composer = ""
+                                        selectedAttachments = emptyList()
+                                    }
                                 }
-                            }, enabled = composer.isNotBlank() && vm.bot != null && vm.pendingUserText == null && !vm.running) {
+                            }, enabled = (composer.isNotBlank() || selectedAttachments.isNotEmpty()) && vm.bot != null && vm.pendingUserText == null && !vm.running) {
                                 Icon(Icons.AutoMirrored.Filled.Send, "Send")
                             }
                         }
@@ -392,7 +405,9 @@ internal fun MemohScreen(vm: MemohViewModel) {
                             MemohTurnView(turn, vm)
                         }
                         vm.pendingUserText?.let { value ->
-                            item(key = "optimistic") { MemohTurnView(MemohTurn("optimistic", "user", value), vm) }
+                            item(key = "optimistic") {
+                                MemohTurnView(MemohTurn("optimistic", "user", value, attachments = vm.pendingUserAttachments), vm)
+                            }
                         }
                         if (vm.liveBlocks.isNotEmpty()) {
                             item(key = "live") {
@@ -507,21 +522,35 @@ private fun MemohTurnView(turn: MemohTurn, vm: MemohViewModel) {
                 color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.fillMaxWidth(0.88f)
             ) {
-                Text(turn.text, modifier = Modifier.padding(14.dp),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Column(Modifier.padding(14.dp)) {
+                    if (turn.text.isNotBlank()) {
+                        Text(turn.text, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                    if (turn.attachments.isNotEmpty()) {
+                        if (turn.text.isNotBlank()) Spacer(Modifier.height(8.dp))
+                        TurnAttachmentsView(turn.attachments)
+                    }
+                }
             }
         }
     } else if (turn.role == "assistant") {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (turn.attachments.isNotEmpty()) {
+                TurnAttachmentsView(turn.attachments)
+            }
             turn.blocks.forEach { block ->
                 when (block.type) {
                     "text" -> if (block.text.isNotBlank()) Markdown(block.text)
                     "reasoning" -> ReasoningBlock(block)
                     "tool" -> ToolBlock(block, vm)
+                    "attachments" -> TurnAttachmentsView(block.attachments)
                     "error", "notice" -> Text(block.text,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
                     else -> if (block.text.isNotBlank()) Text(block.text)
+                }
+                if (block.type != "attachments" && block.attachments.isNotEmpty()) {
+                    TurnAttachmentsView(block.attachments)
                 }
             }
         }

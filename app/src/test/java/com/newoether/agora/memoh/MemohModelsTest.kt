@@ -80,4 +80,31 @@ class MemohModelsTest {
         assertEquals("u1", grant.userId)
         assertTrue(grant.permissions.contains("manage"))
     }
+    @Test
+    fun `turn with attachments decodes list of UIAttachment`() {
+        val json = JSONObject(
+            """{"role":"user","id":"t1","text":"photo","attachments":[{"id":"a1","name":"sunset.jpg","mime":"image/jpeg","type":"image","size":2048,"url":"data:image/jpeg;base64,abc"}]}"""
+        )
+        val turn = decodeTurn(json)
+        assertEquals(1, turn.attachments.size)
+        val att = turn.attachments[0]
+        assertEquals("a1", att.id)
+        assertEquals("sunset.jpg", att.name)
+        assertEquals("image/jpeg", att.mime)
+        assertEquals("image", att.type)
+        assertEquals(2048L, att.size)
+        assertEquals("data:image/jpeg;base64,abc", att.url)
+    }
+
+    @Test
+    fun `block with attachments decodes attachments properly`() {
+        val json = JSONObject(
+            """{"id":1,"type":"attachments","attachments":[{"id":"f1","name":"document.pdf","mime":"application/pdf","type":"file","size":5000}]}"""
+        )
+        val blocks = decodeBlocks(JSONArray().put(json))
+        assertEquals(1, blocks.size)
+        assertEquals(1, blocks[0].attachments.size)
+        assertEquals("document.pdf", blocks[0].attachments[0].name)
+        assertEquals("file", blocks[0].attachments[0].type)
+    }
 }
