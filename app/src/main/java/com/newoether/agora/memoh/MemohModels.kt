@@ -74,6 +74,16 @@ internal data class MemohSchedule(
     val enabled: Boolean,
 )
 
+internal data class MemohAttachment(
+    val id: String = "",
+    val name: String = "",
+    val mime: String = "",
+    val type: String = "",
+    val size: Long = 0,
+    val url: String = "",
+    val base64: String = "",
+)
+
 internal data class MemohBlock(
     val id: Int,
     val type: String,
@@ -89,6 +99,7 @@ internal data class MemohBlock(
     val userInputId: String = "",
     val canRespond: Boolean = false,
     val questions: List<MemohQuestion> = emptyList(),
+    val attachments: List<MemohAttachment> = emptyList(),
 )
 
 internal data class MemohApprovalOption(val id: String, val name: String, val kind: String)
@@ -107,6 +118,7 @@ internal data class MemohTurn(
     val role: String,
     val text: String = "",
     val blocks: List<MemohBlock> = emptyList(),
+    val attachments: List<MemohAttachment> = emptyList(),
 )
 
 internal fun decodeAccount(obj: JSONObject): MemohAccount = MemohAccount(
@@ -135,6 +147,26 @@ internal fun decodeSession(obj: JSONObject): MemohSession = MemohSession(
     type = obj.optString("type").ifBlank { "chat" },
 )
 
+internal fun decodeAttachments(array: JSONArray?): List<MemohAttachment> {
+    if (array == null) return emptyList()
+    return (0 until array.length()).mapNotNull { i ->
+        val item = array.optJSONObject(i) ?: return@mapNotNull null
+        val id = item.optString("id").ifBlank { item.optString("storage_key") }
+        val name = item.optString("name").ifBlank { "attachment" }
+        val mime = item.optString("mime").ifBlank { "application/octet-stream" }
+        val type = item.optString("type").ifBlank { if (mime.startsWith("image/")) "image" else "file" }
+        MemohAttachment(
+            id = id,
+            name = name,
+            mime = mime,
+            type = type,
+            size = item.optLong("size"),
+            url = item.optString("url"),
+            base64 = item.optString("base64"),
+        )
+    }
+}
+
 internal fun decodeTurn(obj: JSONObject): MemohTurn {
     val role = obj.optString("role")
     return MemohTurn(
@@ -145,6 +177,7 @@ internal fun decodeTurn(obj: JSONObject): MemohTurn {
         role = role,
         text = obj.optString("text"),
         blocks = decodeBlocks(obj.optJSONArray("messages")),
+        attachments = decodeAttachments(obj.optJSONArray("attachments")),
     )
 }
 

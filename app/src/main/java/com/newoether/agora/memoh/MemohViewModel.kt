@@ -44,49 +44,30 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     var server by mutableStateOf(prefs.getString("server", "https://app.memoh.net/api").orEmpty())
     var username by mutableStateOf("")
     var password by mutableStateOf("")
-    var signedIn by mutableStateOf(false)
-        private set
-    var loading by mutableStateOf(false)
-        private set
-    var error by mutableStateOf("")
-        private set
-    var bots by mutableStateOf<List<MemohBot>>(emptyList())
-        private set
-    var bot by mutableStateOf<MemohBot?>(null)
-        private set
-    var sessions by mutableStateOf<List<MemohSession>>(emptyList())
-        private set
-    var olderSessionsAvailable by mutableStateOf(false)
-        private set
-    var loadingSessions by mutableStateOf(false)
-        private set
+    var signedIn by mutableStateOf(false); private set
+    var loading by mutableStateOf(false); private set
+    var error by mutableStateOf(""); private set
+    var bots by mutableStateOf<List<MemohBot>>(emptyList()); private set
+    var bot by mutableStateOf<MemohBot?>(null); private set
+    var sessions by mutableStateOf<List<MemohSession>>(emptyList()); private set
+    var olderSessionsAvailable by mutableStateOf(false); private set
+    var loadingSessions by mutableStateOf(false); private set
     private var nextSessionCursor: String? = null
-    var queueState by mutableStateOf<MemohQueueState?>(null)
-        private set
-    var queueBusy by mutableStateOf(false)
-        private set
+    var queueState by mutableStateOf<MemohQueueState?>(null); private set
+    var queueBusy by mutableStateOf(false); private set
     private var queueRevision = 0
-    var olderMessagesAvailable by mutableStateOf(false)
-        private set
-    var loadingOlderMessages by mutableStateOf(false)
-        private set
+    var olderMessagesAvailable by mutableStateOf(false); private set
+    var loadingOlderMessages by mutableStateOf(false); private set
     private var firstHistoryMessageId: String? = null
-    var session by mutableStateOf<MemohSession?>(null)
-        private set
-    var turns by mutableStateOf<List<MemohTurn>>(emptyList())
-        private set
-    var liveBlocks by mutableStateOf<List<MemohBlock>>(emptyList())
-        private set
-    var pendingUserText by mutableStateOf<String?>(null)
-        private set
-    var restoreDraft by mutableStateOf<String?>(null)
-        private set
-    var connected by mutableStateOf(false)
-        private set
-    var running by mutableStateOf(false)
-        private set
-    var runId by mutableStateOf("")
-        private set
+    var session by mutableStateOf<MemohSession?>(null); private set
+    var turns by mutableStateOf<List<MemohTurn>>(emptyList()); private set
+    var liveBlocks by mutableStateOf<List<MemohBlock>>(emptyList()); private set
+    var pendingUserText by mutableStateOf<String?>(null); private set
+    var pendingUserAttachments by mutableStateOf<List<MemohAttachment>>(emptyList()); private set
+    var restoreDraft by mutableStateOf<String?>(null); private set
+    var connected by mutableStateOf(false); private set
+    var running by mutableStateOf(false); private set
+    var runId by mutableStateOf(""); private set
 
     init {
         val saved = runCatching { MemohTokenStore.read(prefs.getString("jwt", "").orEmpty()) }
@@ -144,7 +125,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         olderSessionsAvailable = false
         session = null
         turns = emptyList()
-        pendingUserText = null
+        pendingUserText = null; pendingUserAttachments = emptyList()
         liveBlocks = emptyList()
         error = ""
     }
@@ -192,7 +173,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         nextSessionCursor = null
         olderSessionsAvailable = false
         clearRun()
-        pendingUserText = null
+        pendingUserText = null; pendingUserAttachments = emptyList()
         viewModelScope.launch {
             runCatching { agentController.refresh(value.id) }
         }
@@ -230,7 +211,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         queueState = null
         firstHistoryMessageId = null
         olderMessagesAvailable = false
-        pendingUserText = null
+        pendingUserText = null; pendingUserAttachments = emptyList()
         clearRun()
         if (!previous.isNullOrEmpty()) sendNow(JSONObject()
             .put("type", "runtime_unsubscribe").put("session_id", previous))
@@ -402,19 +383,31 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     fun consumeRestoredDraft() { restoreDraft = null }
 
-    fun send(text: String): Boolean {
+    fun send(text: String, attachments: List<MemohAttachment> = emptyList()): Boolean {
         val value = text.trim()
         val selectedBot = bot ?: return false
-        if (value.isEmpty() || pendingUserText != null || running || awaitingAdmission.isNotEmpty()) return false
+        if ((value.isEmpty() && attachments.isEmpty()) || pendingUserText != null || running || awaitingAdmission.isNotEmpty()) return false
         error = ""
         restoreDraft = null
         val invocation = UUID.randomUUID().toString()
         val payload = JSONObject().put("type", "message")
             .put("invocation_id", invocation).put("text", value)
+        if (attachments.isNotEmpty()) {
+            val arr = JSONArray()
+            attachments.forEach { att ->
+                val o = JSONObject().put("id", att.id.ifBlank { UUID.randomUUID().toString() })
+                    .put("name", att.name).put("mime", att.mime).put("type", att.type).put("size", att.size)
+                if (att.base64.isNotBlank()) o.put("base64", att.base64)
+                if (att.url.isNotBlank()) o.put("url", att.url)
+                arr.put(o)
+            }
+            payload.put("attachments", arr)
+        }
         val existingSession = session
         existingSession?.id?.let { payload.put("session_id", it) }
         awaitingAdmission[invocation] = payload
         pendingUserText = value
+        pendingUserAttachments = attachments
         if (existingSession != null) {
             if (connected) sendNow(payload)
             else if (socket == null) connectSocket(selectedBot.id)
@@ -438,7 +431,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 } catch (e: Exception) {
                     if (authRevisionAtSend == authRevision && botRevisionAtSend == botRevision &&
                         awaitingAdmission.remove(invocation) != null) {
-                        pendingUserText = null
+                        pendingUserText = null; pendingUserAttachments = emptyList()
                         restoreDraft = value
                         error = e.message ?: "Failed to create conversation"
                     }
@@ -518,7 +511,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                         firstHistoryMessageId = result.firstOrNull()?.id
                         olderMessagesAvailable = result.isNotEmpty()
                     }
-                    if (!running && awaitingAdmission.isEmpty()) pendingUserText = null
+                    if (!running && awaitingAdmission.isEmpty()) pendingUserText = null; pendingUserAttachments = emptyList()
                 }
             } catch (e: Exception) {
                 if (session?.id == sid && revision == historyRevision)
@@ -617,7 +610,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             "run_rejected", "error" -> {
                 if (invocation.isNotBlank() && awaitingAdmission.remove(invocation) != null) {
                     restoreDraft = pendingUserText
-                    pendingUserText = null
+                    pendingUserText = null; pendingUserAttachments = emptyList()
                 }
                 error = event.optString("message").ifBlank { event.optString("code").ifBlank { "Run rejected" } }
                 if (session?.id == target && runId == event.optString("run_id") && runId.isNotEmpty()) {
@@ -744,7 +737,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     if (bot?.id == botId && session?.id == sid && runId == finishedRun && !running) {
                         val updatedIds = settled.mapTo(HashSet()) { it.id }
                         turns = (turns.filterNot { it.id in updatedIds } + settled).distinctBy { it.id }
-                        pendingUserText = null
+                        pendingUserText = null; pendingUserAttachments = emptyList()
                         clearRun()
                         val refreshed = api.sessionsPage(botId)
                         if (bot?.id == botId && session?.id == sid) {
