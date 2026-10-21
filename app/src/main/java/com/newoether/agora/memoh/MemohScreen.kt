@@ -134,6 +134,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var memoriesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
     var queueOpen by remember { mutableStateOf(false) }
+    var botDetailsOpen by remember { mutableStateOf(false) }
     var backupOpen by remember { mutableStateOf(false) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
     var backupStatus by remember { mutableStateOf("") }
@@ -252,6 +253,10 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                     accountMenu = false; vm.refreshBots()
                                 })
                                 if (vm.bot != null) {
+                                    DropdownMenuItem(text = { Text("Bot Details") }, onClick = {
+                                        accountMenu = false
+                                        botDetailsOpen = true
+                                    })
                                     DropdownMenuItem(text = { Text("Bot Backup") }, onClick = {
                                         accountMenu = false
                                         backupStatus = ""
@@ -430,6 +435,18 @@ internal fun MemohScreen(vm: MemohViewModel) {
             title = { Text("Bot backup") },
             text = { Text(backupStatus) },
             confirmButton = { TextButton(onClick = { backupStatus = "" }) { Text("OK") } },
+        )
+    }
+    if (botDetailsOpen && vm.bot != null) {
+        MemohBotDetailDialog(
+            api = vm.workspaceApi,
+            bot = vm.bot!!,
+            agentController = vm.agentController,
+            onDismiss = { botDetailsOpen = false },
+            onBotUpdated = { updated -> vm.selectBot(updated) },
+            onBotDeleted = { vm.refreshBots() },
+            onOpenMemory = { memoriesOpen = true; botDetailsOpen = false },
+            onOpenWorkspace = { filesOpen = true; botDetailsOpen = false },
         )
     }
     if (memoriesOpen && vm.bot != null) {

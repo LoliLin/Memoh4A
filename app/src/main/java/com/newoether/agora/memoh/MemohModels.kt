@@ -5,7 +5,37 @@ import org.json.JSONObject
 import java.io.IOException
 
 internal class MemohHttpException(val status: Int, message: String) : IOException(message)
-internal data class MemohBot(val id: String, val title: String)
+internal data class MemohBot(
+    val id: String,
+    val title: String,
+    val name: String = "",
+    val displayName: String = "",
+    val avatarUrl: String = "",
+    val timezone: String = "",
+    val status: String = "",
+    val isActive: Boolean = true,
+    val createdAt: String = "",
+    val currentUserPermissions: List<String> = emptyList(),
+) {
+    val canManage: Boolean
+        get() = currentUserPermissions.isEmpty() || currentUserPermissions.contains("manage")
+}
+internal data class MemohUserGrant(
+    val id: String,
+    val botId: String,
+    val userId: String,
+    val userDisplayName: String = "",
+    val userUsername: String = "",
+    val userAvatarUrl: String = "",
+    val isOwner: Boolean = false,
+    val permissions: List<String> = emptyList(),
+)
+internal data class MemohUserCandidate(
+    val id: String,
+    val username: String = "",
+    val displayName: String = "",
+    val avatarUrl: String = "",
+)
 internal data class MemohSession(
     val id: String,
     val title: String,

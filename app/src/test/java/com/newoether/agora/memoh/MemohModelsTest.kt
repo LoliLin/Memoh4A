@@ -60,4 +60,24 @@ class MemohModelsTest {
         assertFalse(block.canRespond)
         assertTrue(block.questions.isEmpty())
     }
+
+    @Test
+    fun `bot canManage requires manage permission when list is non-empty`() {
+        val implicit = MemohBot("b1", "Bot 1")
+        assertTrue(implicit.canManage)
+
+        val manager = MemohBot("b2", "Bot 2", currentUserPermissions = listOf("chat", "manage"))
+        assertTrue(manager.canManage)
+
+        val viewer = MemohBot("b3", "Bot 3", currentUserPermissions = listOf("chat"))
+        assertFalse(viewer.canManage)
+    }
+
+    @Test
+    fun `user grant model preserves id and permissions`() {
+        val grant = MemohUserGrant("g1", "b1", "u1", "User One", "user1", "", false, listOf("chat", "manage"))
+        assertEquals("g1", grant.id)
+        assertEquals("u1", grant.userId)
+        assertTrue(grant.permissions.contains("manage"))
+    }
 }
