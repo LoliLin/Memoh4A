@@ -153,6 +153,49 @@ API 客户端 `MemohApi.kt` 有 **50 个 suspend 方法**，全部走真实服�
   高风险 Agent 操作前需先验证重连与审批流程。
 - 工具详情给的是有上限的原始文本，不是带语法高亮的代码/diff 编辑器。
 
+## 构建与测试的真实状态（2026-10-22 实测）
+
+**可以构建了。** 之前的「环境没有 Android SDK」结论已作废 —— SDK 就在
+`C:\Users\Hileb\AppData\Local\Android\Sdk`，`local.properties` 也已配置。
+
+```
+:app:compileFdroidDebugKotlin   BUILD SUCCESSFUL
+:app:testFdroidDebugUnitTest    3790 tests, 2 failed, 3 skipped  → 修复后全部通过
+assembleFdroidDebug             产出 APK
+```
+
+### 两处环境陷阱（会让人误判成"代码坏了"）
+
+1. **PowerShell 里 `./gradlew.bat` 静默失败。** 必须用 `cmd /c "gradlew.bat ..."`。
+   直接调用会立即退出、日志空白、EXIT 为空 —— 看起来像构建挂了，其实是没启动。
+2. **默认 JDK 是 26，Robolectric 撑不住。** 症状是每个 Robolectric 测试都报
+   `Unsupported class file major version 70`。已在 `app/build.gradle.kts` 里把
+   **测试 JVM** 钉到 Java 21（编译目标没动）。CI 本来就用 21，所以只有本地会炸。
+
+### 本次审计修掉的真实缺陷
+
+| # | 缺陷 | 后果 |
+| --- | --- | --- |
+| 1 | 测试 JVM 跟随本机 JDK（26） | 所有 Robolectric 测试全红，CI 绿而本地红，掩盖真问题 |
+| 2 | 附件整文件读入内存再 base64 | 选一个大视频 → OOM 崩进程 |
+| 3 | 附件把 data URL 同时塞进 `base64` 和 `url` | 上行体积翻倍 |
+| 4 | 设备码登录轮询无上限、异常被吞 | 离线时无限轮询，界面永远显示"等待中" |
+| 5 | 详情页保存走 `selectBot` | 改个名字、切个开关 → 当前会话/历史/连接全被清空 |
+| 6 | 两处直接用 material3 `DropdownMenu` | 违反项目统一菜单封装约定，lint 测试失败 |
+
+### 顺带简化
+
+- `.github/workflows/build.yml` + `buildfast.yml`（两个同名 "Build APK"、大量重复）
+  → 合并为单个 `android.yml`，`fast` 变成一个开关而不是第二份流水线。
+- **签名步骤原本永远不会执行**：step 级 `if:` 读不到该 step 自己 `env:` 块里的变量，
+  `if: ${{ env.KEYSTORE_BASE64 != '' }}` 恒为假。已改为直接读 `secrets`。
+
+### 仍未验证
+
+- 没有连过真实 Memoh 实例。登录 → 发消息 → WebSocket 流式 → 工具审批 → 历史回读
+  这条主链路**一条都没在真服务器上跑过**，这是目前最大的未知。
+- 那 3 个 skipped 测试没有逐条确认原因。
+
 ## 建议的下一步优先级
 
 按"离对齐 app.memoh.net / 能日常使用还差多远"排序，不是按端点数量排：
