@@ -1,8 +1,6 @@
 name: Android
 
-# One workflow for both the quick build and the full check.
-# The old setup had build.yml and buildfast.yml duplicating nearly every step;
-# `fast` is now just an input instead of a second copy of the same pipeline.
+# Manual builds can skip unit tests with the run_tests input.
 
 on:
   push:
@@ -46,14 +44,9 @@ jobs:
       # Release signing is optional: app/build.gradle.kts falls back to the
       # debug key when local.properties has no storeFile, so a missing secret
       # must not fail the build.
-      #
-      # The condition reads `secrets` directly. Reading this step's own `env:`
-      # block from its step-level `if:` does not work — that block is not in
-      # scope when the condition is evaluated — so the old
-      # `if: ${{ env.KEYSTORE_BASE64 != '' }}` was always false and the key
-      # was never restored.
+      # Secrets are passed through env and checked by the shell; the secrets
+      # context cannot be used directly in a step's if expression.
       - name: Restore signing key
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -61,6 +54,10 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "No release signing key configured; using the debug signing fallback."
+            exit 0
+          fi
           echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/release.jks"
           cat >> local.properties <<EOF
           storeFile=$GITHUB_WORKSPACE/release.jks
@@ -79,7 +76,9 @@ jobs:
 
       - name: Unit tests
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
-        run: ./gradlew -p build-logic test :app:testFdroidDebugUnitTest --no-daemon --stacktrace
+        run: |
+          ./gradlew -p build-logic test --no-daemon --stacktrace
+          ./gradlew :app:testFdroidDebugUnitTest --no-daemon --stacktrace
 
       - name: Build APKs
         run: ./gradlew assemblePlayDebug assembleFdroidRelease --no-daemon --stacktrace
