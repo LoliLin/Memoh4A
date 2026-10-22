@@ -313,7 +313,8 @@ internal fun MemohScreen(vm: MemohViewModel) {
                         verticalAlignment = Alignment.Bottom) {
                         AttachmentPickerButton(
                             enabled = vm.bot != null,
-                            onAttachmentsPicked = { selectedAttachments = selectedAttachments + it }
+                            onAttachmentsPicked = { selectedAttachments = selectedAttachments + it },
+                            onAttachmentError = { vm.reportAttachmentError(it) }
                         )
                         Spacer(Modifier.width(4.dp))
                         OutlinedTextField(
@@ -460,7 +461,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
             bot = vm.bot!!,
             agentController = vm.agentController,
             onDismiss = { botDetailsOpen = false },
-            onBotUpdated = { updated -> vm.selectBot(updated) },
+            onBotUpdated = { updated -> vm.updateBotMetadata(updated) },
             onBotDeleted = { vm.refreshBots() },
             onOpenMemory = { memoriesOpen = true; botDetailsOpen = false },
             onOpenWorkspace = { filesOpen = true; botDetailsOpen = false },

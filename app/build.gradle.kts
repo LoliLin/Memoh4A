@@ -232,3 +232,15 @@ tasks.whenTaskAdded {
         enabled = false
     }
 }
+
+// Robolectric ships an ASM build that cannot read class files newer than Java 21.
+// Run unit tests on a Java 21 JVM so the suite does not depend on whichever JDK
+// happens to be the machine default (a Java 26 default made every Robolectric
+// test fail with "Unsupported class file major version 70").
+// Compilation targets are untouched; only the test JVM is pinned.
+val testJvm = JavaVersion.VERSION_21
+tasks.withType<Test>().configureEach {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(testJvm.majorVersion)
+    }
+}

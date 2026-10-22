@@ -87,6 +87,13 @@ internal fun MemohBotDetailDialog(
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var currentBot by remember(bot.id) { mutableStateOf(bot) }
     var loadingBot by remember { mutableStateOf(false) }
+    // The parent re-supplies the bot after an edit or a rename elsewhere. Keying
+    // the local copy on `bot.id` alone captured the initial value forever, so
+    // those updates never reached this sheet. Adopt the incoming value whenever
+    // it actually differs.
+    LaunchedEffect(bot) {
+        if (bot != currentBot) currentBot = bot
+    }
     var message by remember { mutableStateOf("") }
     var messageIsError by remember { mutableStateOf(false) }
 
