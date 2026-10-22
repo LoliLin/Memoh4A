@@ -25,7 +25,8 @@ import java.util.concurrent.TimeUnit
  * The HTTP client never caches server-owned history as an Agora conversation.
  */
 internal class MemohApi {
-    private val http = OkHttpClient.Builder()
+    /** Shared by the workspace/backup extension functions in MemohWorkspaceApi.kt. */
+    internal val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
@@ -66,7 +67,8 @@ internal class MemohApi {
         }
     }
 
-    private fun errorFor(response: Response): String {
+    /** Shared by the workspace/backup extension functions in MemohWorkspaceApi.kt. */
+    internal fun errorFor(response: Response): String {
         val raw = response.body?.string()?.take(2048).orEmpty()
         val parsed = runCatching { JSONObject(raw) }.getOrNull()
         return parsed?.optString("message")?.takeIf { it.isNotBlank() }
@@ -357,154 +359,6 @@ internal class MemohApi {
         }
     }
 
-    suspend fun listFiles(botId: String, directory: String): List<MemohFile> {
-        val data = request("/bots/${Uri.encode(botId)}/container/fs/list?path=${Uri.encode(directory)}")
-        val array = data.optJSONArray("entries") ?: JSONArray()
-        return (0 until array.length()).mapNotNull { i ->
-            val item = array.optJSONObject(i) ?: return@mapNotNull null
-            val path = item.optString("path")
-            if (path.isBlank()) null else MemohFile(
-                name = item.optString("name").ifBlank { path.substringAfterLast('/') },
-                path = path,
-                isDirectory = item.optBoolean("isDir"),
-            )
-        }
-    }
-
-    suspend fun readFile(botId: String, path: String): MemohFileContent {
-        val data = request("/bots/${Uri.encode(botId)}/container/fs/read?path=${Uri.encode(path)}")
-        return MemohFileContent(data.optString("content"), data.optString("revision"))
-    }
-
-    suspend fun writeFile(botId: String, path: String, content: String, revision: String): String {
-        // The remote file may be changed by the Agent while the editor is open.
-        require(revision.isNotBlank()) { "This file has no revision; safe overwrite is unavailable." }
-        val response = request("/bots/${Uri.encode(botId)}/container/fs/write",
-            JSONObject().put("path", path).put("content", content)
-                .put("expectedRevision", revision))
-        return response.optString("revision")
-    }
-
-    suspend fun botBackupSummary(botId: String): JSONObject =
-        request("/bots/${Uri.encode(botId)}/backup/summary")
-
-    suspend fun exportBotBackup(
-        botId: String,
-        destination: Uri,
-        resolver: ContentResolver,
-        sections: List<String>,
-        passphrase: String,
-    ) = withContext(Dispatchers.IO) {
-        val payload = JSONObject().put("sections", JSONArray(sections))
-        if (passphrase.isNotBlank()) payload.put("passphrase", passphrase)
-        val requestBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = Request.Builder()
-            .url(baseUrl + "/bots/${Uri.encode(botId)}/backup/export")
-            .header("Authorization", "Bearer $token")
-            .header("Accept", "application/octet-stream, application/zip, */*")
-            .post(requestBody)
-            .build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
-            val body = response.body ?: throw IOException("Memoh returned an empty backup")
-            val output = resolver.openOutputStream(destination, "w")
-                ?: throw IOException("Cannot open destination for writing")
-            output.use { sink -> body.byteStream().use { input -> input.copyTo(sink) } }
-        }
-    }
-
-    suspend fun previewBotBackup(
-        uri: Uri,
-        resolver: ContentResolver,
-        mode: String,
-        targetBotId: String,
-        sections: List<String>,
-        passphrase: String,
-    ): JSONObject = botBackupMultipart("/bots/backup/import/preview", uri, resolver,
-        mode, targetBotId, sections, passphrase)
-
-    suspend fun importBotBackup(
-        uri: Uri,
-        resolver: ContentResolver,
-        mode: String,
-        targetBotId: String,
-        sections: List<String>,
-        passphrase: String,
-    ): JSONObject = botBackupMultipart("/bots/backup/import", uri, resolver,
-        mode, targetBotId, sections, passphrase)
-
-    private suspend fun botBackupMultipart(
-        path: String,
-        uri: Uri,
-        resolver: ContentResolver,
-        mode: String,
-        targetBotId: String,
-        sections: List<String>,
-        passphrase: String,
-    ): JSONObject = withContext(Dispatchers.IO) {
-        val filename = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
-            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-            ?.takeIf { it.isNotBlank() } ?: "backup.zip"
-        val source = object : RequestBody() {
-            override fun contentType() = (resolver.getType(uri) ?: "application/octet-stream").toMediaType()
-            override fun writeTo(sink: BufferedSink) {
-                val input = resolver.openInputStream(uri) ?: throw IOException("Cannot read selected backup")
-                input.use { it.copyTo(sink.outputStream()) }
-            }
-        }
-        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("file", filename, source)
-            .addFormDataPart("mode", mode)
-            .apply {
-                if (targetBotId.isNotBlank()) addFormDataPart("target_bot_id", targetBotId)
-                if (sections.isNotEmpty()) addFormDataPart("sections", JSONArray(sections).toString())
-                if (passphrase.isNotEmpty()) addFormDataPart("passphrase", passphrase)
-            }
-            .build()
-        val request = Request.Builder().url(baseUrl + path)
-            .header("Authorization", "Bearer $token")
-            .header("Accept", "application/json")
-            .post(multipart).build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
-            val raw = response.body?.string().orEmpty()
-            if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("[")) JSONObject().put("items", org.json.JSONArray(raw.trim())) else JSONObject(raw)
-        }
-    }
-
-    suspend fun uploadFile(
-        botId: String,
-        path: String,
-        uri: Uri,
-        resolver: ContentResolver,
-        filename: String,
-    ) = withContext(Dispatchers.IO) {
-        val source = object : RequestBody() {
-            override fun contentType() = "application/octet-stream".toMediaType()
-            override fun writeTo(sink: BufferedSink) {
-                val stream = resolver.openInputStream(uri) ?: throw IOException("Cannot read selected file")
-                stream.use { input ->
-                    val buffer = ByteArray(8192)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        if (count > 0) sink.write(buffer, 0, count)
-                    }
-                }
-            }
-        }
-        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("path", path)
-            .addFormDataPart("file", filename, source)
-            .build()
-        val response = http.newCall(Request.Builder()
-            .url(baseUrl + "/bots/${Uri.encode(botId)}/container/fs/upload")
-            .header("Authorization", "Bearer $token")
-            .post(body).build()).execute()
-        response.use {
-            if (!it.isSuccessful) throw MemohHttpException(it.code, errorFor(it))
-        }
-    }
 
     suspend fun schedules(botId: String): List<MemohSchedule> {
         val entries = request("/bots/${Uri.encode(botId)}/schedule")

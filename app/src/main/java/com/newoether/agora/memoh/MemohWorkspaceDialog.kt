@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,7 +56,17 @@ internal fun MemohWorkspaceDialog(
     var loading by remember(botId) { mutableStateOf(false) }
     var saving by remember(botId) { mutableStateOf(false) }
     var message by remember(botId) { mutableStateOf("") }
+    var messageIsError by remember(botId) { mutableStateOf(true) }
     var reloadKey by remember(botId) { mutableStateOf(0) }
+    // Pending entry actions: rename, delete, and the folder-name prompt.
+    var entryMenu by remember(botId) { mutableStateOf<MemohFile?>(null) }
+    var renameTarget by remember(botId) { mutableStateOf<MemohFile?>(null) }
+    var renameDraft by remember(botId) { mutableStateOf("") }
+    var deleteTarget by remember(botId) { mutableStateOf<MemohFile?>(null) }
+    var newFolder by remember(botId) { mutableStateOf(false) }
+    var folderDraft by remember(botId) { mutableStateOf("") }
+    /** Entry queued for the system save picker once the user confirms. */
+    var downloadTarget by remember(botId) { mutableStateOf<MemohFile?>(null) }
     val currentFolder = directory
 
     LaunchedEffect(botId, directory, reloadKey) {
@@ -106,6 +117,54 @@ internal fun MemohWorkspaceDialog(
         }
     }
 
+    // System save pickers must be created at a stable composition position, so
+    // both live here rather than inside the toolbar Row.
+    val saveArchive = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/gzip")
+    ) { uri ->
+        if (uri != null) {
+            val folder = directory
+            scope.launch {
+                saving = true
+                try {
+                    api.downloadArchive(botId, listOf(folder), uri, resolver)
+                    if (directory == folder) {
+                        message = "Folder archive saved."
+                        messageIsError = false
+                    }
+                } catch (e: Exception) {
+                    if (directory == folder) {
+                        message = e.message ?: "Archive download failed"
+                        messageIsError = true
+                    }
+                } finally { saving = false }
+            }
+        }
+    }
+    val saveFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri != null) {
+            val entry = downloadTarget
+            if (entry != null) {
+                scope.launch {
+                    saving = true
+                    try {
+                        api.downloadFile(botId, entry.path, uri, resolver)
+                        message = "${entry.name} saved."
+                        messageIsError = false
+                    } catch (e: Exception) {
+                        message = e.message ?: "Download failed"
+                        messageIsError = true
+                    } finally {
+                        saving = false
+                        downloadTarget = null
+                    }
+                }
+            }
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.9f), shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -124,33 +183,46 @@ internal fun MemohWorkspaceDialog(
                             enabled = directory != "/data") { Text("Up") }
                         TextButton(onClick = { reloadKey++ }) { Text("Refresh") }
                         TextButton(onClick = { picker.launch("*/*") }, enabled = !saving) { Text("Upload") }
+                        TextButton(onClick = { folderDraft = ""; newFolder = true },
+                            enabled = !saving) { Text("New Folder") }
+                        TextButton(onClick = {
+                            saveArchive.launch(
+                                "${directory.trimEnd('/').substringAfterLast('/').ifBlank { "workspace" }}.tar.gz"
+                            )
+                        }, enabled = !saving && entries.isNotEmpty()) { Text("Download folder") }
                     }
                     if (loading) CircularProgressIndicator()
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         items(entries, key = { it.path }) { file ->
-                            TextButton(
-                                onClick = {
-                                    if (file.isDirectory) directory = file.path else {
-                                        opened = file
-                                        fileContent = ""
-                                        revision = ""
-                                        scope.launch {
-                                            loading = true
-                                            message = ""
-                                            try {
-                                                val result = api.readFile(botId, file.path)
-                                                if (opened?.path == file.path) {
-                                                    fileContent = result.text
-                                                    revision = result.revision
+                            androidx.compose.material3.Surface(
+                                color = androidx.compose.ui.graphics.Color.Transparent,
+                                modifier = Modifier.fillMaxWidth()
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (file.isDirectory) directory = file.path else {
+                                                opened = file
+                                                fileContent = ""
+                                                revision = ""
+                                                scope.launch {
+                                                    loading = true
+                                                    message = ""
+                                                    try {
+                                                        val result = api.readFile(botId, file.path)
+                                                        if (opened?.path == file.path) {
+                                                            fileContent = result.text
+                                                            revision = result.revision
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        if (opened?.path == file.path) {
+                                                            message = e.message ?: "Unable to read file"
+                                                            messageIsError = true
+                                                        }
+                                                    } finally { loading = false }
                                                 }
-                                            } catch (e: Exception) {
-                                                if (opened?.path == file.path)
-                                                    message = e.message ?: "Unable to read file"
-                                            } finally { loading = false }
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
+                                            }
+                                        },
+                                        onLongClick = { entryMenu = file },
+                                    ),
                             ) {
                                 Text((if (file.isDirectory) "📁 " else "📄 ") + file.name,
                                     modifier = Modifier.fillMaxWidth())
@@ -190,5 +262,140 @@ internal fun MemohWorkspaceDialog(
                 }
             }
         }
+    }
+
+    // ---- Entry actions ----------------------------------------------------
+
+    val menuEntry = entryMenu
+    if (menuEntry != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { entryMenu = null },
+            title = { Text(menuEntry.name) },
+            text = { Text("Choose an action for this ${if (menuEntry.isDirectory) "folder" else "file"}.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    entryMenu = null
+                    renameTarget = menuEntry
+                    renameDraft = menuEntry.name
+                }) { Text("Rename") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        entryMenu = null
+                        if (menuEntry.isDirectory) {
+                            saveArchive.launch("${menuEntry.name}.tar.gz")
+                        } else {
+                            downloadTarget = menuEntry
+                            saveFile.launch(menuEntry.name)
+                        }
+                    }) { Text("Download") }
+                    TextButton(onClick = { entryMenu = null; deleteTarget = menuEntry }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+        )
+    }
+
+    val renaming = renameTarget
+    if (renaming != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename") },
+            text = {
+                OutlinedTextField(value = renameDraft, onValueChange = { renameDraft = it },
+                    label = { Text("New name") }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !saving && renameDraft.isNotBlank() &&
+                        renameDraft != renaming.name && '/' !in renameDraft && '\\' !in renameDraft,
+                    onClick = {
+                        val parentPath = renaming.path.trimEnd('/').substringBeforeLast('/', missingDelimiterValue = "")
+                        val target = parentPath.trimEnd('/') + "/" + renameDraft.trim()
+                        scope.launch {
+                            saving = true
+                            try {
+                                api.renameEntry(botId, renaming.path, target)
+                                renameTarget = null
+                                message = "Renamed to ${renameDraft.trim()}"
+                                messageIsError = false
+                                reloadKey++
+                            } catch (e: Exception) {
+                                message = e.message ?: "Rename failed"
+                                messageIsError = true
+                            } finally { saving = false }
+                        }
+                    }) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+        )
+    }
+
+    val deleting = deleteTarget
+    if (deleting != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete ${if (deleting.isDirectory) "folder" else "file"}?") },
+            text = {
+                Text(
+                    "Permanently deletes ${deleting.name} from the bot workspace" +
+                        if (deleting.isDirectory) ", including everything inside it." else "."
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = !saving, onClick = {
+                    scope.launch {
+                        saving = true
+                        try {
+                            api.deleteEntry(botId, deleting.path, recursive = deleting.isDirectory)
+                            deleteTarget = null
+                            message = "${deleting.name} deleted."
+                            messageIsError = false
+                            reloadKey++
+                        } catch (e: Exception) {
+                            message = e.message ?: "Delete failed"
+                            messageIsError = true
+                        } finally { saving = false }
+                    }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (newFolder) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { newFolder = false },
+            title = { Text("New Folder") },
+            text = {
+                OutlinedTextField(value = folderDraft, onValueChange = { folderDraft = it },
+                    label = { Text("Folder name") }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !saving && folderDraft.isNotBlank() &&
+                        '/' !in folderDraft && '\\' !in folderDraft,
+                    onClick = {
+                        val folder = directory
+                        val target = folder.trimEnd('/') + "/" + folderDraft.trim()
+                        scope.launch {
+                            saving = true
+                            try {
+                                api.makeDirectory(botId, target)
+                                newFolder = false
+                                message = "Created ${folderDraft.trim()}"
+                                messageIsError = false
+                                if (directory == folder) reloadKey++
+                            } catch (e: Exception) {
+                                message = e.message ?: "Could not create folder"
+                                messageIsError = true
+                            } finally { saving = false }
+                        }
+                    }) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { newFolder = false }) { Text("Cancel") } },
+        )
     }
 }
