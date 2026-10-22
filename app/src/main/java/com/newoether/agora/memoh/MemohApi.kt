@@ -332,6 +332,12 @@ internal class MemohApi {
 
     suspend fun sessions(botId: String): List<MemohSession> = sessionsPage(botId).items
 
+    suspend fun getSession(botId: String, sessionId: String): MemohSession {
+        val result = decodeSession(request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}"))
+        require(result.id == sessionId) { "Memoh returned a different session" }
+        return result
+    }
+
     suspend fun createSession(botId: String, botAgentId: String = ""): MemohSession {
         val body = JSONObject().put("title", "").put("channel_type", "local")
         if (botAgentId.isNotBlank()) body.put("bot_agent_id", botAgentId)
@@ -494,9 +500,9 @@ internal class MemohApi {
     }
 
     /** Runs of one schedule, newest first as returned by the server. */
-    suspend fun scheduleLogs(botId: String, scheduleId: String, limit: Int = 20): List<MemohScheduleLog> {
+    suspend fun scheduleLogs(botId: String, scheduleId: String, limit: Int = 20, offset: Int = 0): List<MemohScheduleLog> {
         val entries = request(
-            "/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/logs?limit=$limit"
+            "/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/logs?limit=$limit&offset=$offset"
         ).optJSONArray("items") ?: JSONArray()
         return (0 until entries.length()).mapNotNull { i ->
             entries.optJSONObject(i)?.let(::decodeScheduleLog)
@@ -504,18 +510,10 @@ internal class MemohApi {
     }
 
     /** Sessions this schedule's runs created (the bot's sessions, filtered by schedule). */
-    suspend fun scheduleSessions(botId: String, scheduleId: String): List<MemohScheduleRunSession> {
-        val entries = request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/sessions")
-            .optJSONArray("items") ?: JSONArray()
-        return (0 until entries.length()).mapNotNull { i ->
-            val item = entries.optJSONObject(i) ?: return@mapNotNull null
-            val id = item.optString("id")
-            if (id.isBlank()) null else MemohScheduleRunSession(
-                id = id,
-                title = item.optString("title"),
-                createdAt = item.optString("created_at"),
-            )
-        }
+    suspend fun scheduleSessions(botId: String, scheduleId: String, cursor: String = ""): MemohSessionPage {
+        val response = request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/sessions" +
+            "?limit=20" + if (cursor.isBlank()) "" else "&cursor=${Uri.encode(cursor)}")
+        return decodeScheduleSessions(response)
     }
 
     suspend fun setScheduleEnabled(botId: String, scheduleId: String, enabled: Boolean) {
@@ -539,10 +537,10 @@ internal class MemohApi {
     private fun decodeScheduleLog(item: JSONObject): MemohScheduleLog = MemohScheduleLog(
         id = item.optString("id"),
         scheduleId = item.optString("schedule_id"),
-        sessionId = item.optString("session_id"),
+        sessionId = if (item.isNull("session_id")) "" else item.optString("session_id"),
         status = item.optString("status"),
         startedAt = item.optString("started_at"),
-        completedAt = item.optString("completed_at"),
+        completedAt = if (item.isNull("completed_at")) "" else item.optString("completed_at"),
         errorCode = item.optString("error_code"),
         errorMessage = item.optString("error_message"),
         resultText = item.optString("result_text"),

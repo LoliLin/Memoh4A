@@ -22,7 +22,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private val prefs = application.getSharedPreferences("memoh_native", 0)
     private var authRevision = 0
     private var botRevision = 0
-    private var historyRevision = 0
+    internal var historyRevision = 0; private set
+    internal var navigationRevision = 0
     private var epoch = ""
     private var seq = -1L
     private var awaitingSnapshot = true

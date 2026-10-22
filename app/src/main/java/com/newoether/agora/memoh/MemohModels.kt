@@ -100,12 +100,17 @@ internal data class MemohScheduleLog(
     val resultText: String,
 )
 
-/** A session a schedule's runs created, used for existing_session targets. */
-internal data class MemohScheduleRunSession(
-    val id: String,
-    val title: String,
-    val createdAt: String,
-)
+/** Run records identify their conversation with session_id, not log_id. */
+internal fun decodeScheduleSessions(response: JSONObject): MemohSessionPage {
+    val entries = response.optJSONArray("items") ?: JSONArray()
+    val sessions = (0 until entries.length()).mapNotNull { i ->
+        val item = entries.optJSONObject(i) ?: return@mapNotNull null
+        val id = item.optString("session_id").takeIf { it.isNotBlank() && it != "null" }
+            ?: return@mapNotNull null
+        MemohSession(id, item.optString("title").ifBlank { "Scheduled Run" })
+    }.distinctBy { it.id }
+    return MemohSessionPage(sessions, response.optString("next_cursor").takeIf { it.isNotBlank() })
+}
 
 internal data class MemohAttachment(
     val id: String = "",

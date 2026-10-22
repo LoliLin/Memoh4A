@@ -67,11 +67,13 @@ internal fun MemohWorkspaceDialog(
     var folderDraft by remember(botId) { mutableStateOf("") }
     /** Entry queued for the system save picker once the user confirms. */
     var downloadTarget by remember(botId) { mutableStateOf<MemohFile?>(null) }
+    var extracting by remember(botId) { mutableStateOf<MemohFile?>(null) }
+    var extractError by remember(botId) { mutableStateOf("") }
+    var archiveTarget by remember(botId) { mutableStateOf<String?>(null) }
     val currentFolder = directory
 
     LaunchedEffect(botId, directory, reloadKey) {
         loading = true
-        message = ""
         try {
             val result = api.listFiles(botId, directory)
             if (currentFolder == directory) entries = result
@@ -122,12 +124,14 @@ internal fun MemohWorkspaceDialog(
     val saveArchive = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/gzip")
     ) { uri ->
-        if (uri != null) {
+        val target = archiveTarget
+        archiveTarget = null
+        if (uri != null && target != null) {
             val folder = directory
             scope.launch {
                 saving = true
                 try {
-                    api.downloadArchive(botId, listOf(folder), uri, resolver)
+                    api.downloadArchive(botId, listOf(target), uri, resolver)
                     if (directory == folder) {
                         message = "Folder archive saved."
                         messageIsError = false
@@ -174,7 +178,8 @@ internal fun MemohWorkspaceDialog(
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }
                 Text(opened?.path ?: directory, style = MaterialTheme.typography.bodySmall)
-                if (message.isNotBlank()) Text(message, color = MaterialTheme.colorScheme.error,
+                if (message.isNotBlank()) Text(message,
+                    color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall)
                 HorizontalDivider()
                 if (opened == null) {
@@ -186,6 +191,7 @@ internal fun MemohWorkspaceDialog(
                         TextButton(onClick = { folderDraft = ""; newFolder = true },
                             enabled = !saving) { Text("New Folder") }
                         TextButton(onClick = {
+                            archiveTarget = directory
                             saveArchive.launch(
                                 "${directory.trimEnd('/').substringAfterLast('/').ifBlank { "workspace" }}.tar.gz"
                             )
@@ -284,12 +290,21 @@ internal fun MemohWorkspaceDialog(
                     TextButton(onClick = {
                         entryMenu = null
                         if (menuEntry.isDirectory) {
+                            archiveTarget = menuEntry.path
                             saveArchive.launch("${menuEntry.name}.tar.gz")
                         } else {
                             downloadTarget = menuEntry
                             saveFile.launch(menuEntry.name)
                         }
                     }) { Text("Download") }
+                    // Only offer extraction for something that looks like an archive.
+                    if (!menuEntry.isDirectory && isArchiveName(menuEntry.name)) {
+                        TextButton(onClick = {
+                            entryMenu = null
+                            extracting = menuEntry
+                            extractError = ""
+                        }) { Text("Extract") }
+                    }
                     TextButton(onClick = { entryMenu = null; deleteTarget = menuEntry }) {
                         Text("Delete", color = MaterialTheme.colorScheme.error)
                     }
@@ -365,6 +380,39 @@ internal fun MemohWorkspaceDialog(
         )
     }
 
+    val archive = extracting
+    if (archive != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!saving) extracting = null },
+            title = { Text("Extract ${archive.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Memoh extracts this archive into a sibling folder named after it. An existing destination is never overwritten.")
+                    if (extractError.isNotBlank()) Text(extractError, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !saving, onClick = {
+                    saving = true
+                    scope.launch {
+                        try {
+                            val destination = api.extractArchive(botId, archive.path)
+                            extracting = null
+                            message = "Extracted to $destination"
+                            messageIsError = false
+                            reloadKey++
+                        } catch (e: Exception) {
+                            extractError = e.message ?: "Extract failed"
+                            message = extractError
+                            messageIsError = true
+                        } finally { saving = false }
+                    }
+                }) { Text("Extract") }
+            },
+            dismissButton = { TextButton(enabled = !saving, onClick = { extracting = null }) { Text("Cancel") } },
+        )
+    }
+
     if (newFolder) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { newFolder = false },
@@ -399,3 +447,18 @@ internal fun MemohWorkspaceDialog(
         )
     }
 }
+
+/**
+ * Whether a filename looks like an archive the server can extract.
+ *
+ * Purely a UI affordance — the server still validates the real format, so a
+ * false positive only surfaces as an error after the user confirms.
+ */
+internal fun isArchiveName(name: String): Boolean {
+    val lower = name.lowercase()
+    return ARCHIVE_SUFFIXES.any { lower.endsWith(it) }
+}
+
+private val ARCHIVE_SUFFIXES = listOf(
+    ".tar.gz", ".tgz", ".zip",
+)

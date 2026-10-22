@@ -105,10 +105,9 @@ internal suspend fun MemohApi.downloadArchive(
     paths: List<String>,
     destination: Uri,
     resolver: ContentResolver,
-    recursive: Boolean = true,
 ) = withContext(Dispatchers.IO) {
     require(paths.isNotEmpty()) { "Choose at least one path to download" }
-    val payload = JSONObject().put("paths", JSONArray(paths)).put("recursive", recursive)
+    val payload = JSONObject().put("paths", JSONArray(paths))
     val request = Request.Builder()
         .url(baseUrl + "/bots/${Uri.encode(botId)}/container/fs/archive")
         .header("Authorization", "Bearer $token")
@@ -125,11 +124,12 @@ internal suspend fun MemohApi.downloadArchive(
 }
 
 /** Extracts an archive that already lives in the workspace. */
-internal suspend fun MemohApi.extractArchive(botId: String, path: String, destination: String = "") {
+internal suspend fun MemohApi.extractArchive(botId: String, path: String): String {
     require(path.isNotBlank()) { "An archive path is required" }
-    val body = JSONObject().put("path", path)
-    if (destination.isNotBlank()) body.put("destination", destination.trim())
-    request("/bots/${Uri.encode(botId)}/container/fs/extract", body)
+    val response = request("/bots/${Uri.encode(botId)}/container/fs/extract", JSONObject().put("path", path))
+    return response.getString("destination").also {
+        require(it.isNotBlank()) { "Memoh did not return the extraction destination" }
+    }
 }
 
 internal suspend fun MemohApi.botBackupSummary(botId: String): JSONObject =
