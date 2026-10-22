@@ -59,7 +59,7 @@ import java.io.InputStream
 import java.util.UUID
 
 /**
- * Attachments travel inside the message payload as base64 data URLs, so the whole
+ * Attachments travel inside the message payload as raw base64 strings, so the whole
  * file is held in memory twice (raw bytes + base64 string, which is ~4/3 larger)
  * before the request body adds a third copy. A picked video used to be read in
  * unconditionally and took the process down with an OutOfMemoryError.
@@ -148,20 +148,25 @@ private fun readAtMost(stream: InputStream, limit: Long): ByteArray {
 }
 
 /**
- * Resolves the loadable image source for an attachment.
- *
- * `url` holds a server reference (http/data URL) when present. Otherwise the
- * payload arrives as a bare base64 string in `base64`, which an image loader
- * cannot parse on its own — rebuild the data URL from the attachment's mime type.
- * Returns null when there is nothing renderable.
+ * Resolves a server URL or decodes inline base64 into bytes that Coil can load.
+ * Both `url` and `base64` may contain a legacy base64 data URL.
+ * Returns null for missing or malformed inline data; Coil handles image decoding.
  */
-internal fun MemohAttachment.imageSource(): String? {
-    if (url.isNotBlank()) return url
-    if (base64.isBlank()) return null
-    // Tolerate an older peer that sent a full data URL in `base64`.
-    if (base64.startsWith("data:", ignoreCase = true)) return base64
-    val safeMime = mime.ifBlank { "application/octet-stream" }
-    return "data:$safeMime;base64,$base64"
+internal fun MemohAttachment.imageSource(): Any? {
+    val source = url.takeIf { it.isNotBlank() } ?: base64.takeIf { it.isNotBlank() } ?: return null
+    val payload = if (source.startsWith("data:", ignoreCase = true)) {
+        val comma = source.indexOf(',')
+        if (comma < 0 || !source.substring(0, comma).endsWith(";base64", ignoreCase = true)) return null
+        source.substring(comma + 1)
+    } else {
+        if (url.isNotBlank()) return url
+        source
+    }
+    // Android's decoder skips unknown characters; reject corrupt input explicitly.
+    if (!payload.matches(Regex("[A-Za-z0-9+/=\\r\\n\\t ]+"))) return null
+    return runCatching { Base64.decode(payload, Base64.DEFAULT) }
+        .getOrNull()
+        ?.takeIf { it.isNotEmpty() }
 }
 
 internal fun formatAttachmentSize(bytes: Long): String = when {
@@ -231,6 +236,7 @@ internal fun AttachmentDraftStrip(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         attachments.forEach { att ->
+            val imageSource = remember(att) { if (att.type == "image") att.imageSource() else null }
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
@@ -241,9 +247,9 @@ internal fun AttachmentDraftStrip(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (att.type == "image" && att.imageSource() != null) {
+                    if (imageSource != null) {
                         AsyncImage(
-                            model = att.imageSource(),
+                            model = imageSource,
                             contentDescription = att.name,
                             modifier = Modifier
                                 .size(36.dp)
@@ -301,14 +307,15 @@ internal fun TurnAttachmentsView(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         attachments.forEach { att ->
-            if (att.type == "image" && att.imageSource() != null) {
+            val imageSource = remember(att) { if (att.type == "image") att.imageSource() else null }
+            if (imageSource != null) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
                         .clickable { previewAttachment = att }
                 ) {
                     AsyncImage(
-                        model = att.imageSource(),
+                        model = imageSource,
                         contentDescription = att.name,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -357,6 +364,8 @@ internal fun TurnAttachmentsView(
     }
 
     previewAttachment?.let { att ->
+        val imageSource = remember(att) { att.imageSource() }
+        if (imageSource == null) return@let
         Dialog(
             onDismissRequest = { previewAttachment = null },
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -369,7 +378,7 @@ internal fun TurnAttachmentsView(
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
-                    model = att.imageSource(),
+                    model = imageSource,
                     contentDescription = att.name,
                     modifier = Modifier
                         .fillMaxWidth()
