@@ -475,7 +475,8 @@ internal fun MemohScreen(vm: MemohViewModel) {
     }
     if (schedulesOpen && vm.bot != null) {
         MemohSchedulesDialog(vm.workspaceApi, vm.bot!!.id,
-            onDismiss = { schedulesOpen = false })
+            onDismiss = { schedulesOpen = false },
+            sessions = vm.sessions)
     }
     if (queueOpen && vm.session != null) {
         MemohQueueDialog(vm, onDismiss = { queueOpen = false })

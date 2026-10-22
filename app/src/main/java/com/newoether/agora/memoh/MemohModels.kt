@@ -72,6 +72,39 @@ internal data class MemohSchedule(
     val command: String,
     val description: String,
     val enabled: Boolean,
+    /** "new_session" (default) or "existing_session". */
+    val runTarget: String = "new_session",
+    /** Session reused by existing_session mode. */
+    val targetSessionId: String = "",
+    /** Native model override (models.id); empty means the bot default. */
+    val modelId: String = "",
+    /** BotAgent selected for new sessions; empty means the built-in runtime. */
+    val botAgentId: String = "",
+    val maxRunSeconds: Int = 0,
+    val currentCalls: Int = 0,
+    val maxCalls: Int = 0,
+    val createdAt: String = "",
+    val updatedAt: String = "",
+)
+
+/** One recorded run of a schedule. */
+internal data class MemohScheduleLog(
+    val id: String,
+    val scheduleId: String,
+    val sessionId: String,
+    val status: String,
+    val startedAt: String,
+    val completedAt: String,
+    val errorCode: String,
+    val errorMessage: String,
+    val resultText: String,
+)
+
+/** A session a schedule's runs created, used for existing_session targets. */
+internal data class MemohScheduleRunSession(
+    val id: String,
+    val title: String,
+    val createdAt: String,
 )
 
 internal data class MemohAttachment(
