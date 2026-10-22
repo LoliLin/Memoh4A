@@ -160,14 +160,16 @@ API 客户端 `MemohApi.kt` 有 **50 个 suspend 方法**，全部走真实服�
 
 ```
 :app:compileFdroidDebugKotlin   BUILD SUCCESSFUL
-:app:testFdroidDebugUnitTest    3790 tests, 2 failed, 3 skipped  → 修复后全部通过
+:app:testFdroidDebugUnitTest    早前全量 3790 tests, 2 failed, 3 skipped
+                               菜单测试修复后单独复跑 2/2 通过；符号链接权限失败仍存在
 assembleFdroidDebug             产出 APK
 ```
 
 ### 两处环境陷阱（会让人误判成"代码坏了"）
 
-1. **PowerShell 里 `./gradlew.bat` 静默失败。** 必须用 `cmd /c "gradlew.bat ..."`。
-   直接调用会立即退出、日志空白、EXIT 为空 —— 看起来像构建挂了，其实是没启动。
+1. **PowerShell 需要实际调用批处理。** 可用 `& .\gradlew.bat ...`，本轮验证采用
+   `cmd /c "gradlew.bat ..."`。仅将整条命令放在引号中会输出字符串，并未启动构建；
+   不能据此判断 Gradle 静默失败。
 2. **默认 JDK 是 26，Robolectric 撑不住。** 症状是每个 Robolectric 测试都报
    `Unsupported class file major version 70`。已在 `app/build.gradle.kts` 里把
    **测试 JVM** 钉到 Java 21（编译目标没动）。CI 本来就用 21，所以只有本地会炸。
@@ -186,9 +188,11 @@ assembleFdroidDebug             产出 APK
 ### 顺带简化
 
 - `.github/workflows/build.yml` + `buildfast.yml`（两个同名 "Build APK"、大量重复）
-  → 合并为单个 `android.yml`，`fast` 变成一个开关而不是第二份流水线。
-- **签名步骤原本永远不会执行**：step 级 `if:` 读不到该 step 自己 `env:` 块里的变量，
-  `if: ${{ env.KEYSTORE_BASE64 != '' }}` 恒为假。已改为直接读 `secrets`。
+  → 合并为单个 `android.yml`，手动触发时可用 `run_tests` 开关跳过测试。
+- 签名密钥通过 step 的 `env` 传入，在 shell 中判断是否为空。曾直接把 `secrets`
+  写入 step 的 `if`，这是无效表达式，现已移除。
+- build-logic 与 app 的测试分两条 Gradle 命令执行，避免 `-p build-logic`
+  把 `:app:testFdroidDebugUnitTest` 解析到错误的根项目。
 
 ### 仍未验证
 
@@ -205,8 +209,23 @@ assembleFdroidDebug             产出 APK
 3. [x] **`agents` 标签页** —— 完整接入列表、启停、凭据配置与设备码登录自动轮询。
 4. [x] **聊天附件** —— 聊天输入框支持多图/文件拾取、草稿栏预览/移除、`conversation.UIAttachment` 数据组装发送、消息内联图片预览与全屏查看。
 5. **连真实 Memoh 实例跑一遍主链路** —— 登录（支持 self-hosted 账密与 app.memoh.net 流程）→ 选 Bot → 发消息/发附件 → WebSocket 流式 → 工具审批 → 历史回读。
-6. 定时任务补全（已有会话目标、cron 编辑、运行日志）。
-7. 工作区文件补全（文件夹上传、批量操作、媒体预览）。
+6. [x] 定时任务：编辑、已有会话目标、运行日志、全部任务运行记录、分页与打开运行会话。新增导航先读取真实会话详情，保留 Agent/runtime，并拒绝过期响应。
+7. [x] 工作区文件：创建目录、重命名、确认删除、单文件/目录下载、ZIP/TAR.GZ/TGZ 解压。解压目标由服务端决定，不覆盖已有目录。长按目录下载已固定为选中路径。
+8. 工作区后续：文件夹上传、批量操作、媒体预览。
+
+最终验证（2026-10-22）：`:verifyKotlinFileSize`、Memoh 相关测试和
+`:app:assembleFdroidDebug` 同一轮 `BUILD SUCCESSFUL in 4m 49s`。
+四个测试类共 28 个测试，0 failures / 0 errors / 0 skipped：模型 8、API 契约 9、
+导航竞争 5、图片来源 6。没有声称全项目测试全部通过。
+产物：`app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk`，63.4 MB，
+生成时间 2026-10-22 18:39:26（UTC+8）。
+SHA-256：`2D7C085F1D2FE67C4CA2CAB8D98BF0C6CCD6FE258F76B3DF41BC2B9588E1C7B0`。
+
+附件补充核对：固定上游 `ParseToolInputBundles` / `Bundle.Normalize` /
+`DecodeBase64` 接受 raw base64 和 data URL，且 URL 字段可缺省。Coil 2.7.0 的
+默认加载器注册了 ByteArrayMapper / ByteBufferFetcher，因此内联图片改为解码后的
+ByteArray，并以 remember 缓存；不再把 data URL 直接交给默认加载器。新增测试覆盖
+raw base64、两字段里的 data URL、非法输入与普通 URL。尚未进行真机图片渲染验证。
 
 不建议先做的：Apps 安装/更新（SSE 流式响应，复杂度高）、`container`/`remote-runtime`（移动端价值低）、
 terminal WebSocket、各类运维/管理端点。
