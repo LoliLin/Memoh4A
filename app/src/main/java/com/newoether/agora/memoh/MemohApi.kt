@@ -1,0 +1,644 @@
+package com.newoether.agora.memoh
+
+import android.content.ContentResolver
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MultipartBody
+import okio.BufferedSink
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+/**
+ * Memoh is a remote runtime, not an OpenAI-compatible model provider.
+ * The HTTP client never caches server-owned history as an Agora conversation.
+ */
+internal class MemohApi {
+    /** Shared by the workspace/backup extension functions in MemohWorkspaceApi.kt. */
+    internal val http = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .pingInterval(20, TimeUnit.SECONDS)
+        .build()
+
+    var baseUrl: String = "https://app.memoh.net/api"
+        private set
+    var token: String = ""
+        private set
+
+    fun configure(base: String, bearer: String = "") {
+        val trimmed = base.trim().trimEnd('/')
+        val parsed = trimmed.toHttpUrl()
+        require(parsed.scheme == "https" || (parsed.scheme == "http" && isLocalhost(parsed.host))) {
+            "Use HTTPS for remote servers. HTTP is supported only for localhost."
+        }
+        require(parsed.username.isEmpty() && parsed.password.isEmpty()) { "Credentials must not be part of the URL" }
+        require(parsed.query == null && parsed.fragment == null) { "Use an API base URL without a query or fragment" }
+        baseUrl = trimmed
+        token = bearer
+    }
+
+    private fun isLocalhost(host: String): Boolean =
+        host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
+
+    suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject = withContext(Dispatchers.IO) {
+        val builder = Request.Builder().url(baseUrl + path)
+            .header("Accept", "application/json")
+        if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
+        if (method != "GET") {
+            builder.method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()))
+        }
+        val call = http.newCall(builder.build())
+        call.execute().use { response ->
+            if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
+            val raw = response.body?.string().orEmpty()
+            if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("[")) JSONObject().put("items", org.json.JSONArray(raw.trim())) else JSONObject(raw)
+        }
+    }
+
+    /** Shared by the workspace/backup extension functions in MemohWorkspaceApi.kt. */
+    internal fun errorFor(response: Response): String {
+        val raw = response.body?.string()?.take(2048).orEmpty()
+        val parsed = runCatching { JSONObject(raw) }.getOrNull()
+        return parsed?.optString("message")?.takeIf { it.isNotBlank() }
+            ?: parsed?.optString("detail")?.takeIf { it.isNotBlank() }
+            ?: "HTTP ${response.code}"
+    }
+
+    suspend fun login(username: String, password: String): String {
+        val response = request("/auth/login", JSONObject()
+            .put("username", username.trim())
+            .put("password", password))
+        val result = response.optString("access_token")
+        if (result.isBlank()) throw IOException("Memoh did not return an access token")
+        token = result
+        return result
+    }
+
+    suspend fun account(): MemohAccount = decodeAccount(request("/users/me"))
+
+    suspend fun updateAccount(displayName: String, avatarUrl: String, timezone: String, titleModelId: String): MemohAccount =
+        decodeAccount(request("/users/me", JSONObject()
+            .put("display_name", displayName.trim()).put("avatar_url", avatarUrl.trim())
+            .put("timezone", timezone.trim().ifBlank { "UTC" }).put("title_model_id", titleModelId.trim()),
+            method = "PUT"))
+
+    suspend fun changePassword(currentPassword: String, newPassword: String) {
+        require(newPassword.length >= 8) { "New password must contain at least 8 characters." }
+        request("/users/me/password", JSONObject().put("current_password", currentPassword)
+            .put("new_password", newPassword), method = "PUT")
+    }
+
+    private fun decodeBot(item: JSONObject): MemohBot? {
+        val id = item.optString("id")
+        if (id.isBlank()) return null
+        val displayName = item.optString("display_name")
+        val name = item.optString("name")
+        val title = displayName.ifBlank { name.ifBlank { "Bot" } }
+        val perms = item.optJSONArray("current_user_permissions")?.let { arr ->
+            (0 until arr.length()).mapNotNull { idx -> arr.optString(idx).takeIf { it.isNotBlank() } }
+        } ?: emptyList()
+        return MemohBot(
+            id = id,
+            title = title,
+            name = name,
+            displayName = displayName,
+            avatarUrl = item.optString("avatar_url"),
+            timezone = item.optString("timezone"),
+            status = item.optString("status"),
+            isActive = item.optBoolean("is_active", true),
+            createdAt = item.optString("created_at"),
+            currentUserPermissions = perms,
+        )
+    }
+
+    suspend fun bots(): List<MemohBot> {
+        val array = request("/bots").optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            array.optJSONObject(i)?.let(::decodeBot)
+        }
+    }
+
+    suspend fun botContainer(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/container")
+
+    suspend fun getBot(botId: String): MemohBot {
+        val item = request("/bots/${Uri.encode(botId)}")
+        return decodeBot(item) ?: throw IOException("Invalid bot response")
+    }
+
+    suspend fun updateBot(
+        botId: String,
+        displayName: String? = null,
+        name: String? = null,
+        avatarUrl: String? = null,
+        timezone: String? = null,
+        isActive: Boolean? = null,
+    ): MemohBot {
+        val body = JSONObject()
+        displayName?.let { body.put("display_name", it.trim()) }
+        name?.let { body.put("name", it.trim()) }
+        avatarUrl?.let { body.put("avatar_url", it.trim()) }
+        timezone?.let { body.put("timezone", it.trim()) }
+        isActive?.let { body.put("is_active", it) }
+        val item = request("/bots/${Uri.encode(botId)}", body, method = "PUT")
+        return decodeBot(item) ?: throw IOException("Invalid bot response")
+    }
+
+    suspend fun deleteBot(botId: String) {
+        request("/bots/${Uri.encode(botId)}", method = "DELETE")
+    }
+
+    suspend fun botUserGrants(botId: String): List<MemohUserGrant> {
+        val array = request("/bots/${Uri.encode(botId)}/user-access").optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = obj.optString("id")
+            if (id.isBlank()) return@mapNotNull null
+            val perms = obj.optJSONArray("permissions")?.let { arr ->
+                (0 until arr.length()).mapNotNull { idx -> arr.optString(idx).takeIf { it.isNotBlank() } }
+            } ?: emptyList()
+            MemohUserGrant(
+                id = id,
+                botId = obj.optString("bot_id"),
+                userId = obj.optString("user_id"),
+                userDisplayName = obj.optString("user_display_name"),
+                userUsername = obj.optString("user_username"),
+                userAvatarUrl = obj.optString("user_avatar_url"),
+                isOwner = obj.optBoolean("is_owner"),
+                permissions = perms,
+            )
+        }
+    }
+
+    suspend fun botUserCandidates(botId: String, query: String = ""): List<MemohUserCandidate> {
+        val path = "/bots/${Uri.encode(botId)}/user-access/candidates" +
+            (if (query.isNotBlank()) "?q=${Uri.encode(query.trim())}" else "")
+        val array = request(path).optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = obj.optString("id")
+            if (id.isBlank()) null else MemohUserCandidate(
+                id = id,
+                username = obj.optString("username"),
+                displayName = obj.optString("display_name"),
+                avatarUrl = obj.optString("avatar_url"),
+            )
+        }
+    }
+
+    suspend fun createBotUserGrant(botId: String, userId: String, permissions: List<String>): JSONObject {
+        require(userId.isNotBlank()) { "User ID is required" }
+        require(permissions.isNotEmpty()) { "At least one permission is required" }
+        val body = JSONObject()
+            .put("user_id", userId.trim())
+            .put("permissions", JSONArray(permissions))
+            .put("subject_type", "user")
+        return request("/bots/${Uri.encode(botId)}/user-access", body)
+    }
+
+    suspend fun updateBotUserGrant(botId: String, grantId: String, permissions: List<String>): JSONObject {
+        require(permissions.isNotEmpty()) { "At least one permission is required" }
+        val body = JSONObject().put("permissions", JSONArray(permissions))
+        return request("/bots/${Uri.encode(botId)}/user-access/${Uri.encode(grantId)}", body, method = "PUT")
+    }
+
+    suspend fun deleteBotUserGrant(botId: String, grantId: String) {
+        request("/bots/${Uri.encode(botId)}/user-access/${Uri.encode(grantId)}", method = "DELETE")
+    }
+
+    suspend fun botChannels(botId: String): List<JSONObject> {
+        val array = request("/bots/${Uri.encode(botId)}/channel").optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+    }
+
+    suspend fun updateBotChannelStatus(botId: String, platform: String, enabled: Boolean): JSONObject =
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}/status",
+            JSONObject().put("enabled", enabled), method = "PATCH")
+
+    suspend fun deleteBotChannel(botId: String, platform: String) {
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}", method = "DELETE")
+    }
+
+    suspend fun upsertBotChannel(botId: String, platform: String, config: JSONObject): JSONObject =
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}", config, method = "PUT")
+
+    suspend fun agents(botId: String): List<MemohAgent> {
+        val items = request("/bots/${Uri.encode(botId)}/agents").optJSONArray("items") ?: JSONArray()
+        return (0 until items.length()).mapNotNull { i ->
+            items.optJSONObject(i)?.let(::decodeAgent)?.takeIf { it.id.isNotBlank() }
+        }
+    }
+
+    suspend fun agentProfiles(): List<MemohAgentProfile> {
+        val items = request("/acp/profiles").optJSONArray("items") ?: JSONArray()
+        return (0 until items.length()).mapNotNull { i ->
+            val item = items.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) null else MemohAgentProfile(id, item.optString("display_name").ifBlank { id },
+                item.optString("description"))
+        }
+    }
+
+    suspend fun createAgent(botId: String, name: String, option: MemohAgentOption): MemohAgent {
+        require(name.isNotBlank()) { "Agent name is required" }
+        val metadata = JSONObject().put("provider", option.id)
+        val body = JSONObject().put("name", name.trim()).put("runtime", option.runtime).put("metadata", metadata)
+        if (option.runtime != "acp") {
+            metadata.put("auth", when (option.runtime) {
+                "codex" -> "chatgpt"
+                "claude-code" -> "workspace"
+                "grok-build" -> "grok_account"
+                else -> "api_key"
+            })
+            body.put("enabled", false)
+        }
+        return decodeAgent(request("/bots/${Uri.encode(botId)}/agents", body))
+    }
+
+    suspend fun updateAgent(botId: String, agentId: String, name: String? = null,
+        enabled: Boolean? = null, metadata: JSONObject? = null): MemohAgent {
+        val body = JSONObject()
+        name?.let { body.put("name", it.trim()) }
+        enabled?.let { body.put("enabled", it) }
+        metadata?.let { body.put("metadata", JSONObject(it.toString())) }
+        require(body.length() > 0) { "No Agent changes supplied" }
+        return decodeAgent(request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}", body, method = "PATCH"))
+    }
+
+    suspend fun deleteAgent(botId: String, agentId: String) {
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}", method = "DELETE")
+    }
+
+    suspend fun saveAgentCredential(botId: String, agent: MemohAgent, secret: String) {
+        val auth = agent.metadata.optString("auth")
+        val (authKind, secretKey) = when {
+            auth == "oauth_token" -> "claude_code_oauth" to "oauth_token"
+            agent.runtime == "codex" -> "openai_api_key" to "api_key"
+            agent.runtime == "claude-code" -> "anthropic_api_key" to "api_key"
+            agent.runtime == "grok-build" -> "xai_api_key" to "api_key"
+            else -> throw IOException("This Agent runtime does not accept a manual credential")
+        }
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agent.id)}/credential",
+            JSONObject().put("auth_kind", authKind).put("secret", JSONObject().put(secretKey, secret)), method = "PUT")
+    }
+
+    suspend fun deleteAgentCredential(botId: String, agentId: String) {
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/credential", method = "DELETE")
+    }
+
+    suspend fun startDeviceLogin(botId: String, agentId: String): MemohDeviceLogin {
+        val data = request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/authorize", JSONObject())
+        val loginId = data.optString("login_id")
+        if (loginId.isBlank()) throw IOException("Memoh did not return a device login ID")
+        return MemohDeviceLogin(loginId, data.optString("user_code"), data.optString("verification_url"),
+            data.optString("expires_at"))
+    }
+
+    suspend fun pollDeviceLogin(botId: String, agentId: String, loginId: String): MemohDeviceLoginResult {
+        val data = request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/poll",
+            JSONObject().put("login_id", loginId))
+        return MemohDeviceLoginResult(data.optString("status"), data.optString("message"))
+    }
+
+    suspend fun cancelDeviceLogin(botId: String, agentId: String, loginId: String) {
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/cancel",
+            JSONObject().put("login_id", loginId))
+    }
+
+    suspend fun sessionsPage(botId: String, cursor: String = ""): MemohSessionPage {
+        val path = "/bots/${Uri.encode(botId)}/sessions?types=chat,discuss,acp_agent,schedule&hide_schedule_runs=true&limit=50" +
+            if (cursor.isBlank()) "" else "&cursor=${Uri.encode(cursor)}"
+        val response = request(path)
+        val array = response.optJSONArray("items") ?: JSONArray()
+        val items = (0 until array.length()).mapNotNull { i ->
+            val item = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) null else decodeSession(item)
+        }
+        return MemohSessionPage(items, response.optString("next_cursor").takeIf { it.isNotBlank() })
+    }
+
+    suspend fun sessions(botId: String): List<MemohSession> = sessionsPage(botId).items
+
+    suspend fun getSession(botId: String, sessionId: String): MemohSession {
+        val result = decodeSession(request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}"))
+        require(result.id == sessionId) { "Memoh returned a different session" }
+        return result
+    }
+
+    suspend fun createSession(botId: String, botAgentId: String = ""): MemohSession {
+        val body = JSONObject().put("title", "").put("channel_type", "local")
+        if (botAgentId.isNotBlank()) body.put("bot_agent_id", botAgentId)
+        val created = decodeSession(request("/bots/${Uri.encode(botId)}/sessions", body))
+        if (created.id.isBlank()) throw IOException("Memoh did not return a session ID")
+        return created
+    }
+
+    suspend fun renameSession(botId: String, sessionId: String, title: String) {
+        require(title.isNotBlank()) { "Name must not be blank" }
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}",
+            JSONObject().put("title", title.trim()), method = "PATCH")
+    }
+
+    suspend fun deleteSession(botId: String, sessionId: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}", method = "DELETE")
+    }
+
+    suspend fun history(botId: String, sessionId: String, beforeMessageId: String = ""): List<MemohTurn> {
+        val path = "/bots/${Uri.encode(botId)}/messages?session_id=${Uri.encode(sessionId)}&limit=50" +
+            if (beforeMessageId.isBlank()) "" else "&before_message_id=${Uri.encode(beforeMessageId)}"
+        val array = request(path).optJSONArray("items") ?: JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            array.optJSONObject(i)?.let(::decodeTurn)
+        }
+    }
+
+
+    suspend fun schedules(botId: String): List<MemohSchedule> {
+        val entries = request("/bots/${Uri.encode(botId)}/schedule")
+            .optJSONArray("items") ?: JSONArray()
+        return (0 until entries.length()).mapNotNull { i ->
+            entries.optJSONObject(i)?.let(::decodeSchedule)
+        }
+    }
+
+    suspend fun schedule(botId: String, scheduleId: String): MemohSchedule? =
+        decodeSchedule(request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}"))
+
+    /**
+     * Creates a schedule.
+     *
+     * `runTarget` is "new_session" or "existing_session"; the latter reuses
+     * [targetSessionId] and must not carry runtime/workdir overrides, the server
+     * inherits them from that session.
+     */
+    suspend fun createSchedule(
+        botId: String,
+        name: String,
+        pattern: String,
+        command: String,
+        description: String = "",
+        runTarget: String = "new_session",
+        targetSessionId: String = "",
+        modelId: String = "",
+        botAgentId: String = "",
+        maxRunSeconds: Int = 0,
+        enabled: Boolean = true,
+    ) {
+        val body = scheduleBody(
+            name, pattern, command, description, runTarget, targetSessionId,
+            modelId, botAgentId, maxRunSeconds
+        )
+        body.put("enabled", enabled)
+        request("/bots/${Uri.encode(botId)}/schedule", body)
+    }
+
+    /**
+     * Updates a schedule.
+     *
+     * The server replaces the whole execution block when it is present and
+     * deliberately offers no field-level patching (run target, runtime and
+     * workdir constrain each other), so callers send the full desired state.
+     */
+    suspend fun updateSchedule(
+        botId: String,
+        scheduleId: String,
+        name: String,
+        pattern: String,
+        command: String,
+        description: String,
+        runTarget: String,
+        targetSessionId: String,
+        modelId: String,
+        botAgentId: String,
+        maxRunSeconds: Int,
+        enabled: Boolean,
+    ) {
+        val body = scheduleBody(
+            name, pattern, command, description, runTarget, targetSessionId,
+            modelId, botAgentId, maxRunSeconds
+        )
+        body.put("enabled", enabled)
+        request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}",
+            body, method = "PUT")
+    }
+
+    private fun scheduleBody(
+        name: String, pattern: String, command: String, description: String,
+        runTarget: String, targetSessionId: String, modelId: String,
+        botAgentId: String, maxRunSeconds: Int,
+    ): JSONObject {
+        require(name.isNotBlank() && pattern.isNotBlank() && command.isNotBlank()) {
+            "Schedule name, cron pattern and instruction are required"
+        }
+        require(runTarget == "new_session" || runTarget == "existing_session") {
+            "Unknown schedule run target"
+        }
+        if (runTarget == "existing_session") {
+            require(targetSessionId.isNotBlank()) {
+                "Choose the session this schedule continues"
+            }
+            // The server rejects runtime overrides here; they come from the session.
+            require(modelId.isBlank() && botAgentId.isBlank()) {
+                "A schedule continuing an existing session inherits its runtime"
+            }
+        } else {
+            require(targetSessionId.isBlank()) {
+                "A new-session schedule cannot target an existing session"
+            }
+        }
+        require(maxRunSeconds == 0 || maxRunSeconds in 300..86400) {
+            "Run budget must be between 300 and 86400 seconds, or 0 for the default"
+        }
+        return JSONObject()
+            .put("name", name.trim())
+            .put("pattern", pattern.trim())
+            .put("command", command.trim())
+            .put("description", description.trim())
+            .put("run_target", runTarget)
+            .apply {
+                if (targetSessionId.isNotBlank()) put("target_session_id", targetSessionId)
+                if (modelId.isNotBlank()) put("model_id", modelId)
+                if (botAgentId.isNotBlank()) put("bot_agent_id", botAgentId)
+                if (maxRunSeconds > 0) put("max_run_seconds", maxRunSeconds)
+            }
+    }
+
+    private fun decodeSchedule(item: JSONObject?): MemohSchedule? {
+        if (item == null) return null
+        val id = item.optString("id")
+        if (id.isBlank()) return null
+        return MemohSchedule(
+            id = id,
+            name = item.optString("name"),
+            pattern = item.optString("pattern"),
+            command = item.optString("command"),
+            description = item.optString("description"),
+            enabled = item.optBoolean("enabled"),
+            runTarget = item.optString("run_target").ifBlank { "new_session" },
+            targetSessionId = item.optString("target_session_id"),
+            modelId = item.optString("model_id"),
+            botAgentId = item.optString("bot_agent_id"),
+            maxRunSeconds = item.optInt("max_run_seconds"),
+            currentCalls = item.optInt("current_calls"),
+            maxCalls = item.optInt("max_calls"),
+            createdAt = item.optString("created_at"),
+            updatedAt = item.optString("updated_at"),
+        )
+    }
+
+    /** Runs of one schedule, newest first as returned by the server. */
+    suspend fun scheduleLogs(botId: String, scheduleId: String, limit: Int = 20, offset: Int = 0): List<MemohScheduleLog> {
+        val entries = request(
+            "/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/logs?limit=$limit&offset=$offset"
+        ).optJSONArray("items") ?: JSONArray()
+        return (0 until entries.length()).mapNotNull { i ->
+            entries.optJSONObject(i)?.let(::decodeScheduleLog)
+        }
+    }
+
+    /** Sessions this schedule's runs created (the bot's sessions, filtered by schedule). */
+    suspend fun scheduleSessions(botId: String, scheduleId: String, cursor: String = ""): MemohSessionPage {
+        val response = request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/sessions" +
+            "?limit=20" + if (cursor.isBlank()) "" else "&cursor=${Uri.encode(cursor)}")
+        return decodeScheduleSessions(response)
+    }
+
+    suspend fun setScheduleEnabled(botId: String, scheduleId: String, enabled: Boolean) {
+        request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}",
+            JSONObject().put("enabled", enabled), method = "PUT")
+    }
+
+    suspend fun deleteSchedule(botId: String, scheduleId: String) {
+        request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}", method = "DELETE")
+    }
+
+    /** Every schedule run recorded for this bot, newest first. */
+    suspend fun allScheduleLogs(botId: String, limit: Int = 50, offset: Int = 0): List<MemohScheduleLog> {
+        val entries = request("/bots/${Uri.encode(botId)}/schedule/logs?limit=$limit&offset=$offset")
+            .optJSONArray("items") ?: JSONArray()
+        return (0 until entries.length()).mapNotNull { i ->
+            entries.optJSONObject(i)?.let(::decodeScheduleLog)
+        }
+    }
+
+    private fun decodeScheduleLog(item: JSONObject): MemohScheduleLog = MemohScheduleLog(
+        id = item.optString("id"),
+        scheduleId = item.optString("schedule_id"),
+        sessionId = if (item.isNull("session_id")) "" else item.optString("session_id"),
+        status = item.optString("status"),
+        startedAt = item.optString("started_at"),
+        completedAt = if (item.isNull("completed_at")) "" else item.optString("completed_at"),
+        errorCode = item.optString("error_code"),
+        errorMessage = item.optString("error_message"),
+        resultText = item.optString("result_text"),
+    )
+
+    /** Clears the run log for a bot. Destructive: callers must confirm first. */
+    suspend fun deleteScheduleLogs(botId: String) {
+        request("/bots/${Uri.encode(botId)}/schedule/logs", method = "DELETE")
+    }
+
+    suspend fun sessionQueues(botId: String, sessionId: String): MemohQueueState {
+        val data = request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/queue")
+        val items = mutableListOf<MemohQueueItem>()
+        for ((type, key) in listOf("steer" to "steer", "follow_up" to "follow_up")) {
+            val array = data.optJSONArray(key) ?: continue
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val id = item.optString("item_id")
+                if (id.isNotBlank()) items.add(MemohQueueItem(
+                    id, type, item.optString("text"), item.optString("status")))
+            }
+        }
+        return MemohQueueState(data.optBoolean("steer_supported"), items)
+    }
+
+    suspend fun enqueueQueue(botId: String, sessionId: String, type: String,
+                             text: String, invocationId: String) {
+        require(type == "steer" || type == "follow_up") { "Invalid queue type" }
+        val path = if (type == "steer") "steer-queue" else "follow-up-queue"
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/$path",
+            JSONObject().put("invocation_id", invocationId).put("text", text))
+    }
+
+    suspend fun cancelQueueItem(botId: String, sessionId: String, item: MemohQueueItem) {
+        val path = if (item.type == "steer") "steer-queue" else "follow-up-queue"
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/$path/${Uri.encode(item.id)}",
+            method = "DELETE")
+    }
+
+    suspend fun memoryConfig(): JSONObject =
+        request("/memory/config")
+
+    suspend fun updateMemoryConfig(embeddingModelId: String): JSONObject =
+        request("/memory/config", JSONObject().put("embedding_model_id", embeddingModelId.trim()), method = "PUT")
+
+    suspend fun listMemories(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory?no_stats=true")
+
+    suspend fun addMemory(botId: String, memory: String): JSONObject {
+        require(memory.isNotBlank()) { "Memory content is required" }
+        return request("/bots/${Uri.encode(botId)}/memory", JSONObject().put("message", memory.trim()))
+    }
+
+    suspend fun updateMemory(botId: String, id: String, memory: String): JSONObject {
+        require(memory.isNotBlank()) { "Memory content is required" }
+        return request("/bots/${Uri.encode(botId)}/memory/${Uri.encode(id)}",
+            JSONObject().put("memory", memory.trim()), method = "PUT")
+    }
+
+    suspend fun deleteMemory(botId: String, id: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/${Uri.encode(id)}", method = "DELETE")
+
+    suspend fun deleteMemories(botId: String, ids: List<String>): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory",
+            JSONObject().put("memory_ids", JSONArray(ids)), method = "DELETE")
+
+    suspend fun searchMemories(botId: String, query: String): JSONObject {
+        require(query.isNotBlank()) { "Search text is required" }
+        return request("/bots/${Uri.encode(botId)}/memory/search", JSONObject().put("query", query.trim()))
+    }
+
+    suspend fun compactMemories(botId: String, ratio: Double, decayDays: Int?): JSONObject {
+        require(ratio > 0.0 && ratio <= 1.0) { "Ratio must be greater than 0 and at most 1" }
+        val body = JSONObject().put("ratio", ratio)
+        decayDays?.let { body.put("decay_days", it) }
+        return request("/bots/${Uri.encode(botId)}/memory/compact", body)
+    }
+
+    suspend fun memoryGraph(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/graph")
+
+    suspend fun ingestMemories(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/ingest", JSONObject())
+
+    suspend fun rebuildMemories(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/rebuild", JSONObject())
+
+    suspend fun memoryStatus(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/status")
+
+    suspend fun memoryUsage(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/memory/usage")
+
+    /** Authenticate the native socket with a header, not a URL parameter. */
+    fun socket(botId: String, listener: WebSocketListener): WebSocket {
+        val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl()
+        val wsUrl = url.toString().replaceFirst(if (url.isHttps) "https://" else "http://", if (url.isHttps) "wss://" else "ws://")
+        return http.newWebSocket(Request.Builder().url(wsUrl).header("Authorization", "Bearer $token").build(), listener)
+    }
+}
+

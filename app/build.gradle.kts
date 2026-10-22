@@ -28,7 +28,7 @@ android {
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        applicationId = "com.newoether.agora"
+        applicationId = "in.kawaiis.memoh"
         minSdk = 26
         targetSdk = 36
         versionCode = 31
@@ -39,11 +39,13 @@ android {
             abiFilters += listOf("arm64-v8a")
         }
 
-        externalNativeBuild {
-            cmake {
-                cppFlags += "-std=c++17"
-                arguments += listOf("-DANDROID_STL=c++_shared")
-                targets += listOf("agora_llama", "agora_proot")
+        if (project.findProperty("memoh.buildNative") == "true") {
+            externalNativeBuild {
+                cmake {
+                    cppFlags += "-std=c++17"
+                    arguments += listOf("-DANDROID_STL=c++_shared")
+                    targets += listOf("agora_llama", "agora_proot")
+                }
             }
         }
     }
@@ -125,9 +127,11 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
+    if (project.findProperty("memoh.buildNative") == "true") {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+            }
         }
     }
 }
@@ -226,5 +230,17 @@ tasks.whenTaskAdded {
     }
     if (name.contains("StripDebugSymbols") || name.contains("MergeNativeDebugMetadata")) {
         enabled = false
+    }
+}
+
+// Robolectric ships an ASM build that cannot read class files newer than Java 21.
+// Run unit tests on a Java 21 JVM so the suite does not depend on whichever JDK
+// happens to be the machine default (a Java 26 default made every Robolectric
+// test fail with "Unsupported class file major version 70").
+// Compilation targets are untouched; only the test JVM is pinned.
+val testJvm = JavaVersion.VERSION_21
+tasks.withType<Test>().configureEach {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(testJvm.majorVersion)
     }
 }

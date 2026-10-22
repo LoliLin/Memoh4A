@@ -1,0 +1,117 @@
+name: Android
+
+# Manual builds can skip unit tests with the run_tests input.
+
+on:
+  push:
+    branches: [master, 'feat/**']
+  pull_request:
+    branches: [master, 'feat/**']
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: Run unit tests
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools ndk;28.2.13676358"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Release signing is optional: app/build.gradle.kts falls back to the
+      # debug key when local.properties has no storeFile, so a missing secret
+      # must not fail the build.
+      # Secrets are passed through env and checked by the shell; the secrets
+      # context cannot be used directly in a step's if expression.
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "No release signing key configured; using the debug signing fallback."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/release.jks"
+          cat >> local.properties <<EOF
+          storeFile=$GITHUB_WORKSPACE/release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      # Optional: the app also builds without the bundled PRoot runtime, so a
+      # toolchain hiccup here must not fail the whole workflow.
+      - name: Build PRoot runtime
+        continue-on-error: true
+        run: |
+          chmod +x ./build-proot.sh
+          ./build-proot.sh
+
+      - name: Unit tests
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+        run: |
+          ./gradlew -p build-logic test --no-daemon --stacktrace
+          ./gradlew :app:testFdroidDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build APKs
+        run: ./gradlew assemblePlayDebug assembleFdroidRelease --no-daemon --stacktrace
+
+      - name: Verify PRoot runtime packaging
+        continue-on-error: true
+        run: |
+          apk_path=$(find app/build/outputs/apk/fdroid/release -name '*.apk' -print -quit)
+          test -n "$apk_path"
+          unzip -Z1 "$apk_path" > /tmp/apk_entries
+          for library in libproot_exec.so libproot_loader.so libtalloc.so; do
+            grep -Fxq "lib/arm64-v8a/$library" /tmp/apk_entries || {
+              echo "Missing PRoot runtime library: $library" >&2
+              exit 1
+            }
+          done
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoh-apks
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            build-logic/build/reports/tests/
+            build-logic/build/test-results/
+          if-no-files-found: warn
+          retention-days: 14
