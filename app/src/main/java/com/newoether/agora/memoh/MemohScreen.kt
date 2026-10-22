@@ -198,7 +198,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
                     modifier = Modifier.padding(horizontal = 10.dp))
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 LazyColumn {
-                    items(vm.sessions, key = { it.id }) { item ->
+                    items((vm.sessions + listOfNotNull(vm.session)).distinctBy { it.id }, key = { it.id }) { item ->
                         NavigationDrawerItem(
                             label = { Text(item.title, maxLines = 2) },
                             selected = vm.session?.id == item.id,
@@ -237,7 +237,8 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                     }
                                 }
                             }
-                            Text(if (vm.connected) "Connected" else "Reconnecting…",
+                            Text("${vm.session?.title ?: "New Chat"} · ${if (vm.connected) "Connected" else "Reconnecting…"}",
+                                maxLines = 1,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -476,7 +477,11 @@ internal fun MemohScreen(vm: MemohViewModel) {
     if (schedulesOpen && vm.bot != null) {
         MemohSchedulesDialog(vm.workspaceApi, vm.bot!!.id,
             onDismiss = { schedulesOpen = false },
-            sessions = vm.sessions)
+            sessions = vm.sessions,
+            onOpenSession = { sessionId ->
+                schedulesOpen = false
+                vm.openSessionById(sessionId)
+            })
     }
     if (queueOpen && vm.session != null) {
         MemohQueueDialog(vm, onDismiss = { queueOpen = false })

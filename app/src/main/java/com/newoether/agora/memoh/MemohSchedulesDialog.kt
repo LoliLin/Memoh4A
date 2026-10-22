@@ -46,6 +46,8 @@ internal fun MemohSchedulesDialog(
     botId: String,
     onDismiss: () -> Unit,
     sessions: List<MemohSession> = emptyList(),
+    /** Jump into a conversation a schedule run produced. */
+    onOpenSession: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var schedules by remember(botId) { mutableStateOf<List<MemohSchedule>>(emptyList()) }
@@ -56,6 +58,7 @@ internal fun MemohSchedulesDialog(
     var pendingId by remember(botId) { mutableStateOf("") }
     var deleteTarget by remember(botId) { mutableStateOf<MemohSchedule?>(null) }
     var logsTarget by remember(botId) { mutableStateOf<MemohSchedule?>(null) }
+    var allLogsOpen by remember(botId) { mutableStateOf(false) }
     // null = the editor is closed; a blank MemohSchedule = creating a new one.
     var editor by remember(botId) { mutableStateOf<MemohSchedule?>(null) }
 
@@ -95,6 +98,9 @@ internal fun MemohSchedulesDialog(
                     TextButton(onClick = { reloadKey++ }, enabled = !loading) { Text("Refresh") }
                     TextButton(onClick = { editor = MemohSchedule("", "", "", "", "", true) }) {
                         Text("New Schedule")
+                    }
+                    TextButton(onClick = { allLogsOpen = true }, enabled = !loading) {
+                        Text("All runs")
                     }
                 }
                 if (loading) CircularProgressIndicator()
@@ -142,7 +148,17 @@ internal fun MemohSchedulesDialog(
     }
 
     logsTarget?.let { target ->
-        ScheduleLogsDialog(api, botId, target, onDismiss = { logsTarget = null })
+        ScheduleLogsDialog(
+            api = api,
+            botId = botId,
+            schedule = target,
+            onDismiss = { logsTarget = null },
+            onOpenSession = onOpenSession,
+        )
+    }
+
+    if (allLogsOpen) {
+        AllScheduleLogsDialog(api, botId, onDismiss = { allLogsOpen = false }, onOpenSession = onOpenSession)
     }
 
     deleteTarget?.let { target ->
@@ -329,7 +345,7 @@ private fun ScheduleEditor(
                                 description = description, runTarget = runTarget,
                                 targetSessionId = if (runTarget == "existing_session") targetSessionId else "",
                                 modelId = if (runTarget == "new_session") modelId else "",
-                                botAgentId = draft.botAgentId,
+                                botAgentId = if (runTarget == "new_session") draft.botAgentId else "",
                                 maxRunSeconds = budgetValue ?: 0, enabled = enabled,
                             )
                             onSaved("Schedule updated.")
@@ -345,7 +361,9 @@ private fun ScheduleEditor(
 
     if (pickingSession) {
         SessionPickerDialog(
-            sessions = sessions,
+            api = api,
+            botId = botId,
+            initialSessions = sessions,
             onPick = { targetSessionId = it.id; pickingSession = false },
             onDismiss = { pickingSession = false },
         )
@@ -354,24 +372,49 @@ private fun ScheduleEditor(
 
 @Composable
 private fun SessionPickerDialog(
-    sessions: List<MemohSession>,
+    api: MemohApi,
+    botId: String,
+    initialSessions: List<MemohSession>,
     onPick: (MemohSession) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var sessions by remember(botId) { mutableStateOf(initialSessions) }
+    var cursor by remember(botId) { mutableStateOf("") }
+    var nextCursor by remember(botId) { mutableStateOf<String?>(null) }
+    var loading by remember(botId) { mutableStateOf(true) }
+    var error by remember(botId) { mutableStateOf("") }
+    var retry by remember(botId) { mutableStateOf(0) }
+    LaunchedEffect(botId, cursor, retry) {
+        loading = true
+        error = ""
+        try {
+            val page = api.sessionsPage(botId, cursor)
+            sessions = (sessions + page.items).distinctBy { it.id }
+            nextCursor = page.nextCursor?.takeIf { it != cursor }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = e.message ?: "Unable to load conversations"
+        } finally { loading = false }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose session") },
+        title = { Text("Choose Session") },
         text = {
-            if (sessions.isEmpty()) {
-                Text("No loaded conversations. Open a chat first, then come back.")
-            } else {
-                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                    sessions.forEach { session ->
-                        TextButton(onClick = { onPick(session) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(session.title.ifBlank { session.id.take(8) })
-                        }
+            Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                if (loading) CircularProgressIndicator()
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { retry++ }, enabled = !loading) { Text("Retry") }
+                }
+                if (!loading && error.isBlank() && sessions.isEmpty()) Text("No conversations available.")
+                sessions.forEach { session ->
+                    TextButton(onClick = { onPick(session) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(session.title.ifBlank { session.id.take(8) })
                     }
                 }
+                if (nextCursor != null) TextButton(enabled = !loading && error.isBlank(),
+                    onClick = { cursor = nextCursor.orEmpty() }) { Text("Load Older Conversations") }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -384,22 +427,46 @@ private fun ScheduleLogsDialog(
     botId: String,
     schedule: MemohSchedule,
     onDismiss: () -> Unit,
+    onOpenSession: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var logs by remember(schedule.id) { mutableStateOf<List<MemohScheduleLog>>(emptyList()) }
+    var sessions by remember(schedule.id) { mutableStateOf<List<MemohSession>>(emptyList()) }
+    var nextCursor by remember(schedule.id) { mutableStateOf<String?>(null) }
+    var sessionCursor by remember(schedule.id) { mutableStateOf("") }
     var loading by remember(schedule.id) { mutableStateOf(true) }
     var error by remember(schedule.id) { mutableStateOf("") }
     var confirmClear by remember(schedule.id) { mutableStateOf(false) }
     var reloadKey by remember(schedule.id) { mutableStateOf(0) }
 
-    LaunchedEffect(schedule.id, reloadKey) {
+    var logOffset by remember(schedule.id) { mutableStateOf(0) }
+    var moreLogs by remember(schedule.id) { mutableStateOf(false) }
+    LaunchedEffect(botId, schedule.id, logOffset, reloadKey) {
         loading = true
         try {
-            logs = api.scheduleLogs(botId, schedule.id)
+            val page = api.scheduleLogs(botId, schedule.id, offset = logOffset)
+            logs = ((if (logOffset == 0) emptyList() else logs) + page).distinctBy { it.id }
+            moreLogs = page.size == 20
             error = ""
         } catch (e: Exception) {
             error = e.message ?: "Unable to load run history"
         } finally { loading = false }
+    }
+
+    var sessionsLoading by remember(schedule.id) { mutableStateOf(false) }
+    var sessionsError by remember(schedule.id) { mutableStateOf("") }
+    LaunchedEffect(botId, schedule.id, sessionCursor, reloadKey) {
+        sessionsLoading = true
+        sessionsError = ""
+        try {
+            val page = api.scheduleSessions(botId, schedule.id, sessionCursor)
+            sessions = ((if (sessionCursor.isBlank()) emptyList() else sessions) + page.items).distinctBy { it.id }
+            nextCursor = page.nextCursor?.takeIf { it != sessionCursor }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            sessionsError = e.message ?: "Unable to load schedule conversations"
+        } finally { sessionsLoading = false }
     }
 
     AlertDialog(
@@ -413,12 +480,36 @@ private fun ScheduleLogsDialog(
                 if (!loading && error.isBlank() && logs.isEmpty()) {
                     Text("No runs recorded yet.")
                 }
-                logs.forEach { log -> ScheduleLogCard(log) }
+                if (sessions.isNotEmpty()) {
+                    Text("Run Conversations", style = MaterialTheme.typography.titleSmall)
+                    sessions.forEach { run ->
+                        TextButton(onClick = { onOpenSession(run.id) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(run.title.ifBlank { run.id.take(8) })
+                        }
+                    }
+                    Text("Runs", style = MaterialTheme.typography.titleSmall)
+                }
+                if (sessionsLoading) CircularProgressIndicator()
+                if (sessionsError.isNotBlank()) Text(sessionsError, color = MaterialTheme.colorScheme.error)
+                if (nextCursor != null) {
+                    TextButton(enabled = !sessionsLoading, onClick = { sessionCursor = nextCursor.orEmpty() }) {
+                        Text("Load Older Conversations")
+                    }
+                }
+                TextButton(enabled = !loading && !sessionsLoading, onClick = {
+                    logOffset = 0
+                    sessionCursor = ""
+                    reloadKey++
+                }) { Text("Refresh") }
+                logs.forEach { log -> ScheduleLogCard(log, onOpenSession) }
+                if (moreLogs) TextButton(enabled = !loading && error.isBlank(), onClick = { logOffset += 20 }) {
+                    Text("Load Older Runs")
+                }
             }
         },
         confirmButton = {
             if (logs.isNotEmpty()) {
-                TextButton(onClick = { confirmClear = true }) { Text("Clear history") }
+                TextButton(onClick = { confirmClear = true }) { Text("Clear All Bot Run History") }
             } else {
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
@@ -437,6 +528,8 @@ private fun ScheduleLogsDialog(
                     scope.launch {
                         try {
                             api.deleteScheduleLogs(botId)
+                            logOffset = 0
+                            sessionCursor = ""
                             reloadKey++
                         } catch (e: Exception) {
                             error = e.message ?: "Unable to clear history"
@@ -449,8 +542,60 @@ private fun ScheduleLogsDialog(
     }
 }
 
+/** Every schedule run this bot has recorded, across all schedules. */
 @Composable
-private fun ScheduleLogCard(log: MemohScheduleLog) {
+private fun AllScheduleLogsDialog(
+    api: MemohApi,
+    botId: String,
+    onDismiss: () -> Unit,
+    onOpenSession: (String) -> Unit,
+) {
+    var logs by remember(botId) { mutableStateOf<List<MemohScheduleLog>>(emptyList()) }
+    var loading by remember(botId) { mutableStateOf(true) }
+    var error by remember(botId) { mutableStateOf("") }
+
+    var offset by remember(botId) { mutableStateOf(0) }
+    var hasMore by remember(botId) { mutableStateOf(false) }
+    var reloadKey by remember(botId) { mutableStateOf(0) }
+    LaunchedEffect(botId, offset, reloadKey) {
+        loading = true
+        try {
+            val page = api.allScheduleLogs(botId, offset = offset)
+            logs = ((if (offset == 0) emptyList() else logs) + page).distinctBy { it.id }
+            hasMore = page.size == 50
+            error = ""
+        } catch (e: Exception) {
+            error = e.message ?: "Unable to load run history"
+        } finally { loading = false }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("All schedule runs") },
+        text = {
+            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (loading) CircularProgressIndicator()
+                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+                if (!loading && error.isBlank() && logs.isEmpty()) Text("No runs recorded yet.")
+                logs.forEach { log -> ScheduleLogCard(log, onOpenSession) }
+                if (hasMore) TextButton(enabled = !loading && error.isBlank(), onClick = { offset += 50 }) {
+                    Text("Load Older Runs")
+                }
+                TextButton(enabled = !loading, onClick = {
+                    if (error.isBlank()) offset = 0
+                    reloadKey++
+                }) {
+                    Text(if (error.isBlank()) "Refresh" else "Retry")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun ScheduleLogCard(log: MemohScheduleLog, onOpenSession: (String) -> Unit) {
     val failed = log.status.equals("failed", ignoreCase = true) ||
         log.status.equals("error", ignoreCase = true) || log.errorCode.isNotBlank()
     Card(
@@ -477,8 +622,9 @@ private fun ScheduleLogCard(log: MemohScheduleLog) {
                 Text(log.resultText, style = MaterialTheme.typography.bodySmall, maxLines = 6)
             }
             if (log.sessionId.isNotBlank()) {
-                Text("Session ${log.sessionId.take(8)}", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { onOpenSession(log.sessionId) }) {
+                    Text("Open Conversation · ${log.sessionId.take(8)}")
+                }
             }
         }
     }
