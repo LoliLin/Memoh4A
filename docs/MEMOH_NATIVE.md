@@ -10,7 +10,7 @@ Build the integrated source from `LoliLin/Memoh4A`:
 ./gradlew :app:assembleFdroidDebug
 ```
 
-The fork has one Memoh4A launcher and its own Android application ID `in.kawaiis.memoh`. The upstream Agora MainActivity and local conversation store remain untouched and internal. No signed APK is included.
+The fork has one Memoh4A launcher and its own Android application ID `in.kawaiis.memoh`. Its dedicated `MemohApplication` installs crash reporting without starting Agora's local database, tokenizer, llama runtime or automation services. The manifest registers only the Memoh launcher; the upstream Agora entry points remain source references. Building needs an Android SDK and Java 21, with no NDK, CMake, PRoot or llama submodule checkout.
 
 Use a Memoh API base URL, not just its website URL. For Memoh Cloud the default is `https://app.memoh.net/api`; if your self-hosted server exposes API at its root (for example on port 8080), use that direct root URL instead of appending `/api`. Remote connections require HTTPS. Localhost may use HTTP.
 

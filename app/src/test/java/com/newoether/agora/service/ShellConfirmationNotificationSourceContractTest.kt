@@ -23,7 +23,7 @@ class ShellConfirmationNotificationSourceContractTest {
     }
 
     @Test
-    fun `notification intents bind both session and prompt and receiver is private`() {
+    fun `legacy notification intents bind session and prompt without registering a local receiver in Memoh`() {
         val notifier = source("service/ShellConfirmationNotifier.kt")
         assertTrue(notifier.contains("setData(android.net.Uri.parse(\"agora-shell-confirm://\$sessionId/\$promptId\"))"))
         assertTrue(notifier.contains("putExtra(EXTRA_SESSION_ID, sessionId)"))
@@ -35,13 +35,10 @@ class ShellConfirmationNotificationSourceContractTest {
         val document = factory.newDocumentBuilder().parse(manifest)
         val receivers = document.getElementsByTagName("receiver")
         val androidNamespace = "http://schemas.android.com/apk/res/android"
-        val match = (0 until receivers.length)
-            .map { receivers.item(it) }
-            .single {
-                it.attributes.getNamedItemNS(androidNamespace, "name")?.nodeValue ==
-                    ".service.ShellConfirmationReceiver"
-            }
-        assertFalse(match.attributes.getNamedItemNS(androidNamespace, "exported").nodeValue.toBoolean())
+        assertFalse((0 until receivers.length).any {
+            receivers.item(it).attributes.getNamedItemNS(androidNamespace, "name")?.nodeValue ==
+                ".service.ShellConfirmationReceiver"
+        })
     }
 
     private fun source(relativePath: String) = File(

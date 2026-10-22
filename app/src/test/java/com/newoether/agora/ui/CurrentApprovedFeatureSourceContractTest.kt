@@ -180,8 +180,8 @@ class CurrentApprovedFeatureSourceContractTest {
         assertTrue(page.contains("Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS"))
         assertTrue(page.contains("Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
         assertFalse(manifest.contains("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
-        assertTrue(fdroidManifest.contains("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
-        assertTrue(manifest.contains("android.permission.WAKE_LOCK"))
+        assertFalse(fdroidManifest.contains("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
+        assertFalse(manifest.contains("android.permission.WAKE_LOCK"))
 
         val keys = listOf(
             "automation_background_execution",

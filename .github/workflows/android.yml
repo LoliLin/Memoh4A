@@ -27,8 +27,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions/setup-java@v4
         with:
@@ -37,7 +35,7 @@ jobs:
 
       - uses: android-actions/setup-android@v4
         with:
-          packages: "platform-tools ndk;28.2.13676358"
+          packages: "platform-tools"
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -66,14 +64,6 @@ jobs:
           keyPassword=$KEY_PASSWORD
           EOF
 
-      # Optional: the app also builds without the bundled PRoot runtime, so a
-      # toolchain hiccup here must not fail the whole workflow.
-      - name: Build PRoot runtime
-        continue-on-error: true
-        run: |
-          chmod +x ./build-proot.sh
-          ./build-proot.sh
-
       - name: Unit tests
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
         run: |
@@ -83,18 +73,24 @@ jobs:
       - name: Build APKs
         run: ./gradlew assemblePlayDebug assembleFdroidRelease --no-daemon --stacktrace
 
-      - name: Verify PRoot runtime packaging
-        continue-on-error: true
+      - name: Verify remote-only APKs
         run: |
-          apk_path=$(find app/build/outputs/apk/fdroid/release -name '*.apk' -print -quit)
-          test -n "$apk_path"
-          unzip -Z1 "$apk_path" > /tmp/apk_entries
-          for library in libproot_exec.so libproot_loader.so libtalloc.so; do
-            grep -Fxq "lib/arm64-v8a/$library" /tmp/apk_entries || {
-              echo "Missing PRoot runtime library: $library" >&2
-              exit 1
-            }
-          done
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          forbidden = {
+              "libagora_llama.so", "libagora_proot.so", "libproot_exec.so",
+              "libproot_loader.so", "libtalloc.so", "libllama.so",
+          }
+          apks = list(Path("app/build/outputs/apk").rglob("*.apk"))
+          assert apks, "No APKs produced"
+          for apk in apks:
+              with ZipFile(apk) as archive:
+                  unexpected = [name for name in archive.namelist()
+                                if name.startswith("lib/") and Path(name).name in forbidden]
+              assert not unexpected, f"{apk}: unexpected local runtime: {unexpected}"
+          PY
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4

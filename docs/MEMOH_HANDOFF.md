@@ -231,6 +231,30 @@ raw base64、两字段里的 data URL、非法输入与普通 URL。尚未进行
 terminal WebSocket、各类运维/管理端点。
 
 
+## 启动闪退与本地运行时移除（2026-10-22）
+
+洛铃 19:50（UTC+8）报告打开 App 闪退，20:19 明确指出 Memoh 不需要本地 native 运行时。
+此前启动仍注册 `AgoraApplication`，经 `AppContainer` 无条件调用
+`LocalModelRuntime.initialize`；`LlamaEngine` 的初始化器加载 `c++_shared` / `agora_llama`。
+已检查旧 APK，里面没有这两个库。这条启动路径在缺库时会抛 LinkageError；
+目前仍未取得用户手机上的崩溃栈，不能断言这是该设备唯一的故障。
+
+本轮改成独立 `MemohApplication`，仅安装崩溃记录器，不创建 Agora 容器、Room 数据库、
+本地分词器或 llama。移除清单中的 Agora 启动 Activity、本地服务、沙箱 provider 和
+自动化 receiver，关闭 WorkManager 的自动初始化；保留 Memoh Activity 和文件分享 provider。
+`MemohApplication` 实现 `Configuration.Provider`，供仍存在于共享源码里的上游 worker 按需
+初始化 WorkManager，避免 `getInstance()` 抛 "not initialized properly"。
+F-Droid 清单也移除沙箱的所有文件访问、旧式外部存储和忽略电池优化权限。
+Gradle 移除 native 构建开关、NDK 版本和本地运行时 ABI 限制，并排除历史 llama/PRoot
+预编译库。CI 不再拉 native 子模块、安装 NDK 或编译 PRoot；改为检查所有产物没有夹带
+本地运行时。Compose 等 Android UI 依赖自己的预编译库不属于本地 Agent 运行时。
+
+移除了先前“尝试加载失败后吞掉异常”的临时修复及其测试，旧 Agora 运行时代码恢复原状。
+新增 `MemohStartupTest` 使用真实清单和 Launcher，检查登录页冷启动、Activity 重建和
+本地数据库未被创建。首轮验证 `BUILD SUCCESSFUL in 48m 40s`，Memoh 5 个测试类共
+30 个测试，0 failures / 0 errors / 0 skipped（包含新增的冷启动与 Activity 重建两项）。
+随后移除 F-Droid 沙箱权限，正在重新打包并检查最终 APK。
+
 ## 继续开发时的约定
 
 1. **只用固定版本的上游契约**（`f3e8199`）。要确认某个字段语义，去看 Go handler，不要凭字段名推断。
