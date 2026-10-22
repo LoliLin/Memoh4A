@@ -35,8 +35,8 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.newoether.agora.ui.components.AgoraDropdownMenu
+import com.newoether.agora.ui.components.AgoraDropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -228,9 +228,9 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                     IconButton(onClick = { botMenu = true }) {
                                         Icon(Icons.Default.MoreVert, "Choose bot")
                                     }
-                                    DropdownMenu(expanded = botMenu, onDismissRequest = { botMenu = false }) {
+                                    AgoraDropdownMenu(expanded = botMenu, onDismissRequest = { botMenu = false }) {
                                         vm.bots.forEach { option ->
-                                            DropdownMenuItem(text = { Text(option.title) }, onClick = {
+                                            AgoraDropdownMenuItem(text = { Text(option.title) }, onClick = {
                                                 vm.selectBot(option); botMenu = false
                                             })
                                         }
@@ -251,50 +251,50 @@ internal fun MemohScreen(vm: MemohViewModel) {
                             IconButton(onClick = { accountMenu = true }) {
                                 Icon(Icons.Default.MoreVert, "Account")
                             }
-                            DropdownMenu(expanded = accountMenu, onDismissRequest = { accountMenu = false }) {
-                                DropdownMenuItem(text = { Text("Refresh bots") }, onClick = {
+                            AgoraDropdownMenu(expanded = accountMenu, onDismissRequest = { accountMenu = false }) {
+                                AgoraDropdownMenuItem(text = { Text("Refresh bots") }, onClick = {
                                     accountMenu = false; vm.refreshBots()
                                 })
                                 if (vm.bot != null) {
-                                    DropdownMenuItem(text = { Text("Bot Details") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Bot Details") }, onClick = {
                                         accountMenu = false
                                         botDetailsOpen = true
                                     })
-                                    DropdownMenuItem(text = { Text("Bot Backup") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Bot Backup") }, onClick = {
                                         accountMenu = false
                                         backupStatus = ""
                                         backupOpen = true
                                     })
-                                    DropdownMenuItem(text = { Text("Workspace Files") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Workspace Files") }, onClick = {
                                         accountMenu = false
                                         filesOpen = true
                                     })
-                                    DropdownMenuItem(text = { Text("Memory") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Memory") }, onClick = {
                                         accountMenu = false
                                         memoriesOpen = true
                                     })
-                                    DropdownMenuItem(text = { Text("Schedules") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Schedules") }, onClick = {
                                         accountMenu = false
                                         schedulesOpen = true
                                     })
                                 }
                                 if (vm.session != null) {
-                                    DropdownMenuItem(text = { Text("Message Queue") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Message Queue") }, onClick = {
                                         accountMenu = false
                                         queueOpen = true
                                         vm.refreshQueue()
                                     })
-                                    DropdownMenuItem(text = { Text("Rename chat") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Rename chat") }, onClick = {
                                         newTitle = vm.session?.title.orEmpty()
                                         renameDialog = true
                                         accountMenu = false
                                     })
-                                    DropdownMenuItem(text = { Text("Delete chat") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Delete chat") }, onClick = {
                                         deleteDialog = true
                                         accountMenu = false
                                     })
                                 }
-                                DropdownMenuItem(text = { Text("Sign out") }, onClick = {
+                                AgoraDropdownMenuItem(text = { Text("Sign out") }, onClick = {
                                     accountMenu = false; vm.logout()
                                 })
                             }
@@ -336,13 +336,13 @@ internal fun MemohScreen(vm: MemohViewModel) {
                                     enabled = composer.isNotBlank() && !vm.queueBusy) {
                                     Icon(Icons.AutoMirrored.Filled.Send, "Queue message")
                                 }
-                                DropdownMenu(expanded = sendQueueMenu,
+                                AgoraDropdownMenu(expanded = sendQueueMenu,
                                     onDismissRequest = { sendQueueMenu = false }) {
-                                    DropdownMenuItem(text = { Text("Add Follow-Up") }, onClick = {
+                                    AgoraDropdownMenuItem(text = { Text("Add Follow-Up") }, onClick = {
                                         if (vm.queueMessage(composer, "follow_up")) composer = ""
                                         sendQueueMenu = false
                                     })
-                                    DropdownMenuItem(text = { Text("Steer Current Run") },
+                                    AgoraDropdownMenuItem(text = { Text("Steer Current Run") },
                                         enabled = vm.queueState?.steerSupported == true,
                                         onClick = {
                                             if (vm.queueMessage(composer, "steer")) composer = ""

@@ -25,8 +25,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +33,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import com.newoether.agora.ui.components.AgoraDropdownMenu
+import com.newoether.agora.ui.components.AgoraDropdownMenuItem
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -132,10 +132,10 @@ internal fun MemohBotChannelsTab(
                         Spacer(Modifier.width(6.dp))
                         Text("Add")
                     }
-                    DropdownMenu(expanded = showAddMenu, onDismissRequest = { showAddMenu = false }) {
+                    AgoraDropdownMenu(expanded = showAddMenu, onDismissRequest = { showAddMenu = false }) {
                         val configuredPlatforms = channels.map { it.platform }.toSet()
                         SUPPORTED_PLATFORMS.filterNot { it.first in configuredPlatforms }.forEach { (key, label) ->
-                            DropdownMenuItem(
+                            AgoraDropdownMenuItem(
                                 text = { Text(label) },
                                 onClick = {
                                     showAddMenu = false
