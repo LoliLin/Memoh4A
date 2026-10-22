@@ -58,33 +58,110 @@ import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.util.UUID
 
-internal suspend fun resolveAttachmentFromUri(context: Context, uri: Uri): MemohAttachment? = withContext(Dispatchers.IO) {
-    runCatching {
+/**
+ * Attachments travel inside the message payload as base64 data URLs, so the whole
+ * file is held in memory twice (raw bytes + base64 string, which is ~4/3 larger)
+ * before the request body adds a third copy. A picked video used to be read in
+ * unconditionally and took the process down with an OutOfMemoryError.
+ *
+ * Cap it instead: anything larger is refused with an explicit message rather than
+ * crashing or being silently dropped.
+ */
+internal const val MAX_ATTACHMENT_BYTES = 8L * 1024 * 1024
+
+/** Thrown when a picked file is too large to inline into a message. */
+internal class AttachmentTooLargeException(val name: String, val bytes: Long) :
+    IllegalArgumentException(
+        "$name is ${formatAttachmentSize(bytes)}; attachments are limited to " +
+            formatAttachmentSize(MAX_ATTACHMENT_BYTES)
+    )
+
+/**
+ * Reads a picked document into an inline attachment.
+ *
+ * Returns null only when the file cannot be read at all; a file that is readable
+ * but too large throws [AttachmentTooLargeException] so the caller can tell the
+ * user why nothing was attached.
+ */
+internal suspend fun resolveAttachmentFromUri(context: Context, uri: Uri): MemohAttachment? =
+    withContext(Dispatchers.IO) {
         var displayName = "attachment"
-        var size = 0L
+        var declaredSize = 0L
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
             if (cursor.moveToFirst()) {
                 if (nameIndex != -1) displayName = cursor.getString(nameIndex) ?: displayName
-                if (sizeIndex != -1) size = cursor.getLong(sizeIndex)
+                if (sizeIndex != -1) declaredSize = cursor.getLong(sizeIndex)
             }
+        }
+        // Reject on the provider's declared size first so an oversized file is
+        // never read into memory at all.
+        if (declaredSize > MAX_ATTACHMENT_BYTES) {
+            throw AttachmentTooLargeException(displayName, declaredSize)
         }
         val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val type = if (mime.startsWith("image/")) "image" else "file"
-        val bytes = context.contentResolver.openInputStream(uri)?.use { (it as InputStream).readBytes() } ?: return@runCatching null
-        val base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        val dataUrl = "data:$mime;base64,$base64Data"
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                readAtMost(stream, MAX_ATTACHMENT_BYTES)
+            }
+        }.getOrElse { return@withContext null } ?: return@withContext null
+        if (bytes.size > MAX_ATTACHMENT_BYTES) {
+            // The provider under-reported its size; the cap still applies.
+            throw AttachmentTooLargeException(displayName, bytes.size.toLong())
+        }
+        // `base64` is the raw payload field in conversation.UIAttachment; the
+        // `url` field is for server-side references (path/storage_key). Putting
+        // the same data URL in both doubled the bytes on the wire for no gain.
         MemohAttachment(
             id = UUID.randomUUID().toString(),
             name = displayName,
             mime = mime,
             type = type,
-            size = if (size > 0) size else bytes.size.toLong(),
-            url = dataUrl,
-            base64 = dataUrl,
+            size = if (declaredSize > 0) declaredSize else bytes.size.toLong(),
+            url = "",
+            base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
         )
-    }.getOrNull()
+    }
+
+/**
+ * Reads up to [limit] bytes, then probes a single extra byte.
+ *
+ * Returns at most `limit + 1` bytes so the caller can detect an oversized stream
+ * without buffering the entire file first.
+ */
+private fun readAtMost(stream: InputStream, limit: Long): ByteArray {
+    val buffer = java.io.ByteArrayOutputStream()
+    val chunk = ByteArray(8 * 1024)
+    var total = 0L
+    while (total <= limit) {
+        val read = stream.read(chunk)
+        if (read < 0) break
+        val allowed = minOf(read.toLong(), limit + 1 - total).toInt()
+        if (allowed <= 0) break
+        buffer.write(chunk, 0, allowed)
+        total += allowed
+        if (total > limit) break
+    }
+    return buffer.toByteArray()
+}
+
+/**
+ * Resolves the loadable image source for an attachment.
+ *
+ * `url` holds a server reference (http/data URL) when present. Otherwise the
+ * payload arrives as a bare base64 string in `base64`, which an image loader
+ * cannot parse on its own — rebuild the data URL from the attachment's mime type.
+ * Returns null when there is nothing renderable.
+ */
+internal fun MemohAttachment.imageSource(): String? {
+    if (url.isNotBlank()) return url
+    if (base64.isBlank()) return null
+    // Tolerate an older peer that sent a full data URL in `base64`.
+    if (base64.startsWith("data:", ignoreCase = true)) return base64
+    val safeMime = mime.ifBlank { "application/octet-stream" }
+    return "data:$safeMime;base64,$base64"
 }
 
 internal fun formatAttachmentSize(bytes: Long): String = when {
@@ -98,6 +175,7 @@ internal fun formatAttachmentSize(bytes: Long): String = when {
 internal fun AttachmentPickerButton(
     enabled: Boolean,
     onAttachmentsPicked: (List<MemohAttachment>) -> Unit,
+    onAttachmentError: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var reading by remember { mutableStateOf(false) }
@@ -109,8 +187,18 @@ internal fun AttachmentPickerButton(
         if (uris.isNotEmpty()) {
             reading = true
             scope.launch {
-                val list = uris.mapNotNull { resolveAttachmentFromUri(context, it) }
-                onAttachmentsPicked(list)
+                val accepted = mutableListOf<MemohAttachment>()
+                val problems = mutableListOf<String>()
+                for (uri in uris) {
+                    try {
+                        resolveAttachmentFromUri(context, uri)?.let { accepted += it }
+                            ?: problems.add("Could not read a selected file.")
+                    } catch (e: AttachmentTooLargeException) {
+                        problems.add(e.message ?: "A selected file is too large.")
+                    }
+                }
+                if (accepted.isNotEmpty()) onAttachmentsPicked(accepted)
+                if (problems.isNotEmpty()) onAttachmentError(problems.joinToString("\n"))
                 reading = false
             }
         }
@@ -153,9 +241,9 @@ internal fun AttachmentDraftStrip(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (att.type == "image" && (att.url.isNotBlank() || att.base64.isNotBlank())) {
+                    if (att.type == "image" && att.imageSource() != null) {
                         AsyncImage(
-                            model = att.url.ifBlank { att.base64 },
+                            model = att.imageSource(),
                             contentDescription = att.name,
                             modifier = Modifier
                                 .size(36.dp)
@@ -213,14 +301,14 @@ internal fun TurnAttachmentsView(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         attachments.forEach { att ->
-            if (att.type == "image" && (att.url.isNotBlank() || att.base64.isNotBlank())) {
+            if (att.type == "image" && att.imageSource() != null) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
                         .clickable { previewAttachment = att }
                 ) {
                     AsyncImage(
-                        model = att.url.ifBlank { att.base64 },
+                        model = att.imageSource(),
                         contentDescription = att.name,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -281,7 +369,7 @@ internal fun TurnAttachmentsView(
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
-                    model = att.url.ifBlank { att.base64 },
+                    model = att.imageSource(),
                     contentDescription = att.name,
                     modifier = Modifier
                         .fillMaxWidth()

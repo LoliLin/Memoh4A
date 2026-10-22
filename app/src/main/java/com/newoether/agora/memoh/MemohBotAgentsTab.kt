@@ -2,6 +2,7 @@ package com.newoether.agora.memoh
 
 import android.content.Intent
 import android.net.Uri
+import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,6 +41,15 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** How often the device-code login is polled while waiting for the user. */
+private const val DEVICE_LOGIN_POLL_MS = 2_500L
+
+/** Give up on a device-code login after this long instead of polling forever. */
+private const val DEVICE_LOGIN_TIMEOUT_MS = 15 * 60 * 1000L
+
+/** Consecutive network failures tolerated before the login attempt is abandoned. */
+private const val DEVICE_LOGIN_MAX_FAILURES = 8
+
 @Composable
 internal fun BotAgentsTab(
     api: MemohApi,
@@ -64,15 +74,28 @@ internal fun BotAgentsTab(
             .onFailure { onError(it.message ?: "Failed to refresh agents") }
     }
 
-    // Auto-polling for device code login
+    // Auto-polling for device code login.
+    //
+    // Bounded on purpose: the server is the only thing that knows when a login
+    // really expired, but a poll that keeps failing (offline, revoked token,
+    // server 5xx) would otherwise loop forever and keep the device awake. Past
+    // the deadline stop polling and say so instead of pretending it is pending.
     LaunchedEffect(activeDeviceLogin) {
         val pair = activeDeviceLogin ?: return@LaunchedEffect
         val (agent, login) = pair
         deviceLoginStatus = "Waiting for authorization in browser…"
+        var consecutiveFailures = 0
+        val deadline = System.currentTimeMillis() + DEVICE_LOGIN_TIMEOUT_MS
         while (activeDeviceLogin != null) {
-            delay(2500)
+            if (System.currentTimeMillis() >= deadline) {
+                deviceLoginStatus = "Timed out waiting for authorization. Start the login again."
+                activeDeviceLogin = null
+                break
+            }
+            delay(DEVICE_LOGIN_POLL_MS)
             try {
                 val res = api.pollDeviceLogin(botId, agent.id, login.loginId)
+                consecutiveFailures = 0
                 if (res.status == "success" || res.status == "authorized") {
                     deviceLoginStatus = "Authorized successfully!"
                     controller.refresh(botId)
@@ -81,10 +104,25 @@ internal fun BotAgentsTab(
                     break
                 } else if (res.status == "expired" || res.status == "failed") {
                     deviceLoginStatus = "Authorization expired or failed: ${res.message}"
+                    activeDeviceLogin = null
                     break
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                // Keep polling on transient network errors
+                // A transient network error is worth retrying, but not forever,
+                // and the user should see that it is failing rather than a
+                // permanently cheerful "waiting" label.
+                consecutiveFailures++
+                deviceLoginStatus = if (consecutiveFailures >= DEVICE_LOGIN_MAX_FAILURES) {
+                    "Cannot reach the server for authorization (${e.message ?: "network error"}). Start the login again."
+                } else {
+                    "Waiting for authorization… (retrying after a network error)"
+                }
+                if (consecutiveFailures >= DEVICE_LOGIN_MAX_FAILURES) {
+                    activeDeviceLogin = null
+                    break
+                }
             }
         }
     }

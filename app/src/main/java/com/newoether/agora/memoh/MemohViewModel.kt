@@ -156,6 +156,13 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    /** Applies edited bot metadata without switching bots (see [selectBot]). */
+    fun updateBotMetadata(value: MemohBot) {
+        if (bot?.id != value.id) return
+        bot = value
+        bots = bots.map { if (it.id == value.id) value else it }
+    }
+
     fun selectBot(value: MemohBot) {
         if (awaitingAdmission.isNotEmpty()) {
             error = "Wait until your message is accepted before switching bots."
@@ -382,6 +389,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun consumeRestoredDraft() { restoreDraft = null }
+
+    /** Surface a rejected attachment in the send-error banner instead of dropping it. */
+    fun reportAttachmentError(message: String) {
+        if (message.isNotBlank()) error = message
+    }
 
     fun send(text: String, attachments: List<MemohAttachment> = emptyList()): Boolean {
         val value = text.trim()
