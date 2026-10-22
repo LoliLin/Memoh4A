@@ -510,27 +510,158 @@ internal class MemohApi {
         val entries = request("/bots/${Uri.encode(botId)}/schedule")
             .optJSONArray("items") ?: JSONArray()
         return (0 until entries.length()).mapNotNull { i ->
-            val item = entries.optJSONObject(i) ?: return@mapNotNull null
-            val id = item.optString("id")
-            if (id.isBlank()) null else MemohSchedule(
-                id = id,
-                name = item.optString("name"),
-                pattern = item.optString("pattern"),
-                command = item.optString("command"),
-                description = item.optString("description"),
-                enabled = item.optBoolean("enabled"),
-            )
+            entries.optJSONObject(i)?.let(::decodeSchedule)
         }
     }
 
-    suspend fun createSchedule(botId: String, name: String, pattern: String, command: String) {
+    suspend fun schedule(botId: String, scheduleId: String): MemohSchedule? =
+        decodeSchedule(request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}"))
+
+    /**
+     * Creates a schedule.
+     *
+     * `runTarget` is "new_session" or "existing_session"; the latter reuses
+     * [targetSessionId] and must not carry runtime/workdir overrides, the server
+     * inherits them from that session.
+     */
+    suspend fun createSchedule(
+        botId: String,
+        name: String,
+        pattern: String,
+        command: String,
+        description: String = "",
+        runTarget: String = "new_session",
+        targetSessionId: String = "",
+        modelId: String = "",
+        botAgentId: String = "",
+        maxRunSeconds: Int = 0,
+        enabled: Boolean = true,
+    ) {
+        val body = scheduleBody(
+            name, pattern, command, description, runTarget, targetSessionId,
+            modelId, botAgentId, maxRunSeconds
+        )
+        body.put("enabled", enabled)
+        request("/bots/${Uri.encode(botId)}/schedule", body)
+    }
+
+    /**
+     * Updates a schedule.
+     *
+     * The server replaces the whole execution block when it is present and
+     * deliberately offers no field-level patching (run target, runtime and
+     * workdir constrain each other), so callers send the full desired state.
+     */
+    suspend fun updateSchedule(
+        botId: String,
+        scheduleId: String,
+        name: String,
+        pattern: String,
+        command: String,
+        description: String,
+        runTarget: String,
+        targetSessionId: String,
+        modelId: String,
+        botAgentId: String,
+        maxRunSeconds: Int,
+        enabled: Boolean,
+    ) {
+        val body = scheduleBody(
+            name, pattern, command, description, runTarget, targetSessionId,
+            modelId, botAgentId, maxRunSeconds
+        )
+        body.put("enabled", enabled)
+        request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}",
+            body, method = "PUT")
+    }
+
+    private fun scheduleBody(
+        name: String, pattern: String, command: String, description: String,
+        runTarget: String, targetSessionId: String, modelId: String,
+        botAgentId: String, maxRunSeconds: Int,
+    ): JSONObject {
         require(name.isNotBlank() && pattern.isNotBlank() && command.isNotBlank()) {
             "Schedule name, cron pattern and instruction are required"
         }
-        request("/bots/${Uri.encode(botId)}/schedule",
-            JSONObject().put("name", name.trim()).put("pattern", pattern.trim())
-                .put("command", command.trim()).put("description", "")
-                .put("run_target", "new_session"))
+        require(runTarget == "new_session" || runTarget == "existing_session") {
+            "Unknown schedule run target"
+        }
+        if (runTarget == "existing_session") {
+            require(targetSessionId.isNotBlank()) {
+                "Choose the session this schedule continues"
+            }
+            // The server rejects runtime overrides here; they come from the session.
+            require(modelId.isBlank() && botAgentId.isBlank()) {
+                "A schedule continuing an existing session inherits its runtime"
+            }
+        } else {
+            require(targetSessionId.isBlank()) {
+                "A new-session schedule cannot target an existing session"
+            }
+        }
+        require(maxRunSeconds == 0 || maxRunSeconds in 300..86400) {
+            "Run budget must be between 300 and 86400 seconds, or 0 for the default"
+        }
+        return JSONObject()
+            .put("name", name.trim())
+            .put("pattern", pattern.trim())
+            .put("command", command.trim())
+            .put("description", description.trim())
+            .put("run_target", runTarget)
+            .apply {
+                if (targetSessionId.isNotBlank()) put("target_session_id", targetSessionId)
+                if (modelId.isNotBlank()) put("model_id", modelId)
+                if (botAgentId.isNotBlank()) put("bot_agent_id", botAgentId)
+                if (maxRunSeconds > 0) put("max_run_seconds", maxRunSeconds)
+            }
+    }
+
+    private fun decodeSchedule(item: JSONObject?): MemohSchedule? {
+        if (item == null) return null
+        val id = item.optString("id")
+        if (id.isBlank()) return null
+        return MemohSchedule(
+            id = id,
+            name = item.optString("name"),
+            pattern = item.optString("pattern"),
+            command = item.optString("command"),
+            description = item.optString("description"),
+            enabled = item.optBoolean("enabled"),
+            runTarget = item.optString("run_target").ifBlank { "new_session" },
+            targetSessionId = item.optString("target_session_id"),
+            modelId = item.optString("model_id"),
+            botAgentId = item.optString("bot_agent_id"),
+            maxRunSeconds = item.optInt("max_run_seconds"),
+            currentCalls = item.optInt("current_calls"),
+            maxCalls = item.optInt("max_calls"),
+            createdAt = item.optString("created_at"),
+            updatedAt = item.optString("updated_at"),
+        )
+    }
+
+    /** Runs of one schedule, newest first as returned by the server. */
+    suspend fun scheduleLogs(botId: String, scheduleId: String, limit: Int = 20): List<MemohScheduleLog> {
+        val entries = request(
+            "/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/logs?limit=$limit"
+        ).optJSONArray("items") ?: JSONArray()
+        return (0 until entries.length()).mapNotNull { i ->
+            entries.optJSONObject(i)?.let(::decodeScheduleLog)
+        }
+    }
+
+    /** Sessions this schedule's runs created (the bot's sessions, filtered by schedule). */
+    suspend fun scheduleSessions(botId: String, scheduleId: String): List<MemohScheduleRunSession> {
+        val entries = request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}/sessions")
+            .optJSONArray("items") ?: JSONArray()
+        return (0 until entries.length()).mapNotNull { i ->
+            val item = entries.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) null else MemohScheduleRunSession(
+                id = id,
+                title = item.optString("title"),
+                createdAt = item.optString("created_at"),
+            )
+        }
     }
 
     suspend fun setScheduleEnabled(botId: String, scheduleId: String, enabled: Boolean) {
@@ -540,6 +671,32 @@ internal class MemohApi {
 
     suspend fun deleteSchedule(botId: String, scheduleId: String) {
         request("/bots/${Uri.encode(botId)}/schedule/${Uri.encode(scheduleId)}", method = "DELETE")
+    }
+
+    /** Every schedule run recorded for this bot, newest first. */
+    suspend fun allScheduleLogs(botId: String, limit: Int = 50, offset: Int = 0): List<MemohScheduleLog> {
+        val entries = request("/bots/${Uri.encode(botId)}/schedule/logs?limit=$limit&offset=$offset")
+            .optJSONArray("items") ?: JSONArray()
+        return (0 until entries.length()).mapNotNull { i ->
+            entries.optJSONObject(i)?.let(::decodeScheduleLog)
+        }
+    }
+
+    private fun decodeScheduleLog(item: JSONObject): MemohScheduleLog = MemohScheduleLog(
+        id = item.optString("id"),
+        scheduleId = item.optString("schedule_id"),
+        sessionId = item.optString("session_id"),
+        status = item.optString("status"),
+        startedAt = item.optString("started_at"),
+        completedAt = item.optString("completed_at"),
+        errorCode = item.optString("error_code"),
+        errorMessage = item.optString("error_message"),
+        resultText = item.optString("result_text"),
+    )
+
+    /** Clears the run log for a bot. Destructive: callers must confirm first. */
+    suspend fun deleteScheduleLogs(botId: String) {
+        request("/bots/${Uri.encode(botId)}/schedule/logs", method = "DELETE")
     }
 
     suspend fun sessionQueues(botId: String, sessionId: String): MemohQueueState {

@@ -22,7 +22,7 @@ Log in using the Memoh server's username/password API. The Bearer JWT is stored 
 - Per-bot Memory manager: list/search/add/edit/delete, confirmed bulk/delete-all, graph, status/usage, ingest/rebuild/compact; team-wide embedding configuration is clearly separated and permission-aware
 - Rename and delete server-side chat sessions (explicit deletion confirmation)
 - Per-bot workspace file browser for listing, viewing, revision-fenced text edits and system picker uploads
-- Server-side schedule list, creation, enable/disable and deletion (basic cron/new-session creation only)
+- Server-side schedules: list, create and **edit** (cron, instruction, description), enable/disable, confirmed delete, plus **run history** (per-schedule logs with status/errors/result text, and confirmed clearing). Both run targets are supported — `new_session` with an optional model override, or `existing_session` continuing a chosen conversation (picking a session inherits its runtime, so model/agent overrides are refused there). Run budget is validated to the server's 300–86400s range.
 - Bot backup summary and binary export through Android's system save-document picker; server-previewed import through the open-document picker, with explicit confirmation and server result reporting
 - In-band first-message session creation; client-minted `invocation_id` for replay-safe sends
 - WebSocket `/bots/{bot_id}/web/ws` with a bearer-authenticated handshake, runtime subscribe/unsubscribe, reconnect and admission replay
@@ -39,7 +39,7 @@ This is **source-only and not build-verified or live-tested against an authentic
 - Chat-composer attachments and inline image previews are not implemented; the separate workspace file uploader is not a chat attachment API.
 - Workspace file browser currently supports single-file upload and text editing, not folder uploads, bulk actions or media preview.
 - Backup import uses the server default section set; per-section import selection is not exposed. Backup export supports selecting documented sections and an optional encryption passphrase. Encrypted imports can enter a passphrase when the server preview requests one.
-- Advanced schedules (existing-session targets, cron editing, runs/logs), terminal, audio, slash commands, queue reorder/edit, and external-agent setup remain incomplete.
+- Schedule workdir binding and per-schedule agent/ACP runtime selection are not exposed (the fields are plumbed for new-session schedules but there is no bot-workdir picker). Terminal, audio, slash commands, queue reorder/edit, and external-agent setup remain incomplete.
 - The runtime reducer handles the common snapshot/delta text and tool paths, but not the entire Memoh Web client's event/cursor/resync semantics. Do not use it for high-impact Agent operations without verifying reconnection and approval flows.
 - This fork launches directly into Memoh4A. The upstream Agora UI is not surfaced in the new navigation.
 - Supports username/password auth only; Cloud may require a different sign-in surface.
