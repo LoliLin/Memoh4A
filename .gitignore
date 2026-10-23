@@ -37,3 +37,8 @@ app/src/fdroid/jniLibs/arm64-v8a/
 /.claude/
 signing.properties
 AGENTS.md
+
+# Memoh probe session captures (live cookies)
+curl.txt
+curl.sh
+curl.bat
