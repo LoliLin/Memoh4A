@@ -3,6 +3,9 @@ package com.newoether.agora.memoh
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.json.JSONObject
 
 /**
@@ -43,7 +46,10 @@ internal class MemohAgentController(private val api: MemohApi) {
         selectedAgentId = id
     }
 
+    private var refreshGeneration = 0
+
     fun clear() {
+        refreshGeneration++
         agents = emptyList()
         profiles = emptyList()
         selectedAgentId = ""
@@ -52,23 +58,39 @@ internal class MemohAgentController(private val api: MemohApi) {
     }
 
     suspend fun refresh(botId: String) {
+        val generation = ++refreshGeneration
+        val baseUrl = api.baseUrl
+        val token = api.token
+        fun current() = generation == refreshGeneration && api.baseUrl == baseUrl && api.token == token
         loading = true
         error = ""
         try {
-            agents = api.agents(botId)
+            val updatedAgents = api.agents(botId)
+            currentCoroutineContext().ensureActive()
+            if (!current()) return
+            agents = updatedAgents
             if (selectedAgentId.isNotBlank() && agents.none { it.id == selectedAgentId && it.enabled }) {
                 selectedAgentId = ""
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            error = e.message ?: "Failed to load Agents"
+            currentCoroutineContext().ensureActive()
+            if (current()) error = e.message ?: "Failed to load Agents"
             throw e
         } finally {
-            loading = false
+            if (current()) loading = false
         }
         try {
-            profiles = api.agentProfiles()
+            if (!current()) return
+            val updatedProfiles = api.agentProfiles()
+            currentCoroutineContext().ensureActive()
+            if (current()) profiles = updatedProfiles
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (profiles.isEmpty()) error = e.message ?: "ACP Agent profiles are unavailable"
+            currentCoroutineContext().ensureActive()
+            if (current() && profiles.isEmpty()) error = e.message ?: "ACP Agent profiles are unavailable"
         }
     }
 
@@ -139,11 +161,8 @@ internal class MemohAgentController(private val api: MemohApi) {
         return api.startDeviceLogin(botId, agent.id)
     }
 
-    suspend fun pollDeviceLogin(botId: String, agent: MemohAgent, loginId: String): MemohDeviceLoginResult {
-        val result = api.pollDeviceLogin(botId, agent.id, loginId)
-        if (result.status == "success") refresh(botId)
-        return result
-    }
+    suspend fun pollDeviceLogin(botId: String, agent: MemohAgent, loginId: String): MemohDeviceLoginResult =
+        api.pollDeviceLogin(botId, agent.id, loginId)
 
     suspend fun cancelDeviceLogin(botId: String, agent: MemohAgent, loginId: String) {
         api.cancelDeviceLogin(botId, agent.id, loginId)

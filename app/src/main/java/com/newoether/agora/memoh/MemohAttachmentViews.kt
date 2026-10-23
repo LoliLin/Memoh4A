@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +56,6 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.InputStream
 import java.util.UUID
 
 /**
@@ -70,10 +70,11 @@ import java.util.UUID
 internal const val MAX_ATTACHMENT_BYTES = 8L * 1024 * 1024
 
 /** Thrown when a picked file is too large to inline into a message. */
-internal class AttachmentTooLargeException(val name: String, val bytes: Long) :
+internal class AttachmentTooLargeException(val name: String, val bytes: Long, limit: Long = MAX_ATTACHMENT_BYTES) :
     IllegalArgumentException(
-        "$name is ${formatAttachmentSize(bytes)}; attachments are limited to " +
-            formatAttachmentSize(MAX_ATTACHMENT_BYTES)
+        "$name exceeds the remaining attachment allowance of " +
+            (if (limit == 0L) "0 B" else formatAttachmentSize(limit)) +
+            ". Each draft is limited to ${formatAttachmentSize(MAX_DRAFT_ATTACHMENT_BYTES)}."
     )
 
 /**
@@ -83,8 +84,13 @@ internal class AttachmentTooLargeException(val name: String, val bytes: Long) :
  * but too large throws [AttachmentTooLargeException] so the caller can tell the
  * user why nothing was attached.
  */
-internal suspend fun resolveAttachmentFromUri(context: Context, uri: Uri): MemohAttachment? =
+internal suspend fun resolveAttachmentFromUri(
+    context: Context,
+    uri: Uri,
+    remainingBytes: Long = MAX_DRAFT_ATTACHMENT_BYTES,
+): MemohAttachment? =
     withContext(Dispatchers.IO) {
+        val limit = minOf(MAX_ATTACHMENT_BYTES, remainingBytes.coerceAtLeast(0))
         var displayName = "attachment"
         var declaredSize = 0L
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -97,19 +103,22 @@ internal suspend fun resolveAttachmentFromUri(context: Context, uri: Uri): Memoh
         }
         // Reject on the provider's declared size first so an oversized file is
         // never read into memory at all.
-        if (declaredSize > MAX_ATTACHMENT_BYTES) {
-            throw AttachmentTooLargeException(displayName, declaredSize)
+        if (declaredSize > limit) {
+            throw AttachmentTooLargeException(displayName, declaredSize, limit)
         }
         val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
         val type = if (mime.startsWith("image/")) "image" else "file"
         val bytes = runCatching {
             context.contentResolver.openInputStream(uri)?.use { stream ->
-                readAtMost(stream, MAX_ATTACHMENT_BYTES)
+                readAttachmentAtMost(stream, limit)
             }
-        }.getOrElse { return@withContext null } ?: return@withContext null
-        if (bytes.size > MAX_ATTACHMENT_BYTES) {
-            // The provider under-reported its size; the cap still applies.
-            throw AttachmentTooLargeException(displayName, bytes.size.toLong())
+        }.getOrElse {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            return@withContext null
+        } ?: return@withContext null
+        if (bytes.size > limit) {
+            // The provider under-reported its size; the remaining draft cap still applies.
+            throw AttachmentTooLargeException(displayName, bytes.size.toLong(), limit)
         }
         // `base64` is the raw payload field in conversation.UIAttachment; the
         // `url` field is for server-side references (path/storage_key). Putting
@@ -119,33 +128,11 @@ internal suspend fun resolveAttachmentFromUri(context: Context, uri: Uri): Memoh
             name = displayName,
             mime = mime,
             type = type,
-            size = if (declaredSize > 0) declaredSize else bytes.size.toLong(),
+            size = bytes.size.toLong(),
             url = "",
             base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
         )
     }
-
-/**
- * Reads up to [limit] bytes, then probes a single extra byte.
- *
- * Returns at most `limit + 1` bytes so the caller can detect an oversized stream
- * without buffering the entire file first.
- */
-private fun readAtMost(stream: InputStream, limit: Long): ByteArray {
-    val buffer = java.io.ByteArrayOutputStream()
-    val chunk = ByteArray(8 * 1024)
-    var total = 0L
-    while (total <= limit) {
-        val read = stream.read(chunk)
-        if (read < 0) break
-        val allowed = minOf(read.toLong(), limit + 1 - total).toInt()
-        if (allowed <= 0) break
-        buffer.write(chunk, 0, allowed)
-        total += allowed
-        if (total > limit) break
-    }
-    return buffer.toByteArray()
-}
 
 /**
  * Resolves a server URL or decodes inline base64 into bytes that Coil can load.
@@ -179,38 +166,86 @@ internal fun formatAttachmentSize(bytes: Long): String = when {
 @Composable
 internal fun AttachmentPickerButton(
     enabled: Boolean,
+    currentOwner: () -> MemohAttachmentDraftOwner?,
+    currentAttachments: () -> List<MemohAttachment>,
     onAttachmentsPicked: (List<MemohAttachment>) -> Unit,
     onAttachmentError: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var reading by remember { mutableStateOf(false) }
+    var launchOwner by remember { mutableStateOf<MemohAttachmentDraftOwner?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val ownerNow by rememberUpdatedState(currentOwner)
+    val attachmentsNow by rememberUpdatedState(currentAttachments)
+    val onPickedNow by rememberUpdatedState(onAttachmentsPicked)
+    val onErrorNow by rememberUpdatedState(onAttachmentError)
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
-        if (uris.isNotEmpty()) {
-            reading = true
+        val owner = launchOwner
+        launchOwner = null
+        if (owner == null || owner != ownerNow() || uris.isEmpty()) {
+            reading = false
+        } else {
             scope.launch {
-                val accepted = mutableListOf<MemohAttachment>()
-                val problems = mutableListOf<String>()
-                for (uri in uris) {
-                    try {
-                        resolveAttachmentFromUri(context, uri)?.let { accepted += it }
-                            ?: problems.add("Could not read a selected file.")
-                    } catch (e: AttachmentTooLargeException) {
-                        problems.add(e.message ?: "A selected file is too large.")
+                try {
+                    for (uri in uris) {
+                        if (owner != ownerNow()) break
+                        val draft = attachmentsNow()
+                        val rejection = attachmentPickerError(draft)
+                        if (rejection != null) {
+                            onErrorNow(rejection)
+                            break
+                        }
+                        val remaining = remainingAttachmentBytes(draft)
+                        try {
+                            val attachment = resolveAttachmentFromUri(context, uri, remaining)
+                            if (owner != ownerNow()) break
+                            if (attachment == null) {
+                                onErrorNow("Could not read a selected file.")
+                            } else if (attachmentPickerError(attachmentsNow()) == null &&
+                                attachmentDraftError(attachmentsNow() + attachment) == null) {
+                                // Publish each file immediately: the next read uses the live draft budget.
+                                onPickedNow(listOf(attachment))
+                            } else {
+                                onErrorNow("The selected file no longer fits in the attachment draft.")
+                            }
+                        } catch (e: AttachmentTooLargeException) {
+                            if (owner != ownerNow()) break
+                            onErrorNow(e.message ?: "A selected file is too large.")
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // A provider may fail while answering name/type queries, before a
+                            // stream exists; report that as one unreadable file, not a crash.
+                            if (owner != ownerNow()) break
+                            onErrorNow("Could not read a selected file: ${e.message ?: "provider error"}")
+                        }
                     }
+                } finally {
+                    reading = false
                 }
-                if (accepted.isNotEmpty()) onAttachmentsPicked(accepted)
-                if (problems.isNotEmpty()) onAttachmentError(problems.joinToString("\n"))
-                reading = false
             }
         }
     }
 
     IconButton(
-        onClick = { launcher.launch("*/*") },
+        onClick = {
+            if (!reading) {
+                val owner = ownerNow()
+                if (owner != null) {
+                    val rejection = attachmentPickerError(attachmentsNow())
+                    if (rejection != null) {
+                        onErrorNow(rejection)
+                        return@IconButton
+                    }
+                    launchOwner = owner
+                    reading = true
+                    launcher.launch("*/*")
+                }
+            }
+        },
         enabled = enabled && !reading
     ) {
         if (reading) {
