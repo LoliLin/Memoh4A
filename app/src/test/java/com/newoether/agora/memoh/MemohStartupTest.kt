@@ -2,6 +2,7 @@ package com.newoether.agora.memoh
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.work.Configuration
 import androidx.work.WorkManager
@@ -9,6 +10,7 @@ import com.newoether.agora.data.local.ChatDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,7 +41,11 @@ class MemohStartupTest {
     fun `recreating the launcher keeps the remote login usable`() {
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText("API address").assertIsDisplayed()
-        compose.onNodeWithText("Connect").assertIsDisplayed()
+        // The server probe may have resolved email-code sign-in by now, so accept whichever
+        // form that result selected rather than pinning one deployment's method.
+        val readyToSignIn = compose.onAllNodesWithText("Connect").fetchSemanticsNodes().isNotEmpty() ||
+            compose.onAllNodesWithText("Send code").fetchSemanticsNodes().isNotEmpty()
+        assertTrue("Sign-in form must still offer an action", readyToSignIn)
         assertFalse(compose.activity.getDatabasePath(ChatDatabase.DB_NAME).exists())
     }
 }

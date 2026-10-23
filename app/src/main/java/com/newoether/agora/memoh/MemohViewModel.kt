@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -43,9 +44,17 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var currentRunStatus = ""
     private var settlingRunId = ""
 
-    var server by mutableStateOf(prefs.getString("server", "https://app.memoh.net/api").orEmpty())
-    var username by mutableStateOf("")
-    var password by mutableStateOf("")
+    val login = MemohLoginForm(prefs.getString("server", MemohEndpoints.CLOUD_ORIGIN).orEmpty())
+
+    private val signIn = MemohSignIn(
+        api = api,
+        prefs = prefs,
+        scope = viewModelScope,
+        form = login,
+        onError = { error = it },
+        onSignedIn = { signedIn = true; login.code = ""; refreshBots() },
+    )
+
     var signedIn by mutableStateOf(false); private set
     var loading by mutableStateOf(false); private set
     var error by mutableStateOf(""); private set
@@ -75,38 +84,26 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val saved = runCatching { MemohTokenStore.read(prefs.getString("jwt", "").orEmpty()) }
             .getOrDefault("")
         if (saved.isNotEmpty()) {
-            runCatching { api.configure(server, saved) }
+            runCatching { api.configure(login.server, saved) }
                 .onSuccess { signedIn = true; refreshBots() }
                 .onFailure { error = it.message.orEmpty() }
+        } else {
+            // Cookie sessions cannot survive the process, so a fresh start asks the server which
+            // form to show instead of guessing from the last deployment.
+            probeLoginMethod()
         }
     }
 
-    fun login() {
-        if (loading) return
-        val loginServer = server.trim()
-        val user = username.trim()
-        val pwd = password
-        if (user.isEmpty() || pwd.isEmpty()) { error = "Enter your username and password"; return }
-        loading = true
+    fun probeLoginMethod() = signIn.probe(login.server)
+
+    fun sendLoginCode() {
         error = ""
-        val revision = ++authRevision
-        viewModelScope.launch {
-            try {
-                api.configure(loginServer)
-                val jwt = api.login(user, pwd)
-                if (revision != authRevision) return@launch
-                withContext(Dispatchers.IO) {
-                    prefs.edit().putString("server", loginServer)
-                        .putString("jwt", MemohTokenStore.seal(jwt)).apply()
-                }
-                password = ""
-                signedIn = true
-                loadBots()
-            } catch (t: Exception) {
-                if (revision == authRevision) error = "Connection failed: ${t.message ?: "Unknown error"}"
-            } finally { if (revision == authRevision) loading = false }
-        }
+        signIn.sendCode(login.email)
     }
+
+    fun loginWithCode() = signIn.signInWithCode(login.code)
+
+    fun login() = signIn.signInWithPassword(login.username.trim(), login.password)
 
     fun logout() {
         authRevision++
@@ -114,11 +111,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         attachmentDraftRevision++; historyRevision++
         queueRevision++
         closeSocket()
-        api.configure(api.baseUrl)
-        prefs.edit().remove("jwt").apply()
+        signIn.signOut()
         signedIn = false
         loading = false
-        password = ""
         bots = emptyList()
         agentController.clear()
         bot = null
@@ -541,40 +536,44 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val generation = ++socketGeneration
         reconnectJob?.cancel()
         socket?.cancel()
-        socket = api.socket(botId, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                viewModelScope.launch {
-                    if (generation != socketGeneration || bot?.id != botId) return@launch
-                    connected = true
-                    session?.id?.let { id ->
-                        webSocket.send(JSONObject().put("type", "runtime_subscribe")
-                            .put("session_id", id).toString())
-                    }
-                    awaitingAdmission.values.forEach { webSocket.send(it.toString()) }
+        socket = null
+        // The handshake may need a ticket round-trip, so the socket opens from a coroutine.
+        viewModelScope.launch {
+            val opened = try {
+                api.socket(botId, socketListener(botId, generation))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                if (generation == socketGeneration && bot?.id == botId) {
+                    error = "Could not open the live connection: ${e.message ?: "unknown error"}"
                 }
+                return@launch
             }
+            if (generation != socketGeneration || bot?.id != botId) opened.cancel() else socket = opened
+        }
+    }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                val json = runCatching { JSONObject(text) }.getOrNull() ?: return
-                viewModelScope.launch {
-                    if (generation == socketGeneration && bot?.id == botId) receive(json)
+    private fun socketListener(botId: String, generation: Int): WebSocketListener {
+        fun current() = generation == socketGeneration && bot?.id == botId
+        return memohSocketListener(
+            scope = viewModelScope,
+            generation = generation,
+            isCurrent = ::current,
+            onOpen = { webSocket ->
+                connected = true
+                session?.id?.let { id ->
+                    webSocket.send(JSONObject().put("type", "runtime_subscribe")
+                        .put("session_id", id).toString())
                 }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (response?.code == 401) {
-                    viewModelScope.launch {
-                        if (generation == socketGeneration && bot?.id == botId) {
-                            logout()
-                            error = "Session expired. Sign in again."
-                        }
-                    }
-                } else disconnected(generation, botId)
-            }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                disconnected(generation, botId)
-            }
-        })
+                awaitingAdmission.values.forEach { webSocket.send(it.toString()) }
+            },
+            onEvent = ::receive,
+            onUnauthorized = {
+                logout()
+                error = "Session expired. Sign in again."
+            },
+            onDisconnected = { disconnected(generation, botId) },
+        )
     }
 
     private fun disconnected(generation: Int, botId: String) {
