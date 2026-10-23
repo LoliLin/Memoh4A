@@ -22,6 +22,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private val prefs = application.getSharedPreferences("memoh_native", 0)
     private var authRevision = 0
     private var botRevision = 0
+    internal var attachmentDraftRevision by mutableStateOf(0); private set
     internal var historyRevision = 0; private set
     internal var navigationRevision = 0
     private var epoch = ""
@@ -110,7 +111,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun logout() {
         authRevision++
         botRevision++
-        historyRevision++
+        attachmentDraftRevision++; historyRevision++
         queueRevision++
         closeSocket()
         api.configure(api.baseUrl)
@@ -170,7 +171,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             return
         }
         val revision = ++botRevision
-        historyRevision++
+        attachmentDraftRevision++; historyRevision++
         queueRevision++
         closeSocket()
         bot = value
@@ -209,7 +210,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             error = "Wait until your message is accepted before switching chats."
             return
         }
-        historyRevision++
+        attachmentDraftRevision++; historyRevision++
         queueRevision++
         resetCursor()
         if (value != null) agentController.selectFromSession(value.botAgentId)
@@ -395,11 +396,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun reportAttachmentError(message: String) {
         if (message.isNotBlank()) error = message
     }
-
     fun send(text: String, attachments: List<MemohAttachment> = emptyList()): Boolean {
         val value = text.trim()
         val selectedBot = bot ?: return false
         if ((value.isEmpty() && attachments.isEmpty()) || pendingUserText != null || running || awaitingAdmission.isNotEmpty()) return false
+        attachmentDraftError(attachments)?.let { error = it; return false }
         error = ""
         restoreDraft = null
         val invocation = UUID.randomUUID().toString()
@@ -421,6 +422,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         awaitingAdmission[invocation] = payload
         pendingUserText = value
         pendingUserAttachments = attachments
+        attachmentDraftRevision++
         if (existingSession != null) {
             if (connected) sendNow(payload)
             else if (socket == null) connectSocket(selectedBot.id)

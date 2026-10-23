@@ -160,7 +160,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     var sendQueueMenu by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
     var composer by remember(vm.bot?.id, vm.session?.id) { mutableStateOf("") }
-    var selectedAttachments by remember(vm.bot?.id, vm.session?.id) { mutableStateOf<List<MemohAttachment>>(emptyList()) }
+    var selectedAttachments by remember(vm.attachmentDraftOwner) { mutableStateOf<List<MemohAttachment>>(emptyList()) }
     LaunchedEffect(vm.restoreDraft) {
         vm.restoreDraft?.let { rejected ->
             if (composer.isBlank()) composer = rejected
@@ -314,6 +314,8 @@ internal fun MemohScreen(vm: MemohViewModel) {
                         verticalAlignment = Alignment.Bottom) {
                         AttachmentPickerButton(
                             enabled = vm.bot != null,
+                            currentOwner = { vm.attachmentDraftOwner },
+                            currentAttachments = { selectedAttachments },
                             onAttachmentsPicked = { selectedAttachments = selectedAttachments + it },
                             onAttachmentError = { vm.reportAttachmentError(it) }
                         )

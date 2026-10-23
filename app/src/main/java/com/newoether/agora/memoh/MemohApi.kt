@@ -4,6 +4,9 @@ import android.content.ContentResolver
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -298,8 +301,34 @@ internal class MemohApi {
         request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/credential", method = "DELETE")
     }
 
+    /** Device attempts must cancel their in-flight HTTP call when the dialog is closed. */
+    private suspend fun deviceLoginRequest(path: String, body: JSONObject): JSONObject = suspendCancellableCoroutine { continuation ->
+        val builder = Request.Builder().url(baseUrl + path)
+            .header("Accept", "application/json")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+        if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
+        val call = http.newCall(builder.build())
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resumeWith(Result.failure(e))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val result = runCatching {
+                    response.use {
+                        if (!it.isSuccessful) throw MemohHttpException(it.code, errorFor(it))
+                        val raw = it.body?.string().orEmpty()
+                        if (raw.isBlank()) JSONObject() else JSONObject(raw)
+                    }
+                }
+                continuation.resumeWith(result)
+            }
+        })
+    }
+
     suspend fun startDeviceLogin(botId: String, agentId: String): MemohDeviceLogin {
-        val data = request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/authorize", JSONObject())
+        val data = deviceLoginRequest("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/authorize", JSONObject())
         val loginId = data.optString("login_id")
         if (loginId.isBlank()) throw IOException("Memoh did not return a device login ID")
         return MemohDeviceLogin(loginId, data.optString("user_code"), data.optString("verification_url"),
@@ -307,13 +336,13 @@ internal class MemohApi {
     }
 
     suspend fun pollDeviceLogin(botId: String, agentId: String, loginId: String): MemohDeviceLoginResult {
-        val data = request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/poll",
+        val data = deviceLoginRequest("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/poll",
             JSONObject().put("login_id", loginId))
         return MemohDeviceLoginResult(data.optString("status"), data.optString("message"))
     }
 
     suspend fun cancelDeviceLogin(botId: String, agentId: String, loginId: String) {
-        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/cancel",
+        deviceLoginRequest("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/login/device/cancel",
             JSONObject().put("login_id", loginId))
     }
 

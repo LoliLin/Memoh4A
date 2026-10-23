@@ -2,7 +2,6 @@ package com.newoether.agora.memoh
 
 import android.content.Intent
 import android.net.Uri
-import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +27,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,20 +40,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-
-/** How often the device-code login is polled while waiting for the user. */
-private const val DEVICE_LOGIN_POLL_MS = 2_500L
-
-/** Give up on a device-code login after this long instead of polling forever. */
-private const val DEVICE_LOGIN_TIMEOUT_MS = 15 * 60 * 1000L
-
-/** Consecutive network failures tolerated before the login attempt is abandoned. */
-private const val DEVICE_LOGIN_MAX_FAILURES = 8
 
 @Composable
 internal fun BotAgentsTab(
+    api: MemohApi,
+    botId: String,
+    controller: MemohAgentController,
+    canManage: Boolean,
+    onError: (String) -> Unit,
+) {
+    key(api, api.baseUrl, api.token, botId, controller) {
+        BotAgentsContent(api, botId, controller, canManage, onError)
+    }
+}
+
+@Composable
+private fun BotAgentsContent(
     api: MemohApi,
     botId: String,
     controller: MemohAgentController,
@@ -66,64 +72,30 @@ internal fun BotAgentsTab(
     var credentialAgent by remember { mutableStateOf<MemohAgent?>(null) }
     var credentialSecret by remember { mutableStateOf("") }
     var deletingAgent by remember { mutableStateOf<MemohAgent?>(null) }
-    var activeDeviceLogin by remember { mutableStateOf<Pair<MemohAgent, MemohDeviceLogin>?>(null) }
-    var deviceLoginStatus by remember { mutableStateOf("") }
-
-    LaunchedEffect(botId) {
-        runCatching { controller.refresh(botId) }
-            .onFailure { onError(it.message ?: "Failed to refresh agents") }
+    val deviceLogin = remember(api, botId, controller) {
+        val baseUrl = api.baseUrl
+        val token = api.token
+        MemohDeviceLoginPoller(
+            scope = scope,
+            start = { api.startDeviceLogin(botId, it) },
+            poll = { agentId, loginId -> api.pollDeviceLogin(botId, agentId, loginId) },
+            cancel = { agentId, loginId -> api.cancelDeviceLogin(botId, agentId, loginId) },
+            refresh = { controller.refresh(botId) },
+            isIdentityCurrent = { api.baseUrl == baseUrl && api.token == token },
+        )
+    }
+    val deviceLoginState by deviceLogin.state.collectAsState()
+    DisposableEffect(deviceLogin) {
+        onDispose { deviceLogin.dispose() }
     }
 
-    // Auto-polling for device code login.
-    //
-    // Bounded on purpose: the server is the only thing that knows when a login
-    // really expired, but a poll that keeps failing (offline, revoked token,
-    // server 5xx) would otherwise loop forever and keep the device awake. Past
-    // the deadline stop polling and say so instead of pretending it is pending.
-    LaunchedEffect(activeDeviceLogin) {
-        val pair = activeDeviceLogin ?: return@LaunchedEffect
-        val (agent, login) = pair
-        deviceLoginStatus = "Waiting for authorization in browser…"
-        var consecutiveFailures = 0
-        val deadline = System.currentTimeMillis() + DEVICE_LOGIN_TIMEOUT_MS
-        while (activeDeviceLogin != null) {
-            if (System.currentTimeMillis() >= deadline) {
-                deviceLoginStatus = "Timed out waiting for authorization. Start the login again."
-                activeDeviceLogin = null
-                break
-            }
-            delay(DEVICE_LOGIN_POLL_MS)
-            try {
-                val res = api.pollDeviceLogin(botId, agent.id, login.loginId)
-                consecutiveFailures = 0
-                if (res.status == "success" || res.status == "authorized") {
-                    deviceLoginStatus = "Authorized successfully!"
-                    controller.refresh(botId)
-                    delay(1000)
-                    activeDeviceLogin = null
-                    break
-                } else if (res.status == "expired" || res.status == "failed") {
-                    deviceLoginStatus = "Authorization expired or failed: ${res.message}"
-                    activeDeviceLogin = null
-                    break
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // A transient network error is worth retrying, but not forever,
-                // and the user should see that it is failing rather than a
-                // permanently cheerful "waiting" label.
-                consecutiveFailures++
-                deviceLoginStatus = if (consecutiveFailures >= DEVICE_LOGIN_MAX_FAILURES) {
-                    "Cannot reach the server for authorization (${e.message ?: "network error"}). Start the login again."
-                } else {
-                    "Waiting for authorization… (retrying after a network error)"
-                }
-                if (consecutiveFailures >= DEVICE_LOGIN_MAX_FAILURES) {
-                    activeDeviceLogin = null
-                    break
-                }
-            }
+    LaunchedEffect(api, botId, controller) {
+        try {
+            controller.refresh(botId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(e.message ?: "Failed to refresh agents")
         }
     }
 
@@ -299,18 +271,8 @@ internal fun BotAgentsTab(
                         Text("Or use Device Code Sign-In:", style = MaterialTheme.typography.labelMedium)
                         Button(
                             onClick = {
-                                scope.launch {
-                                    runCatching { api.startDeviceLogin(botId, agent.id) }
-                                        .onSuccess { login ->
-                                            activeDeviceLogin = agent to login
-                                            credentialAgent = null
-                                            runCatching {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(login.verificationUrl))
-                                                context.startActivity(intent)
-                                            }
-                                        }
-                                        .onFailure { onError(it.message ?: "Device login failed to start") }
-                                }
+                                deviceLogin.start(agent.id, agent.name)
+                                credentialAgent = null
                             }
                         ) { Text("Start Device Code Sign-In") }
                     }
@@ -323,39 +285,41 @@ internal fun BotAgentsTab(
         )
     }
 
-    if (activeDeviceLogin != null) {
-        val (agent, login) = activeDeviceLogin!!
+    deviceLoginState?.let { state ->
+        val login = state.login
+        LaunchedEffect(login?.loginId) {
+            if (login != null && state.pending) {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(login.verificationUrl)))
+                }
+            }
+        }
         AlertDialog(
-            onDismissRequest = {
-                scope.launch { runCatching { api.cancelDeviceLogin(botId, agent.id, login.loginId) } }
-                activeDeviceLogin = null
-            },
-            title = { Text("Device Sign-In: ${agent.name}") },
+            onDismissRequest = { deviceLogin.close() },
+            title = { Text("Device Sign-In: ${state.agentName}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("User Code:", style = MaterialTheme.typography.bodySmall)
-                    Text(login.userCode, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("Verification URL: ${login.verificationUrl}", style = MaterialTheme.typography.bodySmall)
-                    Text(deviceLoginStatus, style = MaterialTheme.typography.bodyMedium)
+                    if (state.pending && login != null) {
+                        Text("User Code:", style = MaterialTheme.typography.bodySmall)
+                        Text(login.userCode, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                        Text("Verification URL: ${login.verificationUrl}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(state.message, style = MaterialTheme.typography.bodyMedium)
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
+                if (state.pending && login != null) {
+                    Button(onClick = {
                         runCatching {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(login.verificationUrl))
-                            context.startActivity(intent)
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(login.verificationUrl)))
                         }
-                    }
-                ) { Text("Open Browser") }
+                    }) { Text("Open Browser") }
+                }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch { runCatching { api.cancelDeviceLogin(botId, agent.id, login.loginId) } }
-                        activeDeviceLogin = null
-                    }
-                ) { Text("Cancel") }
+                TextButton(onClick = { deviceLogin.close() }) {
+                    Text(if (state.pending) "Cancel" else "Close")
+                }
             }
         )
     }

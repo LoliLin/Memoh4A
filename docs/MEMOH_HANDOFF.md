@@ -213,7 +213,7 @@ assembleFdroidDebug             产出 APK
 7. [x] 工作区文件：创建目录、重命名、确认删除、单文件/目录下载、ZIP/TAR.GZ/TGZ 解压。解压目标由服务端决定，不覆盖已有目录。长按目录下载已固定为选中路径。
 8. 工作区后续：文件夹上传、批量操作、媒体预览。
 
-最终验证（2026-10-22）：`:verifyKotlinFileSize`、Memoh 相关测试和
+此前功能验证（2026-10-22，启动修复前）：`:verifyKotlinFileSize`、Memoh 相关测试和
 `:app:assembleFdroidDebug` 同一轮 `BUILD SUCCESSFUL in 4m 49s`。
 四个测试类共 28 个测试，0 failures / 0 errors / 0 skipped：模型 8、API 契约 9、
 导航竞争 5、图片来源 6。没有声称全项目测试全部通过。
@@ -251,9 +251,45 @@ Gradle 移除 native 构建开关、NDK 版本和本地运行时 ABI 限制，�
 
 移除了先前“尝试加载失败后吞掉异常”的临时修复及其测试，旧 Agora 运行时代码恢复原状。
 新增 `MemohStartupTest` 使用真实清单和 Launcher，检查登录页冷启动、Activity 重建和
-本地数据库未被创建。首轮验证 `BUILD SUCCESSFUL in 48m 40s`，Memoh 5 个测试类共
-30 个测试，0 failures / 0 errors / 0 skipped（包含新增的冷启动与 Activity 重建两项）。
-随后移除 F-Droid 沙箱权限，正在重新打包并检查最终 APK。
+本地数据库未被创建；冷启动用例也验证 `WorkManager.getInstance()` 可按需初始化。
+修复已在本地提交 `71679b9f`（2026-10-22），尚未推送。最终验证分别进行：
+
+- 2026-10-22 22:35:39（UTC+8），三个受影响清单契约测试类共 33 项通过：Shell 通知 2、
+  当前功能契约 4、应用 UI 契约 27；`BUILD SUCCESSFUL in 6m 17s`。
+- 2026-10-22 23:25:35（UTC+8），五个 Memoh 测试类共 30 项通过：模型 8、导航契约 9、
+  导航竞争 5、附件 6、真实 Launcher 冷启动/重建 2；`BUILD SUCCESSFUL in 9m 31s`。
+- 上述两轮均为 0 failures / 0 errors / 0 skipped，不代表全项目测试已通过。
+- 随后独立 `:app:assembleFdroidDebug` 验证 `BUILD SUCCESSFUL in 22s`。APK 清单及 ZIP
+  检查确认使用 Memoh 入口，没有旧 Agora 入口、后台服务、WorkManager 自动初始化器、
+  沙箱存储权限或 llama/PRoot 运行时库。未取得手机崩溃栈，尚未真机安装复测。
+
+已交付 APK：`app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk`，66,824,397 字节
+（63.7 MiB），生成于 2026-10-22 23:09:36（UTC+8；随后重打包检查为 UP-TO-DATE）。
+SHA-256：`8A46495C14156764B6B9A29853697B85163CE8B58E0D3096D5EC60EDA80EB148`。
+2026-10-23 续作时重新核对现存 APK，哈希一致；构建和交付时间仍属于 2026-10-22。
+
+## 附件预算与设备码登录终态（2026-10-23）
+
+两个审计确认的缺陷已修复：
+
+- **附件总量无上限**：原来只限制单文件 8 MiB，一次多选或多次追加可以把几百 MiB 的
+  base64 留在草稿里。现在草稿上限 `16 MiB` 原始字节、最多 `10` 个附件，单文件仍是
+  `8 MiB`。读取时按「剩余额度」截断，超限在编码前就拒绝；保留大小改用实际读到的字节，
+  provider 少报或未知大小不能绕过记账；`send()` 再做一次总闸。删除附件会退回额度。
+  选择过程中 bot/会话/登录身份变化时，迟到的选片结果会被丢弃。
+- **设备码登录终态一闪而过**：原来设置错误文案后立刻清空 `activeDeviceLogin`，而该值
+  正是弹窗的渲染条件，于是失败原因看不见。现在成功 / 过期 / 失败 / 超时 / 连续 8 次
+  网络失败都会停在弹窗里，直到用户点 **Close**；Close 不再向服务端发取消请求，未完成的
+  登录点 **Cancel** 才取消，并会真正取消在途 HTTP 调用。授权成功后刷新 Agent 列表失败
+  不会把结果改写成登录失败。
+
+验证（2026-10-23，UTC+8）：`:verifyKotlinFileSize` 1338 文件 / 最大 800 行通过；
+Memoh 九个测试类 **67 项全绿**（0 failures / 0 errors / 0 skipped），三个清单契约类
+**33 项全绿**；`:app:assembleFdroidDebug` `BUILD SUCCESSFUL in 12s`。
+APK 66,841,023 字节（63.7 MiB），2026-10-23 12:56:15（UTC+8），
+SHA-256 `D872F9A0EB2D368A639A217F2830BA848BC6B606865C0D1921C546199D69124A`，
+清单/原生库检查通过。仍未真机安装，也未连接真实 Memoh 服务器；
+未做设备码登录终态的 UI 层测试（轮询状态机有 12 项协程测试覆盖）。
 
 ## 继续开发时的约定
 
