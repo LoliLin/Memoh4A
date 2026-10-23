@@ -79,10 +79,29 @@ internal suspend fun MemohApi.logoutSession() = endSession().invoke()
 internal fun MemohApi.hasSessionCookie(): Boolean = scope.identity.cookies.hasSession()
 
 /**
- * Confirms the restored cookie is still accepted. Any failure (401, transport) means the caller
- * must sign in again rather than assume the session is alive.
+ * Confirms a restored session through the unscoped platform identity.
+ *
+ * It must not call [account]: that hits the team-scoped business gateway, which rejects a
+ * request made before a team is selected — the reason a valid cookie used to look expired and
+ * forced a fresh sign-in on every launch.
  */
-internal suspend fun MemohApi.probeIdentity(): Boolean = runCatching { account() }.isSuccess
+internal suspend fun MemohApi.probeIdentity(): Boolean {
+    val captured = scope
+    return try {
+        if (platformUserId(platformProfile()).isBlank()) {
+            throw IOException("Memoh returned no authenticated platform identity")
+        }
+        acceptCookieSession(captured)
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        requireCurrent(captured)
+        // Only an explicit authentication rejection invalidates a persisted credential;
+        // an offline or 5xx start must leave the cookie in place for the next attempt.
+        if (failure is MemohHttpException && failure.status == 401) false else throw failure
+    }
+}
 
 /** Drops a cookie the server no longer accepts so the next start does not retry it. */
 internal fun MemohApi.clearSession() {
