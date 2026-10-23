@@ -11,10 +11,19 @@ import okhttp3.Response
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/** An identity owns its cookies/client. Every request also captures a team generation. */
+/**
+ * An identity owns its cookies/client. Every request also captures a team generation.
+ *
+ * [cookiePrefs] is where the session cookie is sealed for the next process; it is assigned once at
+ * startup because the transport is constructed before the app's preferences are reachable.
+ */
 internal open class MemohTransport(private val parent: MemohTransport? = null) {
+    companion object {
+        @Volatile internal var cookiePrefs: android.content.SharedPreferences? = null
+    }
+
     internal class Identity(val endpoints: MemohEndpoints, var bearer: String) {
-        val cookies = MemohCookieJar()
+        val cookies = MemohCookieJar(cookiePrefs)
         @Volatile var cookieAuthenticated = false
         lateinit var client: OkHttpClient
     }

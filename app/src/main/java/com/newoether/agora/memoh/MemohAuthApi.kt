@@ -74,3 +74,18 @@ internal fun MemohApi.endSession(): suspend () -> Unit {
 }
 
 internal suspend fun MemohApi.logoutSession() = endSession().invoke()
+
+/** True when a cookie survived from the previous process and has not expired locally. */
+internal fun MemohApi.hasSessionCookie(): Boolean = scope.identity.cookies.hasSession()
+
+/**
+ * Confirms the restored cookie is still accepted. Any failure (401, transport) means the caller
+ * must sign in again rather than assume the session is alive.
+ */
+internal suspend fun MemohApi.probeIdentity(): Boolean = runCatching { account() }.isSuccess
+
+/** Drops a cookie the server no longer accepts so the next start does not retry it. */
+internal fun MemohApi.clearSession() {
+    scope.identity.cookies.clear()
+    scope.identity.cookieAuthenticated = false
+}
