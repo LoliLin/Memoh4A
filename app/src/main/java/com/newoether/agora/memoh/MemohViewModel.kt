@@ -536,7 +536,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     turns = (older.filterNot { it.id in updatedIds } + result).distinctBy { it.id }
                     if (firstHistoryMessageId == null) {
                         firstHistoryMessageId = result.firstOrNull()?.id
-                        olderMessagesAvailable = result.isNotEmpty()
+                        // A short page is the only proof that this is the start of history.
+                        olderMessagesAvailable = result.size >= HISTORY_PAGE_SIZE
                     }
                     if (!running && awaitingAdmission.isEmpty()) pendingUserText = null; pendingUserAttachments = emptyList()
                 }

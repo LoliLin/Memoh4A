@@ -326,7 +326,7 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
     }
 
     suspend fun history(botId: String, sessionId: String, beforeMessageId: String = ""): List<MemohTurn> {
-        val path = "/bots/${Uri.encode(botId)}/messages?session_id=${Uri.encode(sessionId)}&limit=50" +
+        val path = "/bots/${Uri.encode(botId)}/messages?session_id=${Uri.encode(sessionId)}&limit=$HISTORY_PAGE_SIZE" +
             if (beforeMessageId.isBlank()) "" else "&before_message_id=${Uri.encode(beforeMessageId)}"
         val array = request(path).optJSONArray("items") ?: JSONArray()
         return (0 until array.length()).mapNotNull { i ->

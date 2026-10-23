@@ -45,6 +45,8 @@ internal fun ChatComposerLayout(
     scrollState: ScrollState = rememberScrollState(),
     statusContent: @Composable () -> Unit = {},
     attachmentContent: @Composable () -> Unit = {},
+    /** Shown when the draft is empty; transports that are not Agora name their own peer. */
+    placeholder: String? = null,
     controls: @Composable RowScope.() -> Unit,
 ) {
     val allowSpatialTransitions = LocalAgoraMotionPolicy.current.allowSpatialTransitions
@@ -107,7 +109,7 @@ internal fun ChatComposerLayout(
                     ),
                 placeholder = {
                     Text(
-                        stringResource(R.string.ask_agora),
+                        placeholder ?: stringResource(R.string.ask_agora),
                         style = ChatType.input,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )

@@ -182,10 +182,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     totalTokens = 0,
                     contextTokenBudget = 0,
                     contextAvailable = false,
-                    subtitle = buildString {
-                        append(vm.bot?.title ?: "Memoh")
-                        append(" · ")
-                        append(if (vm.connected) "Connected" else "Reconnecting…")
+                    // The socket can fail before it ever opens; showing the reason here is the
+                    // difference between "Reconnecting…" forever and a diagnosable failure.
+                    subtitle = vm.error.ifBlank {
+                        (vm.bot?.title ?: "Memoh") + " · " +
+                            if (vm.connected) "Connected" else "Reconnecting…"
                     },
                     onOpenDrawer = { scope.launch { drawer.toggle(motion) } },
                     systemPromptEnabled = false,
@@ -277,6 +278,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     isExpandAnimating = false,
                     onExpand = { expanded = true },
                     onCollapse = { expanded = false },
+                    placeholder = "向 ${vm.bot?.title ?: "Memoh"} 提问…",
                     attachmentContent = {
                         if (selectedAttachments.isNotEmpty()) {
                             AttachmentDraftStrip(
