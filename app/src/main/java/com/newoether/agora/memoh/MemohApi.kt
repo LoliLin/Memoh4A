@@ -28,35 +28,51 @@ import java.util.concurrent.TimeUnit
  * The HTTP client never caches server-owned history as an Agora conversation.
  */
 internal class MemohApi {
+    private val cookieJar = MemohCookieJar()
+
     /** Shared by the workspace/backup extension functions in MemohWorkspaceApi.kt. */
     internal val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
+        .cookieJar(cookieJar)
         .build()
 
-    var baseUrl: String = "https://app.memoh.net/api"
+    /** Business API root, e.g. `https://app.memoh.net/api/memoh`. */
+    var baseUrl: String = MemohEndpoints.CLOUD_ORIGIN + "/api/memoh"
         private set
+
+    /** Auth API root, e.g. `https://app.memoh.net/api/v1`. */
+    var authUrl: String = MemohEndpoints.CLOUD_ORIGIN + "/api/v1"
+        private set
+
+    /** Bearer token for password servers. Cloud sessions live in [cookieJar] instead. */
     var token: String = ""
         private set
 
-    fun configure(base: String, bearer: String = "") {
-        val trimmed = base.trim().trimEnd('/')
-        val parsed = trimmed.toHttpUrl()
-        require(parsed.scheme == "https" || (parsed.scheme == "http" && isLocalhost(parsed.host))) {
-            "Use HTTPS for remote servers. HTTP is supported only for localhost."
-        }
-        require(parsed.username.isEmpty() && parsed.password.isEmpty()) { "Credentials must not be part of the URL" }
-        require(parsed.query == null && parsed.fragment == null) { "Use an API base URL without a query or fragment" }
-        baseUrl = trimmed
+    /** True when the active session is a cookie session rather than a bearer token. */
+    val usesSessionCookie: Boolean get() = token.isEmpty() && cookieJar.hasSession()
+
+    fun configure(server: String, bearer: String = "") {
+        val endpoints = MemohEndpoints.fromInput(server)
+        configure(endpoints, bearer)
+    }
+
+    fun configure(endpoints: MemohEndpoints, bearer: String = "") {
+        baseUrl = endpoints.api
+        authUrl = endpoints.auth
         token = bearer
     }
 
-    private fun isLocalhost(host: String): Boolean =
-        host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
+    suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject =
+        send(baseUrl, path, body, method)
 
-    suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject = withContext(Dispatchers.IO) {
-        val builder = Request.Builder().url(baseUrl + path)
+    /** Auth calls live under /api/v1 and must carry the same cookie jar for the session. */
+    internal suspend fun authRequest(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject =
+        send(authUrl, path, body, method)
+
+    private suspend fun send(root: String, path: String, body: JSONObject?, method: String): JSONObject = withContext(Dispatchers.IO) {
+        val builder = Request.Builder().url(root + path)
             .header("Accept", "application/json")
         if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
         if (method != "GET") {
@@ -79,14 +95,77 @@ internal class MemohApi {
             ?: "HTTP ${response.code}"
     }
 
+    /**
+     * Asks the server how it expects users to sign in.
+     *
+     * Cloud answers `{"login_method":"email"}`; a password deployment answers `"password"`.
+     * The provider list is best-effort: the web client renders OAuth buttons from it, but a
+     * native app cannot complete a browser OAuth handoff (the server rejects non-same-origin
+     * return targets), so it is shown for information only.
+     */
+    suspend fun authConfig(): MemohAuthConfig {
+        val method = runCatching { authRequest("/auth/config").optString("login_method") }
+            .getOrDefault("")
+        val providers = runCatching {
+            val payload = authRequest("/auth/oauth-providers?origin=${Uri.encode(MemohEndpoints.CLOUD_ORIGIN)}")
+            // `request` wraps a top-level JSON array as {"items":[...]}; accept both shapes.
+            val array = payload.optJSONArray("providers") ?: payload.optJSONArray("items")
+            array?.let { jsonArray ->
+                (0 until jsonArray.length()).mapNotNull { index ->
+                    when (val entry = jsonArray.opt(index)) {
+                        is String -> entry.takeIf(String::isNotBlank)
+                        is JSONObject -> entry.optString("provider").takeIf(String::isNotBlank)
+                        else -> null
+                    }
+                }
+            }.orEmpty()
+        }.getOrDefault(emptyList())
+        return MemohAuthConfig(
+            method = when (method) {
+                "email" -> MemohLoginMethod.EmailCode
+                "password" -> MemohLoginMethod.Password
+                else -> MemohLoginMethod.Unknown
+            },
+            oauthProviders = providers,
+        )
+    }
+
+    suspend fun sendEmailCode(email: String) {
+        val address = email.trim()
+        require(address.contains('@')) { "Enter the email address for your Memoh account" }
+        authRequest("/auth/email-code/send", JSONObject().put("email", address).put("preferred_locale", ""))
+    }
+
+    /** Completes an emailed-code sign-in. The server replies with session cookies, not a token. */
+    suspend fun verifyEmailCode(email: String, code: String) {
+        val address = email.trim()
+        val trimmedCode = code.trim()
+        require(trimmedCode.isNotEmpty()) { "Enter the code from the email" }
+        authRequest("/auth/email-code/verify", JSONObject().put("email", address).put("code", trimmedCode))
+        token = ""
+        if (!cookieJar.hasSession()) {
+            throw IOException("Memoh accepted the code but returned no session. Try signing in again.")
+        }
+    }
+
     suspend fun login(username: String, password: String): String {
-        val response = request("/auth/login", JSONObject()
-            .put("username", username.trim())
-            .put("password", password))
+        val body = if (username.contains('@')) {
+            JSONObject().put("email", username.trim()).put("password", password)
+        } else {
+            JSONObject().put("username", username.trim()).put("password", password)
+        }
+        val response = authRequest("/auth/login", body)
         val result = response.optString("access_token")
         if (result.isBlank()) throw IOException("Memoh did not return an access token")
         token = result
         return result
+    }
+
+    /** Ends a cookie session server-side; the bearer path has no logout endpoint. */
+    suspend fun logoutSession() {
+        runCatching { authRequest("/auth/logout", JSONObject(), method = "POST") }
+        cookieJar.clear()
+        token = ""
     }
 
     suspend fun account(): MemohAccount = decodeAccount(request("/users/me"))
@@ -663,11 +742,26 @@ internal class MemohApi {
     suspend fun memoryUsage(botId: String): JSONObject =
         request("/bots/${Uri.encode(botId)}/memory/usage")
 
-    /** Authenticate the native socket with a header, not a URL parameter. */
-    fun socket(botId: String, listener: WebSocketListener): WebSocket {
+    /**
+     * Opens the runtime socket.
+     *
+     * A bearer server accepts the header directly. A cookie session cannot: the browser client
+     * first trades its session for a short-lived ticket at `/api/v1/ws-tickets` and passes that as
+     * `?ticket=`, so do the same rather than sending a header the socket endpoint ignores.
+     */
+    suspend fun socket(botId: String, listener: WebSocketListener): WebSocket = withContext(Dispatchers.IO) {
         val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl()
-        val wsUrl = url.toString().replaceFirst(if (url.isHttps) "https://" else "http://", if (url.isHttps) "wss://" else "ws://")
-        return http.newWebSocket(Request.Builder().url(wsUrl).header("Authorization", "Bearer $token").build(), listener)
+        var wsUrl = url.toString().replaceFirst(if (url.isHttps) "https://" else "http://", if (url.isHttps) "wss://" else "ws://")
+        val builder = Request.Builder()
+        if (token.isNotEmpty()) {
+            builder.header("Authorization", "Bearer $token")
+        } else {
+            val ticket = authRequest("/ws-tickets", JSONObject(), method = "POST").optString("ticket")
+            if (ticket.isBlank()) throw IOException("Memoh did not return a WebSocket ticket")
+            wsUrl = url.newBuilder().addQueryParameter("ticket", ticket).build().toString()
+                .replaceFirst(if (url.isHttps) "https://" else "http://", if (url.isHttps) "wss://" else "ws://")
+        }
+        http.newWebSocket(builder.url(wsUrl).build(), listener)
     }
 }
 

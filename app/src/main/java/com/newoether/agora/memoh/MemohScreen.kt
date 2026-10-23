@@ -66,6 +66,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -83,35 +85,86 @@ private fun MemohLogin(vm: MemohViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = vm.server, onValueChange = { vm.server = it },
+            OutlinedTextField(value = vm.login.server, onValueChange = { vm.login.server = it },
                 label = { Text("API address") }, singleLine = true,
-                supportingText = { Text("Cloud: https://app.memoh.net/api · Self-hosted: your API base URL") },
-                modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = vm.username, onValueChange = { vm.username = it },
-                label = { Text("Username") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = vm.password, onValueChange = { vm.password = it },
-                label = { Text("Password") }, singleLine = true,
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (passwordVisible) "Hide password" else "Show password"
-                        )
-                    }
+                supportingText = {
+                    Text("Official Cloud: https://app.memoh.net — self-hosted: your server address")
                 },
                 modifier = Modifier.fillMaxWidth())
-            if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall)
-            Button(onClick = vm::login, enabled = !vm.loading,
-                modifier = Modifier.fillMaxWidth()) {
-                if (vm.loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Text("Connect")
+            if (vm.login.method == MemohLoginMethod.EmailCode) {
+                Text("Memoh Cloud signs in with a code sent to your email.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(value = vm.login.email, onValueChange = { vm.login.email = it },
+                    label = { Text("Email") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth())
+                if (vm.login.codeSent) {
+                    OutlinedTextField(value = vm.login.code, onValueChange = { vm.login.code = it },
+                        label = { Text("Email code") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth())
+                }
+                if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+                if (!vm.login.codeSent) {
+                    Button(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.loading,
+                        modifier = Modifier.fillMaxWidth()) {
+                        if (vm.login.sendingCode) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text("Send code")
+                    }
+                } else {
+                    Button(onClick = vm::loginWithCode, enabled = !vm.loading,
+                        modifier = Modifier.fillMaxWidth()) {
+                        if (vm.loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text("Verify and sign in")
+                    }
+                    TextButton(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.loading) {
+                        Text(if (vm.login.sendingCode) "Sending" else "Resend code")
+                    }
+                }
+                if (vm.login.oauthProviders.isNotEmpty()) {
+                    Text(
+                        "This server also offers " + vm.login.oauthProviders.joinToString(" / ") +
+                            ". Those sign-ins finish in a browser and cannot hand the session to an " +
+                            "Android app, so use the emailed code here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Text("This server uses a password sign-in. Memoh Cloud itself emails a code instead.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(value = vm.login.username, onValueChange = { vm.login.username = it },
+                    label = { Text("Email or username") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = vm.login.password, onValueChange = { vm.login.password = it },
+                    label = { Text("Password") }, singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth())
+                if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+                Button(onClick = vm::login, enabled = !vm.loading,
+                    modifier = Modifier.fillMaxWidth()) {
+                    if (vm.loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Text("Connect")
+                }
             }
-            Text("The Memoh server owns every conversation and tool run. Your access token is encrypted on this device.",
+            Text(
+                "The Memoh server owns every conversation and tool run. Password tokens are " +
+                    "encrypted on this device; an email-code session ends when you sign out.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
