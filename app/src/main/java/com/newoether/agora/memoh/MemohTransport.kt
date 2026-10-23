@@ -103,6 +103,13 @@ internal open class MemohTransport(private val parent: MemohTransport? = null) {
             .tag(Scope::class.java, captured).header("Accept", "application/json").apply {
                 if (identity.bearer.isNotEmpty()) header("Authorization", "Bearer ${identity.bearer}")
                 if (team && captured.team.isNotEmpty()) header("X-Team-ID", captured.team)
+                // A cookie session is ambient authority, so the server treats writes as
+                // cross-site unless the request states its own origin. Without this every
+                // ticket request (and the socket handshake behind it) was refused with
+                // "cross-origin cookie-authenticated write forbidden".
+                if (identity.bearer.isEmpty() && identity.cookieAuthenticated) {
+                    header("Origin", identity.endpoints.origin)
+                }
             }
     }
     suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject =
