@@ -5,6 +5,9 @@ import org.json.JSONObject
 import java.io.IOException
 
 internal class MemohHttpException(val status: Int, message: String) : IOException(message)
+
+/** Rows per history request. A page shorter than this is the start of the conversation. */
+internal const val HISTORY_PAGE_SIZE = 50
 internal data class MemohBot(
     val id: String,
     val title: String,
