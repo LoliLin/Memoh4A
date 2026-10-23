@@ -10,7 +10,15 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** A real Cloud-shaped HTTP boundary, including the original missing-team failure. */
 internal class MemohCloudServer : Closeable {
-    data class Seen(val path: String, val method: String, val team: String?, val cookie: String?, val query: String?, val body: String)
+    data class Seen(
+        val path: String,
+        val method: String,
+        val team: String?,
+        val cookie: String?,
+        val query: String?,
+        val body: String,
+        val origin: String? = null,
+    )
     val requests = CopyOnWriteArrayList<Seen>()
     val missingTeamErrors = AtomicInteger()
     var memberships = """{"teams":[{"team":{"team_id":"a","name":"Alpha"},"role":"TEAM_ROLE_OWNER"},{"team":{"team_id":"b","name":"Beta"},"role":"TEAM_ROLE_MEMBER"}]}"""
@@ -26,7 +34,8 @@ internal class MemohCloudServer : Closeable {
         server.createContext("/") { exchange ->
             val seen = Seen(exchange.requestURI.path, exchange.requestMethod,
                 exchange.requestHeaders.getFirst("X-Team-ID"), exchange.requestHeaders.getFirst("Cookie"),
-                exchange.requestURI.rawQuery, exchange.requestBody.bufferedReader().readText())
+                exchange.requestURI.rawQuery, exchange.requestBody.bufferedReader().readText(),
+                exchange.requestHeaders.getFirst("Origin"))
             requests += seen
             if (handler?.invoke(exchange, seen) == true) return@createContext
             val scoped = seen.path.startsWith("/api/memoh/") || seen.path == "/api/v1/ws-tickets"
