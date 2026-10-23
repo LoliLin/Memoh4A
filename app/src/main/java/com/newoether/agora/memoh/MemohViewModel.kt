@@ -25,7 +25,10 @@ internal const val ADMISSION_TIMEOUT_MS = 30_000L
 
 internal class MemohViewModel(application: Application) : AndroidViewModel(application) {
     internal val navigationScope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + kotlinx.coroutines.SupervisorJob(viewModelScope.coroutineContext[Job]))
-    private val prefs = application.getSharedPreferences("memoh_native", 0)
+    private val prefs = application.getSharedPreferences("memoh_native", 0).also {
+        // Hand the transport its cookie store before any Identity is built.
+        MemohTransport.cookiePrefs = it
+    }
     private var authRevision = 0
     private var botRevision = 0
     internal var attachmentDraftRevision by mutableStateOf(0); private set
@@ -34,7 +37,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var epoch = ""
     private var seq = -1L
     private var awaitingSnapshot = true
-    private val api = MemohApi()
+    internal val api = MemohApi()
     internal val workspaceApi: MemohApi get() = api
     internal var agentController = MemohAgentController(api); private set
     private var socket: WebSocket? = null
@@ -68,7 +71,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         onSignedIn = { resetNavigation(); signedIn = true; error = ""; login.code = ""; if (api.usesSessionCookie) teams.load() else refreshBots() },
     )
 
-    var signedIn by mutableStateOf(false); private set
+    var signedIn by mutableStateOf(false)
+        internal set
     var loading by mutableStateOf(false); private set
     internal var error by mutableStateOf("")
     var bots by mutableStateOf<List<MemohBot>>(emptyList()); private set
@@ -100,9 +104,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 .onSuccess { signedIn = true; refreshBots() }
                 .onFailure { error = it.message.orEmpty() }
         } else {
-            // Cookie sessions cannot survive the process, so a fresh start asks the server which
-            // form to show instead of guessing from the last deployment.
-            probeLoginMethod()
+            // A sealed session cookie may already be on disk from the previous process. Ask the
+            // server whether it still belongs to someone before showing the sign-in form; an
+            // expired cookie answers 401 and falls through to the form.
+            runCatching { api.configure(login.server) }
+            viewModelScope.launch { resumeCookieSession() }
         }
     }
 
@@ -789,4 +795,3 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         super.onCleared()
     }
 }
-
