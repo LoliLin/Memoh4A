@@ -20,6 +20,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
+/** How long a sent message may wait for run_accepted/run_rejected before being restored. */
+internal const val ADMISSION_TIMEOUT_MS = 30_000L
+
 internal class MemohViewModel(application: Application) : AndroidViewModel(application) {
     internal val navigationScope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + kotlinx.coroutines.SupervisorJob(viewModelScope.coroutineContext[Job]))
     private val prefs = application.getSharedPreferences("memoh_native", 0)
@@ -38,13 +41,19 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var socketGeneration = 0
     private var reconnectJob: Job? = null
     private val awaitingAdmission = linkedMapOf<String, JSONObject>()
+    internal val admissionInvocations: MutableMap<String, JSONObject> get() = awaitingAdmission
+    internal var pendingUserTurnId: String? = null
     private val pendingControls = mutableMapOf<String, String>()
     var waitingForInteraction by mutableStateOf<Set<String>>(emptySet())
         private set
     val controlsReady: Boolean get() = connected && !awaitingSnapshot && runId.isNotBlank()
-    private var liveJson = JSONArray()
-    private var currentRunStatus = ""
-    private var settlingRunId = ""
+    // Transcript state shared with the MemohLiveTranscript.kt extension.
+    internal var liveJson = JSONArray()
+    internal var currentRunStatus = ""
+    internal var liveBlocks by mutableStateOf<List<MemohBlock>>(emptyList())
+    internal var settlingRunId = ""
+    internal var admissionTimeoutJob: Job? = null
+    private var reconnectDelayMs = 1_000L
 
     val login = MemohLoginForm(prefs.getString("server", MemohEndpoints.CLOUD_ORIGIN).orEmpty())
 
@@ -61,7 +70,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     var signedIn by mutableStateOf(false); private set
     var loading by mutableStateOf(false); private set
-    var error by mutableStateOf(""); private set
+    internal var error by mutableStateOf("")
     var bots by mutableStateOf<List<MemohBot>>(emptyList()); private set
     var bot by mutableStateOf<MemohBot?>(null); private set
     var sessions by mutableStateOf<List<MemohSession>>(emptyList()); private set
@@ -76,10 +85,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var firstHistoryMessageId: String? = null
     var session by mutableStateOf<MemohSession?>(null); private set
     var turns by mutableStateOf<List<MemohTurn>>(emptyList()); private set
-    var liveBlocks by mutableStateOf<List<MemohBlock>>(emptyList()); private set
-    var pendingUserText by mutableStateOf<String?>(null); private set
-    var pendingUserAttachments by mutableStateOf<List<MemohAttachment>>(emptyList()); private set
-    var restoreDraft by mutableStateOf<String?>(null); private set
+    internal var pendingUserText by mutableStateOf<String?>(null)
+    internal var pendingUserAttachments by mutableStateOf<List<MemohAttachment>>(emptyList())
+    internal var restoreDraft by mutableStateOf<String?>(null)
     var connected by mutableStateOf(false); private set
     var running by mutableStateOf(false); private set
     var runId by mutableStateOf(""); private set
@@ -122,6 +130,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         bots = emptyList(); agentController.clear(); agentController = MemohAgentController(MemohApi(api)); bot = null
         sessions = emptyList(); nextSessionCursor = null; olderSessionsAvailable = false
         session = null; turns = emptyList(); pendingUserText = null; pendingUserAttachments = emptyList()
+        pendingUserTurnId = null
         error = ""
     }
 
@@ -418,8 +427,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         pendingUserAttachments = attachments
         attachmentDraftRevision++
         if (existingSession != null) {
-            if (connected) sendNow(payload)
-            else if (socket == null) connectSocket(selectedBot.id)
+            if (connected) {
+                sendNow(payload)
+                armAdmissionTimeout(invocation, value)
+            } else if (socket == null) connectSocket(selectedBot.id)
         } else {
             val authRevisionAtSend = authRevision
             val botRevisionAtSend = botRevision
@@ -436,6 +447,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     if (connected) {
                         sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", created.id))
                         sendNow(payload)
+                        armAdmissionTimeout(invocation, value)
                     } else if (socket == null) connectSocket(selectedBot.id)
                 } catch (e: Exception) {
                     if (authRevisionAtSend == authRevision && botRevisionAtSend == botRevision &&
@@ -560,6 +572,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             isCurrent = ::current,
             onOpen = { webSocket ->
                 connected = true
+                reconnectDelayMs = 1_000L
                 session?.id?.let { id ->
                     webSocket.send(JSONObject().put("type", "runtime_subscribe")
                         .put("session_id", id).toString())
@@ -588,8 +601,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             // Do not infer a run failed from a lost observation connection.
             reconnectJob?.cancel()
             reconnectJob = launch {
-                delay(2000)
-                if (generation == socketGeneration && bot?.id == botId) connectSocket(botId)
+                delay(reconnectDelayMs)
+                if (generation == socketGeneration && bot?.id == botId) {
+                    val nextDelay = (reconnectDelayMs * 3 / 2).coerceAtMost(10_000L)
+                    connectSocket(botId)
+                    reconnectDelayMs = nextDelay
+                }
             }
         }
     }
@@ -612,7 +629,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 }
             }
             "run_accepted" -> {
-                awaitingAdmission.remove(invocation)
+                if (awaitingAdmission.remove(invocation) != null) cancelAdmissionTimeout()
                 if (session?.id == target) {
                     refreshQueue()
                     settlingRunId = ""
@@ -622,6 +639,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             }
             "run_rejected", "error" -> {
                 if (invocation.isNotBlank() && awaitingAdmission.remove(invocation) != null) {
+                    cancelAdmissionTimeout()
                     restoreDraft = pendingUserText
                     pendingUserText = null; pendingUserAttachments = emptyList()
                 }
@@ -684,7 +702,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", sid))
     }
 
-    private fun applyRunView(view: JSONObject) {
+    internal fun applyRunView(view: JSONObject) {
         runId = view.optString("run_id")
         currentRunStatus = view.optString("status")
         liveJson = view.optJSONArray("messages") ?: JSONArray()
@@ -693,35 +711,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         settleIfTerminal()
     }
 
-    private fun applyDelta(delta: JSONObject, sid: String) {
-        val replacement = delta.optJSONObject("current_run_view")
-        if (replacement != null) { applyRunView(replacement); return }
-        if (delta.optBoolean("reset_messages", false)) liveJson = JSONArray()
-        val upserts = delta.optJSONArray("message_upserts")
-        if (upserts != null) for (i in 0 until upserts.length()) {
-            upserts.optJSONObject(i)?.let(::upsertBlock)
-        }
-        val appends = delta.optJSONArray("message_appends")
-        if (appends != null) for (i in 0 until appends.length()) {
-            val update = appends.optJSONObject(i) ?: continue
-            val id = update.optInt("id", -1)
-            if (id < 0) continue
-            val existing = (0 until liveJson.length()).mapNotNull { liveJson.optJSONObject(it) }
-                .firstOrNull { it.optInt("id", -1) == id }
-            if (existing != null) {
-                existing.put("content", existing.optString("content") + update.optString("content"))
-            } else liveJson.put(JSONObject(update.toString()))
-        }
-        val patch = delta.optJSONObject("run")
-        if (patch != null && patch.optString("run_id") == runId) {
-            if (patch.has("status")) currentRunStatus = patch.optString("status")
-        }
-        liveBlocks = decodeBlocks(liveJson)
-        pruneResolvedDecisions()
-        settleIfTerminal(sid)
-    }
+    /** Delta merge lives in MemohLiveTranscript.kt (extension function) to respect the 800-line gate. */
+    private fun applyDelta(delta: JSONObject, sid: String) = applyRuntimeDelta(delta, sid)
 
-    private fun pruneResolvedDecisions() {
+    internal fun pruneResolvedDecisions() {
         val unresolved = liveBlocks.flatMap { block ->
             buildList {
                 if (block.canApprove) add(block.approvalId)
@@ -731,14 +724,14 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         waitingForInteraction = waitingForInteraction.intersect(unresolved)
     }
 
-    private fun upsertBlock(block: JSONObject) {
+    internal fun upsertBlock(block: JSONObject) {
         val id = block.optInt("id", -1)
         val existing = (0 until liveJson.length()).firstOrNull { liveJson.optJSONObject(it)?.optInt("id", -1) == id }
         if (existing != null) liveJson.put(existing, block)
         else liveJson.put(block)
     }
 
-    private fun settleIfTerminal(sid: String = session?.id.orEmpty()) {
+    internal fun settleIfTerminal(sid: String = session?.id.orEmpty()) {
         running = currentRunStatus in setOf("admitting", "running", "waiting_decision", "aborting", "finishing")
         if (!running && currentRunStatus.isNotEmpty() && sid.isNotBlank() && settlingRunId != runId) {
             val finishedRun = runId
@@ -787,6 +780,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         pendingControls.clear()
         waitingForInteraction = emptySet()
         awaitingAdmission.clear()
+        cancelAdmissionTimeout()
+        pendingUserTurnId = null
     }
 
     override fun onCleared() {

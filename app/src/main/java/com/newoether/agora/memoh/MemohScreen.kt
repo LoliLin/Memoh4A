@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -74,6 +75,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
 import kotlinx.coroutines.launch
+import com.newoether.agora.ui.chat.message.UserBubbleShape
 import com.newoether.agora.ui.common.LocalAgoraHaptics
 
 @Composable
@@ -461,8 +463,8 @@ private fun MemohConversationScreen(vm: MemohViewModel) {
                 } else {
                     LazyColumn(
                         state = listState,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         if (vm.olderMessagesAvailable || vm.loadingOlderMessages) {
@@ -596,11 +598,12 @@ private fun MemohTurnView(turn: MemohTurn, vm: MemohViewModel) {
     if (turn.role == "user") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(
-                shape = RoundedCornerShape(20.dp),
+                // Mirrors ui.chat.message.UserMessageBubble: tail shape, 15dp padding, capped width.
+                shape = UserBubbleShape(),
                 color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.fillMaxWidth(0.88f)
+                modifier = Modifier.widthIn(max = 300.dp)
             ) {
-                Column(Modifier.padding(14.dp)) {
+                Column(Modifier.padding(15.dp)) {
                     if (turn.text.isNotBlank()) {
                         Text(turn.text, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
@@ -612,7 +615,17 @@ private fun MemohTurnView(turn: MemohTurn, vm: MemohViewModel) {
             }
         }
     } else if (turn.role == "assistant") {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Assistant messages stay transparent and left-aligned; only block containers use a shape.
+        // Shape mirrors the Agora chat baseline: full round except a 4dp bottom-start tail.
+        Column(
+            Modifier.fillMaxWidth().background(
+                MaterialTheme.colorScheme.surface,
+                RoundedCornerShape(
+                    topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp,
+                ),
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             if (turn.attachments.isNotEmpty()) {
                 TurnAttachmentsView(turn.attachments)
             }
