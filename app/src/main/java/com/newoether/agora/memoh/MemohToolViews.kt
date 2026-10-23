@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -157,13 +158,13 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                         Icons.Default.CheckCircle,
                         contentDescription = "Completed",
                         modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.tertiary
+                        tint = Color(0xFF4CAF50)
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
                         "Done",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary
+                        color = Color(0xFF388E3C)
                     )
                 }
             }
@@ -308,17 +309,16 @@ private fun DiffField(diff: String) {
         ) {
             Column(Modifier.padding(8.dp)) {
                 diff.lines().take(300).forEach { line ->
-                    val colors = MaterialTheme.colorScheme
                     val (bgColor, textColor) = when {
-                        line.startsWith("+") -> colors.tertiary.copy(alpha = 0.12f) to colors.tertiary
-                        line.startsWith("-") -> colors.error.copy(alpha = 0.12f) to colors.error
-                        line.startsWith("@@") -> colors.primary.copy(alpha = 0.12f) to colors.primary
-                        else -> null to colors.onSurface
+                        line.startsWith("+") -> Color(0x1F4CAF50) to Color(0xFF2E7D32)
+                        line.startsWith("-") -> Color(0x1FF44336) to Color(0xFFC62828)
+                        line.startsWith("@@") -> Color(0x1F2196F3) to Color(0xFF1565C0)
+                        else -> Color.Transparent to MaterialTheme.colorScheme.onSurface
                     }
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .then(if (bgColor != null) Modifier.background(bgColor) else Modifier)
+                            .background(bgColor)
                             .padding(horizontal = 4.dp, vertical = 1.dp)
                     ) {
                         Text(
