@@ -83,14 +83,12 @@ internal suspend fun MemohApi.downloadFile(
     path: String,
     destination: Uri,
     resolver: ContentResolver,
-) = withContext(Dispatchers.IO) {
-    val request = Request.Builder()
-        .url(baseUrl + "/bots/${Uri.encode(botId)}/container/fs/download?path=${Uri.encode(path)}")
-        .header("Authorization", "Bearer $token")
+) = withBusinessScope { captured ->
+    val request = businessRequest("/bots/${Uri.encode(botId)}/container/fs/download?path=${Uri.encode(path)}", captured)
         .header("Accept", "application/octet-stream, */*")
         .get()
         .build()
-    http.newCall(request).execute().use { response ->
+    captured.identity.client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
         val body = response.body ?: throw IOException("Memoh returned an empty file")
         val output = resolver.openOutputStream(destination, "w")
@@ -105,16 +103,14 @@ internal suspend fun MemohApi.downloadArchive(
     paths: List<String>,
     destination: Uri,
     resolver: ContentResolver,
-) = withContext(Dispatchers.IO) {
+) = withBusinessScope { captured ->
     require(paths.isNotEmpty()) { "Choose at least one path to download" }
     val payload = JSONObject().put("paths", JSONArray(paths))
-    val request = Request.Builder()
-        .url(baseUrl + "/bots/${Uri.encode(botId)}/container/fs/archive")
-        .header("Authorization", "Bearer $token")
+    val request = businessRequest("/bots/${Uri.encode(botId)}/container/fs/archive", captured)
         .header("Accept", "application/gzip, application/octet-stream, */*")
         .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
         .build()
-    http.newCall(request).execute().use { response ->
+    captured.identity.client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
         val body = response.body ?: throw IOException("Memoh returned an empty archive")
         val output = resolver.openOutputStream(destination, "w")
@@ -141,17 +137,15 @@ internal suspend fun MemohApi.exportBotBackup(
     resolver: ContentResolver,
     sections: List<String>,
     passphrase: String,
-) = withContext(Dispatchers.IO) {
+) = withBusinessScope { captured ->
     val payload = JSONObject().put("sections", JSONArray(sections))
     if (passphrase.isNotBlank()) payload.put("passphrase", passphrase)
     val requestBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-    val request = Request.Builder()
-        .url(baseUrl + "/bots/${Uri.encode(botId)}/backup/export")
-        .header("Authorization", "Bearer $token")
+    val request = businessRequest("/bots/${Uri.encode(botId)}/backup/export", captured)
         .header("Accept", "application/octet-stream, application/zip, */*")
         .post(requestBody)
         .build()
-    http.newCall(request).execute().use { response ->
+    captured.identity.client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
         val body = response.body ?: throw IOException("Memoh returned an empty backup")
         val output = resolver.openOutputStream(destination, "w")
@@ -188,7 +182,7 @@ private suspend fun MemohApi.botBackupMultipart(
     targetBotId: String,
     sections: List<String>,
     passphrase: String,
-): JSONObject = withContext(Dispatchers.IO) {
+): JSONObject = withBusinessScope { captured ->
     val filename = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
         ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
         ?.takeIf { it.isNotBlank() } ?: "backup.zip"
@@ -208,11 +202,10 @@ private suspend fun MemohApi.botBackupMultipart(
             if (passphrase.isNotEmpty()) addFormDataPart("passphrase", passphrase)
         }
         .build()
-    val request = Request.Builder().url(baseUrl + path)
-        .header("Authorization", "Bearer $token")
+    val request = businessRequest(path, captured)
         .header("Accept", "application/json")
         .post(multipart).build()
-    http.newCall(request).execute().use { response ->
+    captured.identity.client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
         val raw = response.body?.string().orEmpty()
         if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("[")) JSONObject().put("items", org.json.JSONArray(raw.trim())) else JSONObject(raw)
@@ -225,7 +218,7 @@ internal suspend fun MemohApi.uploadFile(
     uri: Uri,
     resolver: ContentResolver,
     filename: String,
-) = withContext(Dispatchers.IO) {
+) = withBusinessScope { captured ->
     val source = object : RequestBody() {
         override fun contentType() = "application/octet-stream".toMediaType()
         override fun writeTo(sink: BufferedSink) {
@@ -244,9 +237,7 @@ internal suspend fun MemohApi.uploadFile(
         .addFormDataPart("path", path)
         .addFormDataPart("file", filename, source)
         .build()
-    val response = http.newCall(Request.Builder()
-        .url(baseUrl + "/bots/${Uri.encode(botId)}/container/fs/upload")
-        .header("Authorization", "Bearer $token")
+    val response = captured.identity.client.newCall(businessRequest("/bots/${Uri.encode(botId)}/container/fs/upload", captured)
         .post(body).build()).execute()
     response.use {
         if (!it.isSuccessful) throw MemohHttpException(it.code, errorFor(it))

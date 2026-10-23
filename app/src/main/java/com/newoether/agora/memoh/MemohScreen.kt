@@ -56,6 +56,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +78,9 @@ import com.newoether.agora.ui.common.LocalAgoraHaptics
 
 @Composable
 private fun MemohLogin(vm: MemohViewModel) {
+    LaunchedEffect(vm.login.server) { vm.probeLoginMethod() }
     var passwordVisible by remember { mutableStateOf(false) }
+    val idle = !vm.login.signingIn && !vm.login.sendingCode
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             Text("Memoh", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
@@ -85,7 +88,7 @@ private fun MemohLogin(vm: MemohViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(value = vm.login.server, onValueChange = { vm.login.server = it },
+            OutlinedTextField(value = vm.login.server, onValueChange = { vm.login.server = it }, enabled = idle,
                 label = { Text("API address") }, singleLine = true,
                 supportingText = {
                     Text("Official Cloud: https://app.memoh.net — self-hosted: your server address")
@@ -95,12 +98,12 @@ private fun MemohLogin(vm: MemohViewModel) {
                 Text("Memoh Cloud signs in with a code sent to your email.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(value = vm.login.email, onValueChange = { vm.login.email = it },
+                OutlinedTextField(value = vm.login.email, onValueChange = { vm.login.email = it }, enabled = idle,
                     label = { Text("Email") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth())
                 if (vm.login.codeSent) {
-                    OutlinedTextField(value = vm.login.code, onValueChange = { vm.login.code = it },
+                    OutlinedTextField(value = vm.login.code, onValueChange = { vm.login.code = it }, enabled = idle,
                         label = { Text("Email code") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth())
@@ -108,26 +111,25 @@ private fun MemohLogin(vm: MemohViewModel) {
                 if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
                 if (!vm.login.codeSent) {
-                    Button(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.loading,
+                    Button(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.login.signingIn,
                         modifier = Modifier.fillMaxWidth()) {
                         if (vm.login.sendingCode) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         else Text("Send code")
                     }
                 } else {
-                    Button(onClick = vm::loginWithCode, enabled = !vm.loading,
+                    Button(onClick = vm::loginWithCode, enabled = idle,
                         modifier = Modifier.fillMaxWidth()) {
-                        if (vm.loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         else Text("Verify and sign in")
                     }
-                    TextButton(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.loading) {
+                    TextButton(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.login.signingIn) {
                         Text(if (vm.login.sendingCode) "Sending" else "Resend code")
                     }
                 }
                 if (vm.login.oauthProviders.isNotEmpty()) {
                     Text(
-                        "This server also offers " + vm.login.oauthProviders.joinToString(" / ") +
-                            ". Those sign-ins finish in a browser and cannot hand the session to an " +
-                            "Android app, so use the emailed code here.",
+                        "Use an emailed code to sign in here. Browser sign-in (" +
+                            vm.login.oauthProviders.joinToString(" / ") + ") is not available in this app yet.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -136,10 +138,10 @@ private fun MemohLogin(vm: MemohViewModel) {
                 Text("This server uses a password sign-in. Memoh Cloud itself emails a code instead.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(value = vm.login.username, onValueChange = { vm.login.username = it },
+                OutlinedTextField(value = vm.login.username, onValueChange = { vm.login.username = it }, enabled = idle,
                     label = { Text("Email or username") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = vm.login.password, onValueChange = { vm.login.password = it },
+                OutlinedTextField(value = vm.login.password, onValueChange = { vm.login.password = it }, enabled = idle,
                     label = { Text("Password") }, singleLine = true,
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
@@ -153,9 +155,9 @@ private fun MemohLogin(vm: MemohViewModel) {
                     modifier = Modifier.fillMaxWidth())
                 if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
-                Button(onClick = vm::login, enabled = !vm.loading,
+                Button(onClick = vm::login, enabled = !vm.login.signingIn,
                     modifier = Modifier.fillMaxWidth()) {
-                    if (vm.loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Text("Connect")
                 }
             }
@@ -178,6 +180,17 @@ internal fun MemohScreen(vm: MemohViewModel) {
         }
         return
     }
+    if (vm.teams.enabled && vm.teams.selectedId.isEmpty()) {
+        MemohTeamSetup(vm)
+        return
+    }
+    key(vm.teams.selectedId) { MemohConversationScreen(vm) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MemohConversationScreen(vm: MemohViewModel) {
+    val api = remember { MemohApi(vm.workspaceApi) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var botMenu by remember { mutableStateOf(false) }
@@ -201,7 +214,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
         val selectedBot = vm.bot
         if (uri != null && selectedBot != null) backupScope.launch {
             backupStatus = "Saving backup…"
-            runCatching { vm.workspaceApi.exportBotBackup(selectedBot.id, uri, context.contentResolver, pendingBackupSections, pendingBackupPassphrase) }
+            runCatching { api.exportBotBackup(selectedBot.id, uri, context.contentResolver, pendingBackupSections, pendingBackupPassphrase) }
                 .onSuccess { backupStatus = "Backup saved." }
                 .onFailure { backupStatus = "Export failed: ${it.message ?: "Unknown error"}" }
                 .also { pendingBackupSections = emptyList(); pendingBackupPassphrase = "" }
@@ -241,6 +254,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
         drawerState = drawer,
         drawerContent = {
             ModalDrawerSheet {
+                if (vm.teams.enabled) MemohTeamPicker(vm.teams)
                 Text("Conversations", modifier = Modifier.padding(20.dp),
                     style = MaterialTheme.typography.titleLarge)
                 NavigationDrawerItem(
@@ -488,7 +502,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     }
 
     if (backupOpen && vm.bot != null) {
-        MemohBackupDialog(vm.workspaceApi, vm.bot!!, backupStatus,
+        MemohBackupDialog(api, vm.bot!!, backupStatus,
             onExport = { sections, passphrase ->
                 pendingBackupSections = sections
                 pendingBackupPassphrase = passphrase
@@ -499,7 +513,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     }
     importUri?.let { uri ->
         val selectedBot = vm.bot
-        if (selectedBot != null) MemohBackupImportDialog(vm.workspaceApi, selectedBot, context, uri,
+        if (selectedBot != null) MemohBackupImportDialog(api, selectedBot, context, uri,
             onDismiss = { importUri = null },
             onImported = { vm.refreshBots() })
     }
@@ -513,7 +527,7 @@ internal fun MemohScreen(vm: MemohViewModel) {
     }
     if (botDetailsOpen && vm.bot != null) {
         MemohBotDetailDialog(
-            api = vm.workspaceApi,
+            api = api,
             bot = vm.bot!!,
             agentController = vm.agentController,
             onDismiss = { botDetailsOpen = false },
@@ -524,13 +538,13 @@ internal fun MemohScreen(vm: MemohViewModel) {
         )
     }
     if (memoriesOpen && vm.bot != null) {
-        MemohMemoryDialog(vm.workspaceApi, vm.bot!!.id, onDismiss = { memoriesOpen = false })
+        MemohMemoryDialog(api, vm.bot!!.id, onDismiss = { memoriesOpen = false })
     }
     if (filesOpen && vm.bot != null) {
-        MemohWorkspaceDialog(vm.workspaceApi, vm.bot!!.id, onDismiss = { filesOpen = false })
+        MemohWorkspaceDialog(api, vm.bot!!.id, onDismiss = { filesOpen = false })
     }
     if (schedulesOpen && vm.bot != null) {
-        MemohSchedulesDialog(vm.workspaceApi, vm.bot!!.id,
+        MemohSchedulesDialog(api, vm.bot!!.id,
             onDismiss = { schedulesOpen = false },
             sessions = vm.sessions,
             onOpenSession = { sessionId ->

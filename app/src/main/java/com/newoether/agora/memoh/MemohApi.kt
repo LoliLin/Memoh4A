@@ -27,147 +27,7 @@ import java.util.concurrent.TimeUnit
  * Memoh is a remote runtime, not an OpenAI-compatible model provider.
  * The HTTP client never caches server-owned history as an Agora conversation.
  */
-internal class MemohApi {
-    private val cookieJar = MemohCookieJar()
-
-    /** Shared by the workspace/backup extension functions in MemohWorkspaceApi.kt. */
-    internal val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .pingInterval(20, TimeUnit.SECONDS)
-        .cookieJar(cookieJar)
-        .build()
-
-    /** Business API root, e.g. `https://app.memoh.net/api/memoh`. */
-    var baseUrl: String = MemohEndpoints.CLOUD_ORIGIN + "/api/memoh"
-        private set
-
-    /** Auth API root, e.g. `https://app.memoh.net/api/v1`. */
-    var authUrl: String = MemohEndpoints.CLOUD_ORIGIN + "/api/v1"
-        private set
-
-    /** Bearer token for password servers. Cloud sessions live in [cookieJar] instead. */
-    var token: String = ""
-        private set
-
-    /** True when the active session is a cookie session rather than a bearer token. */
-    val usesSessionCookie: Boolean get() = token.isEmpty() && cookieJar.hasSession()
-
-    fun configure(server: String, bearer: String = "") {
-        val endpoints = MemohEndpoints.fromInput(server)
-        configure(endpoints, bearer)
-    }
-
-    fun configure(endpoints: MemohEndpoints, bearer: String = "") {
-        baseUrl = endpoints.api
-        authUrl = endpoints.auth
-        token = bearer
-    }
-
-    suspend fun request(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject =
-        send(baseUrl, path, body, method)
-
-    /** Auth calls live under /api/v1 and must carry the same cookie jar for the session. */
-    internal suspend fun authRequest(path: String, body: JSONObject? = null, method: String = if (body == null) "GET" else "POST"): JSONObject =
-        send(authUrl, path, body, method)
-
-    private suspend fun send(root: String, path: String, body: JSONObject?, method: String): JSONObject = withContext(Dispatchers.IO) {
-        val builder = Request.Builder().url(root + path)
-            .header("Accept", "application/json")
-        if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
-        if (method != "GET") {
-            builder.method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()))
-        }
-        val call = http.newCall(builder.build())
-        call.execute().use { response ->
-            if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
-            val raw = response.body?.string().orEmpty()
-            if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("[")) JSONObject().put("items", org.json.JSONArray(raw.trim())) else JSONObject(raw)
-        }
-    }
-
-    /** Shared by the workspace/backup extension functions in MemohWorkspaceApi.kt. */
-    internal fun errorFor(response: Response): String {
-        val raw = response.body?.string()?.take(2048).orEmpty()
-        val parsed = runCatching { JSONObject(raw) }.getOrNull()
-        return parsed?.optString("message")?.takeIf { it.isNotBlank() }
-            ?: parsed?.optString("detail")?.takeIf { it.isNotBlank() }
-            ?: "HTTP ${response.code}"
-    }
-
-    /**
-     * Asks the server how it expects users to sign in.
-     *
-     * Cloud answers `{"login_method":"email"}`; a password deployment answers `"password"`.
-     * The provider list is best-effort: the web client renders OAuth buttons from it, but a
-     * native app cannot complete a browser OAuth handoff (the server rejects non-same-origin
-     * return targets), so it is shown for information only.
-     */
-    suspend fun authConfig(): MemohAuthConfig {
-        val method = runCatching { authRequest("/auth/config").optString("login_method") }
-            .getOrDefault("")
-        val providers = runCatching {
-            val payload = authRequest("/auth/oauth-providers?origin=${Uri.encode(MemohEndpoints.CLOUD_ORIGIN)}")
-            // `request` wraps a top-level JSON array as {"items":[...]}; accept both shapes.
-            val array = payload.optJSONArray("providers") ?: payload.optJSONArray("items")
-            array?.let { jsonArray ->
-                (0 until jsonArray.length()).mapNotNull { index ->
-                    when (val entry = jsonArray.opt(index)) {
-                        is String -> entry.takeIf(String::isNotBlank)
-                        is JSONObject -> entry.optString("provider").takeIf(String::isNotBlank)
-                        else -> null
-                    }
-                }
-            }.orEmpty()
-        }.getOrDefault(emptyList())
-        return MemohAuthConfig(
-            method = when (method) {
-                "email" -> MemohLoginMethod.EmailCode
-                "password" -> MemohLoginMethod.Password
-                else -> MemohLoginMethod.Unknown
-            },
-            oauthProviders = providers,
-        )
-    }
-
-    suspend fun sendEmailCode(email: String) {
-        val address = email.trim()
-        require(address.contains('@')) { "Enter the email address for your Memoh account" }
-        authRequest("/auth/email-code/send", JSONObject().put("email", address).put("preferred_locale", ""))
-    }
-
-    /** Completes an emailed-code sign-in. The server replies with session cookies, not a token. */
-    suspend fun verifyEmailCode(email: String, code: String) {
-        val address = email.trim()
-        val trimmedCode = code.trim()
-        require(trimmedCode.isNotEmpty()) { "Enter the code from the email" }
-        authRequest("/auth/email-code/verify", JSONObject().put("email", address).put("code", trimmedCode))
-        token = ""
-        if (!cookieJar.hasSession()) {
-            throw IOException("Memoh accepted the code but returned no session. Try signing in again.")
-        }
-    }
-
-    suspend fun login(username: String, password: String): String {
-        val body = if (username.contains('@')) {
-            JSONObject().put("email", username.trim()).put("password", password)
-        } else {
-            JSONObject().put("username", username.trim()).put("password", password)
-        }
-        val response = authRequest("/auth/login", body)
-        val result = response.optString("access_token")
-        if (result.isBlank()) throw IOException("Memoh did not return an access token")
-        token = result
-        return result
-    }
-
-    /** Ends a cookie session server-side; the bearer path has no logout endpoint. */
-    suspend fun logoutSession() {
-        runCatching { authRequest("/auth/logout", JSONObject(), method = "POST") }
-        cookieJar.clear()
-        token = ""
-    }
-
+internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent) {
     suspend fun account(): MemohAccount = decodeAccount(request("/users/me"))
 
     suspend fun updateAccount(displayName: String, avatarUrl: String, timezone: String, titleModelId: String): MemohAccount =
@@ -382,11 +242,10 @@ internal class MemohApi {
 
     /** Device attempts must cancel their in-flight HTTP call when the dialog is closed. */
     private suspend fun deviceLoginRequest(path: String, body: JSONObject): JSONObject = suspendCancellableCoroutine { continuation ->
-        val builder = Request.Builder().url(baseUrl + path)
-            .header("Accept", "application/json")
+        val captured = scope
+        val builder = businessRequest(path, captured)
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-        if (token.isNotEmpty()) builder.header("Authorization", "Bearer $token")
-        val call = http.newCall(builder.build())
+        val call = captured.identity.client.newCall(builder.build())
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -396,8 +255,10 @@ internal class MemohApi {
             override fun onResponse(call: Call, response: Response) {
                 val result = runCatching {
                     response.use {
+                        requireCurrent(captured)
                         if (!it.isSuccessful) throw MemohHttpException(it.code, errorFor(it))
                         val raw = it.body?.string().orEmpty()
+                        requireCurrent(captured)
                         if (raw.isBlank()) JSONObject() else JSONObject(raw)
                     }
                 }
@@ -749,19 +610,20 @@ internal class MemohApi {
      * first trades its session for a short-lived ticket at `/api/v1/ws-tickets` and passes that as
      * `?ticket=`, so do the same rather than sending a header the socket endpoint ignores.
      */
-    suspend fun socket(botId: String, listener: WebSocketListener): WebSocket = withContext(Dispatchers.IO) {
-        val url = (baseUrl + "/bots/${Uri.encode(botId)}/web/ws").toHttpUrl()
-        var wsUrl = url.toString().replaceFirst(if (url.isHttps) "https://" else "http://", if (url.isHttps) "wss://" else "ws://")
-        val builder = Request.Builder()
-        if (token.isNotEmpty()) {
-            builder.header("Authorization", "Bearer $token")
-        } else {
-            val ticket = authRequest("/ws-tickets", JSONObject(), method = "POST").optString("ticket")
+    suspend fun socket(botId: String, listener: WebSocketListener): WebSocket {
+        val captured = scope
+        val path = "/bots/${Uri.encode(botId)}/web/ws"
+        val builder = businessRequest(path, captured)
+        var url = (captured.identity.endpoints.api + path).toHttpUrl().newBuilder().apply {
+            if (captured.team.isNotEmpty()) addQueryParameter("team_id", captured.team)
+        }.build()
+        if (captured.identity.bearer.isEmpty()) {
+            val ticket = teamPlatformRequest("/ws-tickets", JSONObject(), method = "POST").optString("ticket")
             if (ticket.isBlank()) throw IOException("Memoh did not return a WebSocket ticket")
-            wsUrl = url.newBuilder().addQueryParameter("ticket", ticket).build().toString()
-                .replaceFirst(if (url.isHttps) "https://" else "http://", if (url.isHttps) "wss://" else "ws://")
+            url = url.newBuilder().addQueryParameter("ticket", ticket).build()
         }
-        http.newWebSocket(builder.url(wsUrl).build(), listener)
+        requireCurrent(captured)
+        return captured.identity.client.newWebSocket(builder.url(url).build(), listener)
     }
 }
 

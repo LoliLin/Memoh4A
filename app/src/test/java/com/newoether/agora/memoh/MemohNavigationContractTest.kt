@@ -56,8 +56,8 @@ class MemohNavigationContractTest {
             assertEquals("other-agent", result.botAgentId)
             assertEquals("codex", result.runtimeType)
             assertEquals("schedule", result.type)
-            // Business calls are rooted at the /api/memoh prefix, not the bare origin.
-            assertEquals("/api/memoh/bots/bot%2F1/sessions/chat%2F1", request().getString("path"))
+            // OSS exposes the configured API root directly, including escaped path components.
+            assertEquals("/bots/bot%2F1/sessions/chat%2F1", request().getString("path"))
             assertEquals("GET", request().getString("method"))
         }
     }

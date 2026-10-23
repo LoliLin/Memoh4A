@@ -30,16 +30,18 @@ class MemohEndpointsTest {
 
     @Test
     fun `self hosted root keeps its own path`() {
-        val endpoints = MemohEndpoints.fromInput("http://localhost:8080")
-        assertEquals("http://localhost:8080/api/v1", endpoints.auth)
-        assertEquals("http://localhost:8080/api/memoh", endpoints.api)
+        for (root in listOf("http://localhost:8080", "https://memoh.example.com/proxy/api", "http://[::1]:8080")) {
+            val endpoints = MemohEndpoints.fromInput(root)
+            assertEquals(root, endpoints.auth)
+            assertEquals(root, endpoints.api)
+        }
     }
 
     @Test
     fun `custom port survives into the origin`() {
         val endpoints = MemohEndpoints.fromInput("https://memoh.example.com:8443")
         assertEquals("https://memoh.example.com:8443", endpoints.origin)
-        assertEquals("https://memoh.example.com:8443/api/v1", endpoints.auth)
+        assertEquals("https://memoh.example.com:8443", endpoints.auth)
     }
 
     @Test(expected = IllegalArgumentException::class)
