@@ -98,12 +98,8 @@ android {
     @Suppress("UnstableApiUsage")
     packaging {
         jniLibs {
-            // UI dependencies may supply their own binaries. No local agent runtime is bundled.
-            excludes += setOf(
-                "**/libagora_llama.so", "**/libagora_proot.so", "**/libllama.so",
-                "**/libggml*.so", "**/libproot_exec.so", "**/libproot_loader.so", "**/libtalloc.so",
-            )
-            // These are dependency prebuilts; packaging them needs no NDK strip toolchain.
+            // Memoh runs on the server: there is no local llama.cpp or proot runtime to ship,
+            // and no native sources are compiled, so nothing needs stripping or excluding here.
             keepDebugSymbols += "**/*.so"
         }
         resources {
