@@ -69,3 +69,31 @@ HTTP 头名大小写无关，因此 `X-Team-ID` 与 `X-Team-Id` 不是两种协�
 - 公开 chunk [desktop-shell-beJShJmm.js](https://app.memoh.net/assets/desktop-shell-beJShJmm.js)（2026-10-23）只含桌面环境检测：URL 带 `desktopShell` 参数或 UA 含 `MemohCloudDesktop` 即标记为桌面；chunk 内没有 scheme、loopback、code 兑换或 cookie 交接逻辑。登录页（2026-10-23 截图）只有 GitHub、Google、邮箱验证码三个入口，没有桌面客户端下载链接。
 
 Google 登录仍未在 Android 实现，也未实际完成 OAuth。测试若干外域/自定义回调被拒绝，只说明这些回调不被接受；不能推出官方桌面协议不存在或所有原生登录方式都不可能。当前公开可查的桌面证据只有环境检测标记（`desktopShell` 参数、`MemohCloudDesktop` UA），没有可依赖的原生交接实现：允许的回调、一次性 code/PKCE 兑换接口、以及浏览器返回客户端方式均未见公开代码；不要以“打开网页”冒充完整原生登录。
+
+## 2026-10-23 真实会话探针（洛铃配合登录）
+
+洛铃在侧栏浏览器完成邮箱验证码登录后，同源探针一次通过：
+
+- `result: scoped_business_ok`；1 个团队（`TEAM_ROLE_OWNER`），`selection: saved_membership`。
+- `auth/config`、`users/me`、`teams` 均 200；负面缺团队对照复现成功（`missingTeamReproduced: true`）；`X-Team-ID` 头与 `team_id` 查询两种变体都拿到 Bot 列表；`POST /api/v1/ws-tickets` 返回非空 ticket。
+- 只读补充盘点：Bot 1 个；会话列表 200（50 条分页）；会话详情 200，字段含 `runtime_type`、`session_mode`、`preferred_chat_model_id` 等；历史 `/bots/{id}/messages?session_id=…` 200（`items[]`，user 有 `text`，assistant 有 `messages` 块数组），`before_message_id` 翻页 200；`/schedule` 200；`/agents` 200；`container/fs/list` 200 返回 Linux 根目录结构。全程只读，未发送用户消息。
+
+## 线上 Web 前端的 WS 协议（chunk 逆向，2026-10-23）
+
+对 108 个构建 chunk 静态分析（`app/build/webapp-chunks/`，一次性下载的参考材料，已删除）。聊天实时链路只走 WebSocket，关键事实：
+
+- 连接：`GET {wss}/api/memoh/bots/{bot_id}/web/ws?team_id=<selected>&ticket=<one-time>`；`team_id` 由请求拦截器按当前团队自动注入，ticket 先经 `POST /api/v1/ws-tickets`（带团队头）换取，然后追加为查询参数；HTTPS→`wss:`。
+- 发送去重键：`message` / `retry_message` / `edit_message` → `invocation:{invocation_id}`；`abort` / `tool_approval_response` / `user_input_response` → `control:{control_id}`。收到 `run_accepted` / `run_rejected` / `error` / `command_result` / `command_error` 时按 `invocation_id` 清除待确认，`control_ack` 按 `control_id` 清除。
+- 首条消息超时 30s（`Mr=30000`）：`run_accepted` 未到则视为失败并自动 abort 该 run；重连退避从 1s 起 ×1.5，上限 10s。
+- 事件白名单：`run_accepted`、`model_preference_settled`、`run_rejected`、`error`、`session_created`、`command_result`、`command_error`、`runtime_snapshot`、`runtime_delta`、`runtime_dropped`、`control_ack`，其余丢弃。
+- 会话创建：不带 `session_id` 发消息 → 服务器回 `session_created{session_id, invocation_id}`；客户端把 `session_id` 回填进挂起的 message 重发语义，并订阅 runtime。
+- delta 归并：`delta.current_run_view` 整体替换优先；`reset_messages` 清空；`user_turn_upserts` / `steer_turn_upserts` / `steer_turn_removals` 维护轮次；`message_appends` 按 `id+type` 定位，`text` / `reasoning` 类型追加 `content`；`progress_appends` 追加 tool 的 `progress` 与可选 `input`；`message_upserts` 按 `id`（tool 另按 `tool_call_id`）覆盖；最后按 `id` 排序。
+- run 状态集合（活动态）：`admitting`、`running`、`waiting_decision`、`aborting`、`finishing`——与 Android 端 `settleIfTerminal` 的集合完全一致。
+- 决策响应载荷：`tool_approval_response{session_id, run_id, decision_id, control_id, decision, option_id, reason?}`；`user_input_response{session_id, run_id, decision_id, control_id, answers[], canceled?, reason?}`——与 Android `decide` / `answerUserInput` 字段一致。
+- `SDK` 里有 `GET /bots/{bot_id}/sessions/events` 的 SSE 封装，但导出名（`Gt`）没有任何 chunk 导入——当前 web 包里是未接线的死代码，聊天不依赖 SSE；Android 不需要实现它。
+
+## Android 端协议对齐结论（2026-10-23 对照）
+
+- 一致：WS URL 组装、ticket 交换、`invocation_id` / `control_id` 去重语义、`session_created` 回填、`runtime_subscribe` / `runtime_unsubscribe`、epoch+seq 游标与快照重同步、活动态集合、审批/用户输入载荷、30s 级首条确认（Android 用 `awaitingAdmission` + 取消恢复草稿实现）。
+- web 独有而 Android 未实现（记录为差距，非回归）：`retry_message` / `edit_message` 消息重发与编辑、`requested_skills` / `workspace_target_id` / `model_id` / `reasoning_effort` 发送参数、`composer_scope` 多视图、`command_result` / `command_error`（web slash 命令）、`model_preference_settled` 处理、delta 的 `user_turn_upserts` / `steer_turn_upserts` / `steer_turn_removals` / `progress_appends` 归并（Android 目前只处理 `message_upserts` / `message_appends` / `run` 补丁）。
+- 重连退避：web 从 1s ×1.5 到 10s 封顶；Android 固定 2s 重试一次。可作为后续改进项，不是正确性缺陷。

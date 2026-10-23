@@ -6,6 +6,8 @@
 
 2026-10-23 14:40（Asia/Shanghai），用户反馈邮箱验证码登录后出现 `X-Team-ID header or team_id query is required`。这说明上一版交付没有走通登录后的业务链路，不能称为“已经能用”。本轮已修复团队初始化、作用域传递及切换隔离，并于 2026-10-23 17:15 前后完成验证：`:verifyKotlinFileSize` 与 15 个套件共 118 个 Memoh 定向测试全部通过（0 失败/错误/跳过），`assembleFdroidDebug` 重新打包成功；探针侧 11 个 Node 测试通过。范围仍限于定向测试，不代表全项目套件或真实 Cloud 收发已验收。
 
+**2026-10-23 17:33 真实会话验证（洛铃配合登录）**：同源探针 `scoped_business_ok` 全绿（身份/团队/团队头/查询变体/ticket），只读盘点确认会话详情、`/messages?session_id=` 历史、翻页、schedule、agents、容器文件系统与 Android 实现字段一致。随后逆向 108 个 web 构建 chunk，完整还原聊天 WS 协议并与 Android 对照——一致性与差距清单见 [MEMOH_CLOUD_PROTOCOL.md](MEMOH_CLOUD_PROTOCOL.md)（含：web 的 SSE `sessions/events` 端点在当前包中是未接线死代码；`retry_message` / `edit_message` / `progress_appends` 等为 Android 已记录差距）。尚未做：真实发送一条消息观察 `session_created` → `run_accepted` → `runtime_delta` 全链路。
+
 Cloud 协议及开源版本差异见 [MEMOH_CLOUD_PROTOCOL.md](MEMOH_CLOUD_PROTOCOL.md)。探针见 [tools/memoh-probe](../tools/memoh-probe/README.md)，其本地 HTTP 测试已覆盖真实嵌套团队结构、负面对照和脱敏输出，新增 `--oauth` 模式核对 Google 授权入口。
 
 更正：HTTP 头不区分大小写；未登录 401 不能证明路由存在；在某个开源版本未搜到字段不能推出相关服务闭源。Google 登录仍未实现，回调试验不足以证明官方桌面交接方式不存在。公开可查的桌面证据只有环境检测标记（`desktopShell` / `MemohCloudDesktop` UA），没有凭据交接代码。按用户 2026-10-23 17:10 指示，后续只关注 memoh.net 当前 Cloud，不再展开开源与自托管对照。下方历史功能记录不代表 Cloud 端到端验收。
