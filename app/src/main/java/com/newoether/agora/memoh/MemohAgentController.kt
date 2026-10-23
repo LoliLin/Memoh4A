@@ -59,9 +59,8 @@ internal class MemohAgentController(private val api: MemohApi) {
 
     suspend fun refresh(botId: String) {
         val generation = ++refreshGeneration
-        val baseUrl = api.baseUrl
-        val token = api.token
-        fun current() = generation == refreshGeneration && api.baseUrl == baseUrl && api.token == token
+        val identity = api.scope
+        fun current() = generation == refreshGeneration && api.scope === identity
         loading = true
         error = ""
         try {

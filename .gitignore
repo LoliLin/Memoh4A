@@ -39,6 +39,6 @@ signing.properties
 AGENTS.md
 
 # Memoh probe session captures (live cookies)
-curl.txt
-curl.sh
-curl.bat
+/tools/memoh-probe/curl.txt
+/tools/memoh-probe/curl.sh
+/tools/memoh-probe/curl.bat

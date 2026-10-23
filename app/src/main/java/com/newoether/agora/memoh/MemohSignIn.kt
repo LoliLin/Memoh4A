@@ -1,16 +1,12 @@
 package com.newoether.agora.memoh
 
 import android.content.SharedPreferences
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-/**
- * Sign-in flows kept out of [MemohViewModel] so that file stays under the project's 800-line
- * limit. None of this touches conversation state; the caller decides what happens once a
- * session exists.
- */
+/** Probes have their own client and cannot reconfigure a live or pending login. */
 internal class MemohSignIn(
     private val api: MemohApi,
     private val prefs: SharedPreferences,
@@ -19,106 +15,92 @@ internal class MemohSignIn(
     private val onError: (String) -> Unit,
     private val onSignedIn: () -> Unit,
 ) {
-    /**
-     * Reads the server's sign-in method so the form matches what that deployment accepts.
-     *
-     * Cloud answers "email"; a password deployment answers "password". A failure here is silent:
-     * the user sees the real error when they attempt the sign-in.
-     */
+    private var probeJob: Job? = null
+    private var probeRevision = 0
+    private var authenticated = false
+
     fun probe(server: String) {
         val address = server.trim()
-        if (address.isEmpty()) return
-        scope.launch {
-            runCatching {
-                api.configure(address)
-                api.authConfig()
-            }.onSuccess { config ->
-                form.method = config.method
-                form.oauthProviders = config.oauthProviders
-            }
+        if (address.isEmpty() || form.signingIn || form.sendingCode || authenticated) return
+        val revision = ++probeRevision
+        val attempt = form.revision
+        probeJob?.cancel()
+        probeJob = scope.launch {
+            val probeApi = MemohApi()
+            try {
+                probeApi.configure(address)
+                val config = probeApi.authConfig()
+                if (revision == probeRevision && form.isCurrent(attempt) && form.server.trim() == address &&
+                    !form.signingIn && !authenticated) {
+                    form.method = config.method
+                    form.oauthProviders = config.oauthProviders
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Sign-in itself reports connection errors. */ }
+            finally { probeApi.clearIdentity() }
         }
     }
+    private fun stopProbe() { probeRevision++; probeJob?.cancel(); probeJob = null }
 
     fun sendCode(email: String) {
-        if (form.sendingCode) return
+        if (form.sendingCode || form.signingIn || authenticated) return
         val address = email.trim()
-        if (address.isEmpty()) {
-            onError("Enter the Memoh account email")
-            return
-        }
+        if (address.isEmpty()) { onError("Enter the Memoh account email"); return }
+        stopProbe()
+        val attempt = form.beginAttempt()
+        val server = form.server.trim()
         form.sendingCode = true
         scope.launch {
             try {
-                api.configure(form.server.trim())
+                api.configure(server)
                 api.sendEmailCode(address)
-                form.codeSent = true
-            } catch (t: Exception) {
-                form.codeSent = false
-                onError(t.message ?: "Could not send the code")
-            } finally {
-                form.sendingCode = false
-            }
+                if (form.isCurrent(attempt)) form.codeSent = true
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: Exception) { if (form.isCurrent(attempt)) onError(e.message ?: "Could not send the code") }
+            finally { if (form.isCurrent(attempt)) form.sendingCode = false }
         }
     }
-
     fun signInWithCode(code: String) {
-        val address = form.email.trim()
+        val email = form.email.trim()
         val entered = code.trim()
-        if (address.isEmpty() || entered.isEmpty()) {
-            onError("Enter the emailed code")
-            return
-        }
-        val attempt = form.beginAttempt()
-        scope.launch {
-            try {
-                api.configure(form.server.trim())
-                api.verifyEmailCode(address, entered)
-                if (!form.isCurrent(attempt)) return@launch
-                withContext(Dispatchers.IO) {
-                    prefs.edit().putString("server", form.server.trim()).apply()
-                }
-                form.method = MemohLoginMethod.EmailCode
-                form.codeSent = true
-                onSignedIn()
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (t: Exception) {
-                if (form.isCurrent(attempt)) onError(t.message ?: "Sign-in failed")
-            }
-        }
+        if (email.isEmpty() || entered.isEmpty()) { onError("Enter the emailed code"); return }
+        signIn { api.verifyEmailCode(email, entered); null }
     }
-
     fun signInWithPassword(account: String, password: String) {
         if (account.isEmpty() || password.isEmpty()) {
-            onError("Enter the account email or username and password")
-            return
+            onError("Enter the account email or username and password"); return
         }
+        signIn { api.login(account, password) }
+    }
+    private fun signIn(authenticate: suspend () -> String?) {
+        if (form.signingIn || form.sendingCode || authenticated) return
+        stopProbe()
         val attempt = form.beginAttempt()
+        val server = form.server.trim()
+        form.signingIn = true
+        onError("")
         scope.launch {
             try {
-                api.configure(form.server.trim())
-                val jwt = api.login(account, password)
+                val endpoints = MemohEndpoints.fromInput(server)
+                if (!form.codeSent || api.scope.identity.endpoints != endpoints) api.configure(endpoints)
+                val jwt = authenticate()
                 if (!form.isCurrent(attempt)) return@launch
-                withContext(Dispatchers.IO) {
-                    prefs.edit().putString("server", form.server.trim())
-                        .putString("jwt", MemohTokenStore.seal(jwt)).apply()
-                }
+                val edit = prefs.edit().putString("server", server)
+                if (jwt == null) edit.remove("jwt") else edit.putString("jwt", MemohTokenStore.seal(jwt))
+                edit.apply()
+                authenticated = true
                 form.password = ""
+                if (jwt == null) { form.method = MemohLoginMethod.EmailCode; form.codeSent = true }
                 onSignedIn()
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (t: Exception) {
-                if (form.isCurrent(attempt)) onError(t.message ?: "Connection failed")
-            }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: Exception) { if (form.isCurrent(attempt)) onError(e.message ?: "Sign-in failed") }
+            finally { if (form.isCurrent(attempt)) form.signingIn = false }
         }
     }
-
-    /** Drops the local session, then best-effort ends a cookie session on the server. */
     fun signOut() {
-        form.resetAfterSignOut()
-        scope.launch {
-            runCatching { api.logoutSession() }
-            withContext(Dispatchers.IO) { prefs.edit().remove("jwt").apply() }
-        }
+        stopProbe(); authenticated = false; form.resetAfterSignOut()
+        val finishLogout = api.endSession()
+        prefs.edit().remove("jwt").apply()
+        scope.launch { finishLogout() }
     }
 }

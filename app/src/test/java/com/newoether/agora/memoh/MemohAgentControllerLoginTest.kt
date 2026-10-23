@@ -17,6 +17,8 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemohAgentControllerLoginTest {
     private fun api(): MemohApi = mockk {
+        val identity = mockk<MemohTransport.Scope>()
+        every { scope } returns identity
         every { baseUrl } returns "https://example.com/api"
         every { token } returns "token"
         coEvery { agentProfiles() } returns emptyList()

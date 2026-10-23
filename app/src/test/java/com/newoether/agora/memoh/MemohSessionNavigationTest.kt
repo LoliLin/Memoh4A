@@ -50,11 +50,19 @@ class MemohSessionNavigationTest {
                 else -> """{"items":[]}"""
             }
             val bytes = response.toByteArray()
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-            if (path.endsWith("/sessions/slow")) finished.countDown()
+            try {
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            } catch (_: java.io.IOException) {
+                // Logout now cancels the client connection, so a late server write may be rejected.
+            } finally {
+                exchange.close()
+                if (path.endsWith("/sessions/slow")) finished.countDown()
+            }
         }
         server.start()
+        application.getSharedPreferences("memoh_native", 0).edit()
+            .putString("server", "http://127.0.0.1:${server.address.port}").commit()
         val vm = MemohViewModel(application)
         try {
             runBlocking {
@@ -145,6 +153,7 @@ class MemohSessionNavigationTest {
         release.countDown()
         awaitState { finished.count == 0L }
         withTimeout(10_000) { slow?.join() }
+        assertTrue("Logout must cancel outstanding navigation", slow?.isCancelled == true)
         assertNull(vm.session)
         assertNull(vm.bot)
     }

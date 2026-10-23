@@ -1,6 +1,15 @@
 # Memoh Android 客户端 — 交接说明
 
-供接手继续开发的人/agent 阅读。最后更新：2026-10-21。
+供接手继续开发的人/agent 阅读。最后更新：2026-10-23。
+
+## 当前优先事项：Cloud 登录后的团队作用域
+
+2026-10-23 14:40（Asia/Shanghai），用户反馈邮箱验证码登录后出现 `X-Team-ID header or team_id query is required`。这说明上一版交付没有走通登录后的业务链路，不能称为“已经能用”。本轮已修复团队初始化、作用域传递及切换隔离，并于 2026-10-23 17:15 前后完成验证：`:verifyKotlinFileSize` 与 15 个套件共 118 个 Memoh 定向测试全部通过（0 失败/错误/跳过），`assembleFdroidDebug` 重新打包成功；探针侧 11 个 Node 测试通过。范围仍限于定向测试，不代表全项目套件或真实 Cloud 收发已验收。
+
+Cloud 协议及开源版本差异见 [MEMOH_CLOUD_PROTOCOL.md](MEMOH_CLOUD_PROTOCOL.md)。探针见 [tools/memoh-probe](../tools/memoh-probe/README.md)，其本地 HTTP 测试已覆盖真实嵌套团队结构、负面对照和脱敏输出，新增 `--oauth` 模式核对 Google 授权入口。
+
+更正：HTTP 头不区分大小写；未登录 401 不能证明路由存在；在某个开源版本未搜到字段不能推出相关服务闭源。Google 登录仍未实现，回调试验不足以证明官方桌面交接方式不存在。公开可查的桌面证据只有环境检测标记（`desktopShell` / `MemohCloudDesktop` UA），没有凭据交接代码。按用户 2026-10-23 17:10 指示，后续只关注 memoh.net 当前 Cloud，不再展开开源与自托管对照。下方历史功能记录不代表 Cloud 端到端验收。
+
 
 ## 原始需求（洛铃原话，不可改写）
 
@@ -93,7 +102,7 @@ Swagger 告诉你「后端能做什么」，`apps/web` 告诉你「产品实际�
   （数字会变，动手前自己数：`git rev-list --count origin/feat/memoh-native-client..HEAD`）
 - 工作区干净
 - 提交身份：`洛铃 <teawhat2000@gmail.com>`（仓库级配置）
-- **⚠️ 尚未构建验证**：环境无 `ANDROID_HOME`，也无 `local.properties`。不要假设代码能编译通过。
+- SDK、Java 21 与 `local.properties` 已配置，本机可以构建和测试；具体历史结果见下方。不能将这些结果当作 Cloud 认证后链路已通过。
 
 本轮提交（按时间顺序）：
 
@@ -293,7 +302,7 @@ SHA-256 `D872F9A0EB2D368A639A217F2830BA848BC6B606865C0D1921C546199D69124A`，
 
 ## 继续开发时的约定
 
-1. **只用固定版本的上游契约**（`f3e8199`）。要确认某个字段语义，去看 Go handler，不要凭字段名推断。
+1. **固定开源契约，并核对目标部署的差异**：业务 API 参考上游 `f3e8199` 的 Go handler / Web / Desktop；Cloud 的登录、团队和路由前缀同时核对线上实际客户端及响应。一个版本里没找到不能推出所有版本都不存在；不要凭字段名或匿名 401 推断协议。
 2. **区分"有文档"与"有实现"**：Swagger 里的操作和 Go 里注册但没进 Swagger 的路由是两类东西，不要混着算覆盖率。
 3. **不要用假数据填充 UI**。做不到就如实标注限制，而不是用演示数据冒充功能。
 4. 破坏性操作（删除、覆盖导入）必须二次确认。

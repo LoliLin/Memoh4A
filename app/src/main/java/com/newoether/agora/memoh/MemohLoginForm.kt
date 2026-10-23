@@ -26,6 +26,8 @@ internal class MemohLoginForm(initialServer: String) {
     var sendingCode by mutableStateOf(false)
         internal set
 
+    var signingIn by mutableStateOf(false)
+        internal set
     /** Bumped whenever the session generation changes so a late response cannot sign in. */
     internal var revision = 0
         private set
@@ -36,6 +38,7 @@ internal class MemohLoginForm(initialServer: String) {
 
     fun resetAfterSignOut() {
         revision++
+        signingIn = false; sendingCode = false
         codeSent = false
         code = ""
         password = ""

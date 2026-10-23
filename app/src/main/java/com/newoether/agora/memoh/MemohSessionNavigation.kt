@@ -11,7 +11,7 @@ internal fun MemohViewModel.openSessionById(sessionId: String): Job? {
     val botId = bot?.id ?: return null
     val revision = historyRevision
     val request = ++navigationRevision
-    return viewModelScope.launch {
+    return navigationScope.launch {
         try {
             val target = workspaceApi.getSession(botId, sessionId)
             if (signedIn && bot?.id == botId && historyRevision == revision && navigationRevision == request) selectSession(target)

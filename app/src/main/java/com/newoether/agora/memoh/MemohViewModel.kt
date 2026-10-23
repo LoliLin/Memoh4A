@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -20,6 +21,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 internal class MemohViewModel(application: Application) : AndroidViewModel(application) {
+    internal val navigationScope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + kotlinx.coroutines.SupervisorJob(viewModelScope.coroutineContext[Job]))
     private val prefs = application.getSharedPreferences("memoh_native", 0)
     private var authRevision = 0
     private var botRevision = 0
@@ -31,7 +33,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var awaitingSnapshot = true
     private val api = MemohApi()
     internal val workspaceApi: MemohApi get() = api
-    internal val agentController = MemohAgentController(api)
+    internal var agentController = MemohAgentController(api); private set
     private var socket: WebSocket? = null
     private var socketGeneration = 0
     private var reconnectJob: Job? = null
@@ -46,13 +48,15 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     val login = MemohLoginForm(prefs.getString("server", MemohEndpoints.CLOUD_ORIGIN).orEmpty())
 
+    internal val teams = MemohTeamController(api, prefs, viewModelScope,
+        onChanged = { resetNavigation(); if (api.teamId.isNotEmpty()) refreshBots() }, onError = { error = it })
     private val signIn = MemohSignIn(
         api = api,
         prefs = prefs,
         scope = viewModelScope,
         form = login,
         onError = { error = it },
-        onSignedIn = { signedIn = true; login.code = ""; refreshBots() },
+        onSignedIn = { resetNavigation(); signedIn = true; error = ""; login.code = ""; if (api.usesSessionCookie) teams.load() else refreshBots() },
     )
 
     var signedIn by mutableStateOf(false); private set
@@ -106,29 +110,24 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun login() = signIn.signInWithPassword(login.username.trim(), login.password)
 
     fun logout() {
-        authRevision++
-        botRevision++
-        attachmentDraftRevision++; historyRevision++
-        queueRevision++
-        closeSocket()
-        signIn.signOut()
-        signedIn = false
-        loading = false
-        bots = emptyList()
-        agentController.clear()
-        bot = null
-        sessions = emptyList()
-        nextSessionCursor = null
-        olderSessionsAvailable = false
-        session = null
-        turns = emptyList()
-        pendingUserText = null; pendingUserAttachments = emptyList()
-        liveBlocks = emptyList()
+        resetNavigation(); teams.reset(); signIn.signOut(); signedIn = false
+    }
+    private fun resetNavigation() {
+        navigationScope.coroutineContext[Job]?.cancelChildren()
+        authRevision++; botRevision++; navigationRevision++
+        attachmentDraftRevision++; historyRevision++; queueRevision++
+        closeSocket(); clearRun()
+        loading = false; loadingSessions = false; loadingOlderMessages = false; queueBusy = false
+        queueState = null; firstHistoryMessageId = null; olderMessagesAvailable = false; restoreDraft = null
+        bots = emptyList(); agentController.clear(); agentController = MemohAgentController(MemohApi(api)); bot = null
+        sessions = emptyList(); nextSessionCursor = null; olderSessionsAvailable = false
+        session = null; turns = emptyList(); pendingUserText = null; pendingUserAttachments = emptyList()
         error = ""
     }
 
     fun refreshBots() {
-        viewModelScope.launch { loadBots() }
+        if (api.usesSessionCookie && api.teamId.isEmpty()) return
+        navigationScope.launch { loadBots() }
     }
 
     private suspend fun loadBots() {
@@ -178,10 +177,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         olderSessionsAvailable = false
         clearRun()
         pendingUserText = null; pendingUserAttachments = emptyList()
-        viewModelScope.launch {
+        navigationScope.launch {
             runCatching { agentController.refresh(value.id) }
         }
-        viewModelScope.launch {
+        navigationScope.launch {
             loadingSessions = true
             try {
                 val page = api.sessionsPage(value.id)
@@ -241,7 +240,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val b = bot?.id ?: return
         val sid = session?.id ?: return
         val revision = queueRevision
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 val snapshot = api.sessionQueues(b, sid)
                 if (queueRevision == revision && bot?.id == b && session?.id == sid)
@@ -264,7 +263,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val revision = queueRevision
         queueBusy = true
         error = ""
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 // Fixed invocation ID per admission, no automatic network retries.
                 api.enqueueQueue(b, sid, type, value, UUID.randomUUID().toString())
@@ -287,7 +286,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (queueBusy || queueState?.items?.none { it.id == item.id && it.type == item.type } != false) return
         val revision = queueRevision
         queueBusy = true
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 api.cancelQueueItem(b, sid, item)
                 if (revision == queueRevision) refreshQueue()
@@ -305,7 +304,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (loadingSessions) return
         val revision = botRevision
         loadingSessions = true
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 val page = api.sessionsPage(b, cursor)
                 if (revision == botRevision && bot?.id == b && cursor == nextSessionCursor) {
@@ -327,7 +326,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val name = title.trim()
         if (name.isBlank()) return
         val revision = historyRevision
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 api.renameSession(b, sid, name)
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
@@ -348,7 +347,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             error = "Stop or finish the running Agent before deleting this conversation."
             return
         }
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 api.deleteSession(b, sid)
                 if (bot?.id == b) {
@@ -368,7 +367,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (loadingOlderMessages || !olderMessagesAvailable) return
         val revision = historyRevision
         loadingOlderMessages = true
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 val page = api.history(b, sid, firstId)
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
@@ -424,7 +423,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         } else {
             val authRevisionAtSend = authRevision
             val botRevisionAtSend = botRevision
-            viewModelScope.launch {
+            navigationScope.launch {
                 try {
                     val created = api.createSession(selectedBot.id, agentController.selectedAgentId)
                     if (authRevisionAtSend != authRevision || botRevisionAtSend != botRevision ||
@@ -510,7 +509,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private fun reloadHistory(sid: String) {
         val b = bot?.id ?: return
         val revision = historyRevision
-        viewModelScope.launch {
+        navigationScope.launch {
             try {
                 val result = api.history(b, sid)
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
@@ -538,7 +537,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         socket?.cancel()
         socket = null
         // The handshake may need a ticket round-trip, so the socket opens from a coroutine.
-        viewModelScope.launch {
+        navigationScope.launch {
             val opened = try {
                 api.socket(botId, socketListener(botId, generation))
             } catch (cancelled: CancellationException) {
@@ -556,7 +555,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private fun socketListener(botId: String, generation: Int): WebSocketListener {
         fun current() = generation == socketGeneration && bot?.id == botId
         return memohSocketListener(
-            scope = viewModelScope,
+            scope = navigationScope,
             generation = generation,
             isCurrent = ::current,
             onOpen = { webSocket ->
@@ -577,7 +576,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private fun disconnected(generation: Int, botId: String) {
-        viewModelScope.launch {
+        navigationScope.launch {
             if (generation != socketGeneration || bot?.id != botId) return@launch
             connected = false
             resetCursor()
@@ -745,7 +744,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             val finishedRun = runId
             val botId = bot?.id ?: return
             settlingRunId = finishedRun
-            viewModelScope.launch {
+            navigationScope.launch {
                 try {
                     val settled = api.history(botId, sid)
                     if (bot?.id == botId && session?.id == sid && runId == finishedRun && !running) {
