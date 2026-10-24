@@ -107,6 +107,9 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     }
     var expanded by remember { mutableStateOf(false) }
     var barHeightPx by remember { mutableStateOf(0f) }
+    var viewportHeightPx by remember { mutableStateOf(0) }
+    var mediaViewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
+    var filePreview by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val field = remember(vm.bot?.id, vm.session?.id) { TextFieldState() }
     val focus = remember { FocusRequester() }
@@ -127,7 +130,19 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
 
     // Stable list: history + optimistic pending row + a payload-free live stub. Runtime deltas
     // never touch this list; they only replace the streamingMessage overlay (matched by id).
-    val messages = remember(vm.turns, vm.pendingUserText, vm.pendingUserAttachments, vm.running) {
+    // Attachment files are pre-materialized off the main thread; composition only reads cache hits.
+    var attachmentCacheRevision by remember { mutableStateOf(0) }
+    val pendingAttachments = vm.pendingUserAttachments + vm.turns.flatMap { it.attachments }
+    LaunchedEffect(pendingAttachments) {
+        val missing = pendingAttachments.filter { it.base64.isNotBlank() && it.cachedFile(context.cacheDir) == null }
+        if (missing.isNotEmpty()) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                missing.forEach { it.materialize(context.cacheDir) }
+            }
+            attachmentCacheRevision++
+        }
+    }
+    val messages = remember(vm.turns, vm.pendingUserText, vm.pendingUserAttachments, vm.running, attachmentCacheRevision) {
         memohMessages(
             turns = vm.turns,
             pendingText = vm.pendingUserText,
@@ -285,6 +300,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             isLoading = vm.running,
                             streamingMessage = streamingMessage,
                             streamingAutoFollowEnabled = vm.running,
+                            bottomBarHeight = with(LocalDensity.current) { barHeightPx.toDp() },
+                            viewportHeight = viewportHeightPx,
                             onEditMessage = { messageId, newText ->
                                 vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
                                     ?.takeIf { it.role == "user" && it.turnId.isNotBlank() }
@@ -300,13 +317,19 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                     ?.takeIf { it.turnId.isNotBlank() }
                                     ?.let { vm.forkFromTurn(it.turnId) }
                             },
+                            onMediaClick = { urls, index ->
+                                mediaViewer = urls to index
+                            },
+                            onFileContentClick = { name, content ->
+                                filePreview = name to content
+                            },
                             modifier = Modifier
                                 .fillMaxSize()
-                                .onSizeChanged { },
+                                .onSizeChanged { viewportHeightPx = it.height },
                             contentPadding = PaddingValues(
                                 start = 8.dp,
                                 end = 8.dp,
-                                top = 8.dp,
+                                top = 140.dp,
                                 bottom = with(LocalDensity.current) { barHeightPx.toDp() } + 8.dp,
                             ),
                         )
@@ -479,6 +502,27 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                 )
             }
         }
+    }
+
+    // Agora's own full-screen media pager, wired to the shared thumbnails' click channel.
+    mediaViewer?.let { (urls, index) ->
+        com.newoether.agora.ui.chat.FullScreenMediaViewer(
+            urls = urls,
+            initialIndex = index,
+            pdfPages = emptyList(),
+            onClose = { mediaViewer = null },
+            onNavigate = { mediaViewer = urls to it },
+        )
+    }
+    filePreview?.let { (name, content) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { filePreview = null },
+            title = { Text(name) },
+            text = { Text(content, style = MaterialTheme.typography.bodySmall) },
+            confirmButton = {
+                TextButton(onClick = { filePreview = null }) { Text("Close") }
+            },
+        )
     }
 
     MemohDialogs(
