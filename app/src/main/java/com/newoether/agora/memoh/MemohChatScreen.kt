@@ -45,7 +45,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.newoether.agora.util.gradientBlur
 import com.newoether.agora.model.ChatConversation
 import com.newoether.agora.model.StableMessageList
 import com.newoether.agora.ui.chat.ChatDrawerHost
@@ -328,8 +332,13 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                 Box(Modifier.fillMaxSize()) {
                     when {
                         vm.bot == null -> MemohNotice("No accessible bots yet")
-                        messages.isEmpty() -> MemohNotice(
-                            "Start a conversation\nYour messages will stay on the Memoh server.",
+                        // New-chat welcome: Agora's typewriter headline vertically centered
+                        // against the composer, not a static notice block.
+                        messages.isEmpty() -> MemohWelcome(
+                            bottomBarHeight = with(LocalDensity.current) { barHeightPx.toDp() },
+                            windowHeightDp = viewportHeightPx.let { h ->
+                                if (h == 0) 0f else with(LocalDensity.current) { h.toDp().value }
+                            },
                         )
                         else -> MessageList(
                             messages = stable,
@@ -346,6 +355,15 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             thoughtExpandedStates = thoughtExpandedStates,
                             onSearchMatchDistance = conversationInteraction::recordSearchMatchDistance,
                             onSearchTurnsChanged = conversationInteraction::recordSearchTurns,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .gradientBlur(
+                                    blurAtTopDp = 8f,
+                                    blurAtBottomDp = 0f,
+                                    fadeHeightDp = 40f,
+                                    bottomOverlayHeight = with(LocalDensity.current) { barHeightPx.toDp() } + 12.dp,
+                                )
+                                .onSizeChanged { viewportHeightPx = it.height },
                             onEditMessage = { messageId, newText ->
                                 vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
                                     ?.takeIf { it.role == "user" && it.turnId.isNotBlank() }
@@ -380,9 +398,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             onFileContentClick = { name, content ->
                                 filePreview = name to content
                             },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .onSizeChanged { viewportHeightPx = it.height },
                             contentPadding = PaddingValues(
                                 start = 8.dp,
                                 end = 8.dp,
@@ -667,20 +682,55 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
 @Composable
 private fun MemohNotice(text: String, isError: Boolean = false) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        if (isError) {
-            Text(text, color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(24.dp))
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                text.split('\n').forEachIndexed { index, line ->
-                    Text(
-                        line,
-                        style = if (index == 0) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.bodySmall,
-                        color = if (index == 0) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isError) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(24.dp),
+        )
+    }
+}
+
+/**
+ * Agora's ChatWelcomeContent equivalent: a typewriter headline vertically centered in the
+ * space between the top bar and the composer, over the ambient blob background.
+ */
+@Composable
+private fun MemohWelcome(bottomBarHeight: androidx.compose.ui.unit.Dp, windowHeightDp: Float) {
+    Box(
+        modifier = Modifier.fillMaxSize().padding(bottom = bottomBarHeight),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            val availableHeight = windowHeightDp - bottomBarHeight.value
+            val topPadding = (availableHeight / 2f).coerceAtLeast(0f).dp
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = topPadding).padding(horizontal = 24.dp),
+            ) {
+                com.newoether.agora.ui.components.TypewriterText(
+                    text = "Welcome to Memoh.",
+                    animationKey = "memoh-welcome",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    typeSpeedMs = 100,
+                    animate = true,
+                    mode = com.newoether.agora.ui.components.TypewriterMode.TEXT_GRADIENT,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Start a conversation — your messages stay on the Memoh server.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
             }
         }
     }
