@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import org.json.JSONObject
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +95,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var newTitle by remember { mutableStateOf("") }
     var sendQueueMenu by remember { mutableStateOf(false) }
     var modelMenu by remember { mutableStateOf(false) }
+    LaunchedEffect(vm.agentController.selectedAgentId, vm.bot?.id) {
+        val botId = vm.bot?.id ?: return@LaunchedEffect
+        val agentId = vm.agentController.selectedAgentId
+        if (agentId.isNotBlank()) vm.agentController.loadModels(botId, agentId)
+    }
     var selectedAttachments by remember(vm.attachmentDraftOwner) {
         mutableStateOf<List<MemohAttachment>>(emptyList())
     }
@@ -175,12 +181,24 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     scope.launch { closeFromContent() }
                 },
                 onLoadOlder = vm::loadOlderSessions,
+                onRename = { session ->
+                    newTitle = session.title
+                    renameDialog = true
+                },
+                onDelete = { session ->
+                    vm.selectSession(session)
+                    deleteDialog = true
+                },
             )
         },
     ) {
         Box(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize()) {
-                ChatTopBar(
+            androidx.compose.material3.Scaffold(
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    Column {
+                        ChatTopBar(
                     isNewChatMode = vm.session == null,
                     conversations = conversations,
                     currentConversationId = vm.session?.id,
@@ -237,9 +255,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             }
                         }
                     },
-                )
-
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                        )
+                    }
+                },
+            ) { _ ->
+                Box(Modifier.fillMaxSize()) {
                     when {
                         vm.bot == null -> MemohNotice("No accessible bots yet")
                         messages.isEmpty() -> MemohNotice(
@@ -268,7 +288,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             contentPadding = PaddingValues(
                                 start = 8.dp,
                                 end = 8.dp,
-                                top = 148.dp,
+                                top = 8.dp,
                                 bottom = with(LocalDensity.current) { barHeightPx.toDp() } + 8.dp,
                             ),
                         )
@@ -362,8 +382,28 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                         }
                                     }
                                 }
-                                // Chat-time model preference, matching the web composer.
-                                MemohModelPicker(vm, modelMenu, { modelMenu = it })
+                            }
+                            // Agora's own composer controls capsule with the model selector.
+                            androidx.compose.material3.TextButton(
+                                onClick = { modelMenu = true },
+                                enabled = vm.agentController.selectedAgentId.isNotBlank(),
+                            ) {
+                                val controller = vm.agentController
+                                val catalog = controller.models
+                                val modelName = catalog?.optJSONArray("models")?.let { models ->
+                                    val current = controller.preferredModelId.ifBlank { controller.settledModelId }
+                                    (0 until models.length())
+                                        .mapNotNull { models.optJSONObject(it) }
+                                        .firstOrNull { it.optString("id") == current }
+                                        ?.optString("name")
+                                }.orEmpty()
+                                Text(
+                                    if (controller.modelsLoading) "模型加载中…"
+                                    else if (modelName.isNotBlank()) modelName
+                                    else if (controller.settledModelId.isNotBlank()) shortenModel(controller.settledModelId)
+                                    else "模型",
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
                             }
                             val showStop = vm.running && vm.runId.isNotBlank()
                             ComposerSendButton(
