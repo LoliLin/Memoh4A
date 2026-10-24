@@ -111,6 +111,10 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var expanded by remember { mutableStateOf(false) }
     var barHeightPx by remember { mutableStateOf(0f) }
     var viewportHeightPx by remember { mutableStateOf(0) }
+    // Shared-list state caches the MessageList writes back into (search geometry, thinking
+    // expansion). Both reset per conversation like ChatApp does, keeping scroll anchors stable.
+    val messageHeights = remember(vm.session?.id) { androidx.compose.runtime.snapshots.SnapshotStateMap<String, Int>() }
+    val thoughtExpandedStates = remember(vm.session?.id) { androidx.compose.runtime.snapshots.SnapshotStateMap<String, Boolean>() }
     var mediaViewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
     var filePreview by remember { mutableStateOf<Pair<String, String>?>(null) }
     var settingsOpen by remember { mutableStateOf(false) }
@@ -338,6 +342,10 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             streamingAutoFollowEnabled = vm.running,
                             bottomBarHeight = with(LocalDensity.current) { barHeightPx.toDp() },
                             viewportHeight = viewportHeightPx,
+                            messageHeights = messageHeights,
+                            thoughtExpandedStates = thoughtExpandedStates,
+                            onSearchMatchDistance = conversationInteraction::recordSearchMatchDistance,
+                            onSearchTurnsChanged = conversationInteraction::recordSearchTurns,
                             onEditMessage = { messageId, newText ->
                                 vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
                                     ?.takeIf { it.role == "user" && it.turnId.isNotBlank() }
