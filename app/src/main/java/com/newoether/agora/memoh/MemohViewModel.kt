@@ -652,8 +652,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
      * Only meaningful when no run is active; Homem's client hides both actions otherwise.
      * The server creates the follow-up run; [turnId] addresses the turn to mutate.
      */
-    fun mutateTurn(turnId: String, retry: Boolean, text: String? = null): Boolean {
-        val sid = session?.id?.takeIf { it.isNotBlank() } ?: return false
+    fun mutateTurn(turnId: String, retry: Boolean, text: String? = null): Boolean {        val sid = session?.id?.takeIf { it.isNotBlank() } ?: return false
         if (turnId.isBlank()) return false
         if (running || awaitingAdmission.isNotEmpty() || pendingUserText != null) {
             error = "Wait for the current run to finish before editing history."
@@ -675,6 +674,27 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             ensureConnection(bot?.id ?: return false)
         }
         return true
+    }
+
+    /** Fork the conversation from a turn; the server returns the new session (Homem parity). */
+    fun forkFromTurn(turnId: String) {
+        val b = bot?.id ?: return
+        val sid = session?.id?.takeIf { it.isNotBlank() } ?: return
+        if (turnId.isBlank() || running) return
+        navigationScope.launch {
+            try {
+                val forked = api.forkSession(b, sid, turnId) ?: return@launch
+                val revision = ++navigationRevision
+                if (revision == navigationRevision && bot?.id == b) {
+                    sessions = listOf(forked) + sessions.filterNot { it.id == forked.id }
+                    selectSession(forked)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                error = e.message ?: "Could not fork the conversation"
+            }
+        }
     }
 
     private fun submitInteraction(decisionId: String, payload: JSONObject) {
