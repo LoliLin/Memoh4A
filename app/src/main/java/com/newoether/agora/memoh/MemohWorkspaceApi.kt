@@ -96,6 +96,24 @@ internal suspend fun MemohApi.downloadFile(
     }
 }
 
+/**
+ * Downloads a history attachment's container path into [target]; same endpoint the web and
+ * Homem clients use for on-demand attachment bytes.
+ */
+internal suspend fun MemohApi.downloadAttachmentBytes(botId: String, path: String, target: java.io.File) =
+    withBusinessScope { captured ->
+        val request = businessRequest("/bots/${Uri.encode(botId)}/container/fs/download?path=${Uri.encode(path)}", captured)
+            .header("Accept", "application/octet-stream, */*")
+            .get()
+            .build()
+        captured.identity.client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
+            val body = response.body ?: throw IOException("Memoh returned an empty file")
+            target.parentFile?.mkdirs()
+            target.outputStream().use { sink -> body.byteStream().use { it.copyTo(sink) } }
+        }
+    }
+
 /** Packs the given workspace paths into a tar.gz and streams it to [destination]. */
 internal suspend fun MemohApi.downloadArchive(
     botId: String,

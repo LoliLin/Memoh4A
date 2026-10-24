@@ -659,25 +659,35 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
             if (modelId.isNotBlank()) "?model_id=${Uri.encode(modelId)}" else "")
 
     /**
-     * Team-level chat-model catalog in the composer selector's own shape. Homem reads /models
-     * and filters type=="chat" && enable && catalog_available; we pre-filter into the same
-     * external.ModelCatalog shape the selector already consumes.
+     * Team-level chat-model catalog in the composer selector's own shape. Homem loads
+     * /models and /providers together, groups by provider_id, and shows the provider name
+     * as the group header; the selector menu mirrors that grouping.
      */
     suspend fun teamChatModels(): JSONObject {
-        val response = request("/models")
-        val source = response.optJSONArray("items") ?: JSONArray()
+        val modelResponse = request("/models")
+        val providerNames = runCatching {
+            val providers = request("/providers").optJSONArray("items") ?: JSONArray()
+            (0 until providers.length()).mapNotNull { i ->
+                val p = providers.optJSONObject(i) ?: return@mapNotNull null
+                p.optString("id") to (p.optString("name").ifBlank { p.optString("id") })
+            }.toMap()
+        }.getOrDefault(emptyMap())
+        val source = modelResponse.optJSONArray("items") ?: JSONArray()
         val models = JSONArray()
         for (i in 0 until source.length()) {
             val item = source.optJSONObject(i) ?: continue
             if (item.optString("type") != "chat") continue
             if (item.optBoolean("enable", true) == false) continue
             if (item.optJSONObject("config")?.optBoolean("catalog_available", true) == false) continue
+            val providerId = item.optString("provider_id")
             models.put(JSONObject()
                 .put("id", item.optString("model_id").ifBlank { item.optString("id") })
                 .put("name", item.optString("name"))
                 .put("description", item.optString("description"))
+                .put("provider_id", providerId)
+                .put("provider_name", providerNames[providerId] ?: "")
                 .put("default_reasoning_effort", item.optString("default_reasoning_effort"))
-                .put("configured_model_id", response.optString("configured_model_id")))
+                .put("configured_model_id", modelResponse.optString("configured_model_id")))
         }
         return JSONObject().put("models", models)
     }
