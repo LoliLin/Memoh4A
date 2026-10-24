@@ -1,5 +1,7 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.model.AttachmentItem
+import com.newoether.agora.model.AttachmentMeta
 import com.newoether.agora.model.ChatMessage
 import com.newoether.agora.model.MessageSegment
 import com.newoether.agora.model.MessageStatus
@@ -23,12 +25,15 @@ internal fun memohMessages(
     pendingAttachments: List<MemohAttachment>,
     liveBlocks: List<MemohBlock>,
     running: Boolean,
+    cacheDir: java.io.File? = null,
 ): List<ChatMessage> = buildList {
-    turns.forEachIndexed { index, turn -> add(turn.toChatMessage(memohMessageId(turn, index))) }
+    turns.forEachIndexed { index, turn ->
+        add(turn.toChatMessage(memohMessageId(turn, index), cacheDir = cacheDir))
+    }
     if (pendingText != null) {
         add(
             MemohTurn(MEMOH_PENDING_MESSAGE_ID, "user", pendingText, attachments = pendingAttachments)
-                .toChatMessage(MEMOH_PENDING_MESSAGE_ID),
+                .toChatMessage(MEMOH_PENDING_MESSAGE_ID, cacheDir = cacheDir),
         )
     }
     if (liveBlocks.isNotEmpty() || running) {
@@ -39,7 +44,35 @@ internal fun memohMessages(
     }
 }
 
-private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false): ChatMessage {
+/**
+ * A payload-free placeholder for the live assistant row. The full streaming payload arrives
+ * through MessageList's streamingMessage overlay channel (matched by id), so each runtime
+ * delta replaces only the overlay instead of rebuilding the whole list.
+ */
+internal fun memohLiveStub(): ChatMessage = ChatMessage(
+    id = MEMOH_LIVE_MESSAGE_ID,
+    text = "",
+    participant = Participant.MODEL,
+    status = MessageStatus.SENDING,
+)
+
+/**
+ * Materialize base64/URL attachments as cached files so the shared Agora bubble can render
+ * them through its own attachment-thumbnail pipeline (Coil paths only, never raw base64).
+ */
+internal fun MemohAttachment.materialize(cacheDir: java.io.File): java.io.File? {
+    if (base64.isBlank()) return null
+    val target = java.io.File(cacheDir, "attachments").apply { mkdirs() }
+    val safeName = name.ifBlank { "attachment-${id.hashCode()}" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val file = java.io.File(target, "${id.hashCode()}-$safeName")
+    if (file.exists() && file.length() > 0) return file
+    return try {
+        java.util.Base64.getDecoder().decode(base64).let { file.writeBytes(it) }
+        file
+    } catch (_: IllegalArgumentException) { null }
+}
+
+private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false, cacheDir: java.io.File? = null): ChatMessage {
     val segments = blocks.mapNotNull { block ->
         when (block.type) {
             "reasoning" -> MessageSegment("thought", block.text)
@@ -69,6 +102,26 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false)
         id = messageId,
         text = if (role == "user") text else segments.filter { it.type == "answer" }
             .joinToString("\n") { it.content },
+        images = if (role == "user" && cacheDir != null) {
+            attachments.mapNotNull { att ->
+                if (att.base64.isBlank() && att.url.isBlank()) null
+                else att.materialize(cacheDir)?.absolutePath ?: att.url.takeIf(String::isNotBlank) ?: ""
+            }.filter(String::isNotEmpty)
+        } else emptyList(),
+        attachmentMeta = if (role == "user" && attachments.isNotEmpty()) {
+            AttachmentMeta(items = attachments.map { att ->
+                AttachmentItem(
+                    type = when {
+                        att.mime.startsWith("image/") -> "image"
+                        att.mime.startsWith("video/") -> "video"
+                        att.mime.contains("pdf") -> "pdf"
+                        else -> "file"
+                    },
+                    fileName = att.name.takeIf(String::isNotBlank),
+                    mimeType = att.mime.takeIf(String::isNotBlank),
+                )
+            })
+        } else null,
         participant = if (role == "user") Participant.USER else Participant.MODEL,
         segments = if (role == "user") null else segments,
         status = when {

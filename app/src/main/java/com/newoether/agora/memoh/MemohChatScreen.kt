@@ -98,10 +98,9 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var newTitle by remember { mutableStateOf("") }
     var sendQueueMenu by remember { mutableStateOf(false) }
     var modelMenu by remember { mutableStateOf(false) }
-    LaunchedEffect(vm.agentController.selectedAgentId, vm.bot?.id) {
-        val botId = vm.bot?.id ?: return@LaunchedEffect
-        val agentId = vm.agentController.selectedAgentId
-        if (agentId.isNotBlank()) vm.agentController.loadModels(botId, agentId)
+    // Team-level catalog: load once per signed-in scope, no Agent selection required.
+    LaunchedEffect(vm.signedIn, vm.bot?.id) {
+        if (vm.signedIn && vm.bot != null) vm.agentController.loadModels("", "")
     }
     var selectedAttachments by remember(vm.attachmentDraftOwner) {
         mutableStateOf<List<MemohAttachment>>(emptyList())
@@ -126,14 +125,23 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         }
     }
 
-    val messages = remember(vm.turns, vm.pendingUserText, vm.pendingUserAttachments, vm.liveBlocks, vm.running) {
+    // Stable list: history + optimistic pending row + a payload-free live stub. Runtime deltas
+    // never touch this list; they only replace the streamingMessage overlay (matched by id).
+    val messages = remember(vm.turns, vm.pendingUserText, vm.pendingUserAttachments, vm.running) {
         memohMessages(
             turns = vm.turns,
             pendingText = vm.pendingUserText,
             pendingAttachments = vm.pendingUserAttachments,
-            liveBlocks = vm.liveBlocks,
-            running = vm.running,
-        )
+            liveBlocks = emptyList(),
+            running = false,
+            cacheDir = context.cacheDir,
+        ) + if (vm.liveBlocks.isNotEmpty() || vm.running) listOf(memohLiveStub()) else emptyList()
+    }
+    // The live assistant run rides Agora's streaming channel: auto-follow, in-place growth,
+    // and none of the whole-list rebuilds that made streaming text jitter.
+    val streamingMessage = remember(vm.liveBlocks, vm.running) {
+        if (vm.liveBlocks.isEmpty() && !vm.running) null
+        else memohMessages(emptyList(), null, emptyList(), vm.liveBlocks, vm.running).firstOrNull()
     }
     val stable = remember(messages) { StableMessageList(messages) }
     val conversations = remember(vm.sessions, vm.session, vm.bots) {
@@ -275,6 +283,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             messageActionsEnabled = !vm.running,
                             readOnlyActions = vm.running,
                             isLoading = vm.running,
+                            streamingMessage = streamingMessage,
+                            streamingAutoFollowEnabled = vm.running,
                             onEditMessage = { messageId, newText ->
                                 vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
                                     ?.takeIf { it.role == "user" && it.turnId.isNotBlank() }
@@ -413,7 +423,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                     expanded = modelMenu,
                                     onClick = { modelMenu = !modelMenu },
                                     onDismissRequest = { modelMenu = false },
-                                    enabled = controller.selectedAgentId.isNotBlank(),
+                                    enabled = vm.bot != null,
                                 ) {
                                     if (modelArray == null || modelArray.length() == 0) {
                                         AgoraDropdownMenuItem(
