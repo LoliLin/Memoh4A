@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import com.newoether.agora.model.ChatConversation
 import com.newoether.agora.model.StableMessageList
@@ -110,6 +111,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var viewportHeightPx by remember { mutableStateOf(0) }
     var mediaViewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
     var filePreview by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var settingsOpen by remember { mutableStateOf(false) }
 
     val field = remember(vm.bot?.id, vm.session?.id) { TextFieldState() }
     val focus = remember { FocusRequester() }
@@ -226,10 +228,25 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     vm.selectSession(session)
                     deleteDialog = true
                 },
+                onOpenSettings = { settingsOpen = true },
             )
         },
     ) {
         Box(Modifier.fillMaxSize()) {
+            // Agora's ambient background: glowing blobs on dark, flat on light.
+            val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+            val (targetCa, targetQa) = if (!dark) 0.00f to 0.00f
+            else if (vm.session == null) 0.20f to 0.10f else 0.02f to 0.01f
+            val ca by androidx.compose.animation.core.animateFloatAsState(targetCa, androidx.compose.animation.core.tween(800))
+            val qa by androidx.compose.animation.core.animateFloatAsState(targetQa, androidx.compose.animation.core.tween(800))
+            com.newoether.agora.ui.components.AnimatedBlobBackground(
+                centerAlpha = ca,
+                quarterAlpha = qa,
+                blurRadius = 40f,
+                dark = dark,
+                blurEnabled = true,
+                motionEnabled = true,
+            )
             androidx.compose.material3.Scaffold(
                 containerColor = androidx.compose.ui.graphics.Color.Transparent,
                 contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
@@ -274,24 +291,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     } },
                     onNewChat = { haptics.selection(); vm.newChat() },
                     newChatEnabled = vm.bot != null,
-                    trailingActions = {
-                        Box {
-                            IconButton(onClick = { botMenu = true }) {
-                                Icon(Icons.Default.MoreVert, "Choose bot")
-                            }
-                            AgoraDropdownMenu(
-                                expanded = botMenu,
-                                onDismissRequest = { botMenu = false },
-                            ) {
-                                vm.bots.forEach { option ->
-                                    AgoraDropdownMenuItem(
-                                        text = { Text(option.title) },
-                                        onClick = { vm.selectBot(option); botMenu = false },
-                                    )
-                                }
-                            }
-                        }
-                    },
                         )
                     }
                 },
@@ -327,6 +326,19 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                 vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
                                     ?.takeIf { it.turnId.isNotBlank() }
                                     ?.let { vm.forkFromTurn(it.turnId) }
+                            },
+                            onShare = { messageId ->
+                                val shared = messages.firstOrNull { it.id == messageId }?.let { m ->
+                                    listOfNotNull(
+                                        m.segments?.filter { it.type == "answer" }
+                                            ?.joinToString("\n") { it.content },
+                                        m.text,
+                                    ).firstOrNull { it.isNotBlank() } ?: m.text
+                                } ?: return@MessageList
+                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_TEXT, shared)
+                                })
                             },
                             onMediaClick = { urls, index ->
                                 mediaViewer = urls to index
@@ -449,7 +461,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                     displayText = when {
                                         controller.modelsLoading -> "…"
                                         displayName.isNotBlank() -> displayName
-                                        currentId.isNotBlank() -> currentId.substringAfterLast('/').take(24)
+                                        // An id the catalog does not know is a server default:
+                                        // never surface a raw hash as the chip label.
                                         modelArray == null || modelArray.length() == 0 -> "模型"
                                         else -> "选择模型"
                                     },
@@ -553,6 +566,30 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             text = { Text(content, style = MaterialTheme.typography.bodySmall) },
             confirmButton = {
                 TextButton(onClick = { filePreview = null }) { Text("Close") }
+            },
+        )
+    }
+    if (settingsOpen) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { settingsOpen = false },
+            title = { Text("Settings") },
+            text = {
+                Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    Text("Team: ${vm.teams.current?.title ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Bot: ${vm.bot?.title ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Conversations, files and agent runs are owned by the Memoh server. " +
+                            "Theme follows the system. Sign out from the top-right menu.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { settingsOpen = false }) { Text("Done") }
+            },
+            dismissButton = {
+                TextButton(onClick = { settingsOpen = false; vm.logout() }) { Text("Sign out") }
             },
         )
     }

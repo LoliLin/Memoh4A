@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -77,6 +78,7 @@ internal fun MemohDrawerContent(
     onLoadOlder: () -> Unit,
     onRename: (MemohSession) -> Unit,
     onDelete: (MemohSession) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val drawerSessions = (vm.sessions + listOfNotNull(vm.session)).distinctBy { it.id }
 
@@ -138,9 +140,19 @@ internal fun MemohDrawerContent(
                                 }
                             }
                         }
-                        item { Spacer(Modifier.height(56.dp)) }
                     }
                 }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.FilledTonalButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.fillMaxWidth().height(42.dp),
+                shape = CircleShape,
+            ) {
+                Icon(androidx.compose.material.icons.Icons.Default.Settings, null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Settings", style = ChatType.drawerButton)
             }
         }
     }
@@ -241,6 +253,19 @@ internal fun MemohAccountMenu(
     dismiss: () -> Unit,
     onAction: (MemohAccountAction) -> Unit,
 ) {
+    // Bot switcher lives here: the top bar's own capsule stays untouched (＋/⋯), so both
+    // slots match Agora exactly while bot switching stays one tap away.
+    if (vm.bots.size > 1) {
+        vm.bots.forEach { option ->
+            AgoraDropdownMenuItem(
+                text = { Text(if (option.id == vm.bot?.id) "● ${option.title}" else option.title) },
+                onClick = { dismiss(); vm.selectBot(option) },
+            )
+        }
+        androidx.compose.material3.HorizontalDivider(
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
+    }
     if (vm.bot != null) {
         AgoraDropdownMenuItem(
             text = { Text("Reconnect") },
