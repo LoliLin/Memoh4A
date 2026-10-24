@@ -75,10 +75,20 @@ internal fun MemohAttachment.materialize(cacheDir: java.io.File): java.io.File? 
 
 /** Cache lookup without writing; composition calls this, workers call [materialize]. */
 internal fun MemohAttachment.cachedFile(cacheDir: java.io.File): java.io.File? {
-    if (base64.isBlank()) return null
+    if (base64.isBlank() && path.isBlank() && url.isBlank()) return null
     val safeName = name.ifBlank { "attachment-${id.hashCode()}" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
     val file = java.io.File(java.io.File(cacheDir, "attachments"), "${id.hashCode()}-$safeName")
     return file.takeIf { it.exists() && it.length() > 0 }
+}
+
+/** Server-history attachments reference container paths; bytes arrive on demand. */
+internal fun MemohAttachment.needsDownload(): Boolean =
+    base64.isBlank() && (path.isNotBlank() || url.isNotBlank())
+
+/** Where [downloadAttachmentBytes] writes; the same cache slot [cachedFile] reads. */
+internal fun MemohAttachment.cachedTarget(cacheDir: java.io.File): java.io.File {
+    val safeName = name.ifBlank { "attachment-${id.hashCode()}" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    return java.io.File(java.io.File(cacheDir, "attachments"), "${id.hashCode()}-$safeName")
 }
 
 private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false, cacheDir: java.io.File? = null): ChatMessage {
@@ -97,7 +107,25 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
                 toolProgress = block.text.takeIf { block.toolRunning },
             )
             "error" -> MessageSegment("error", block.text)
-            // Attachment rows and unknown notice kinds keep their text but never become tool cards.
+            // Assistant attachment rows ride the tool-image channel: the shared message list
+            // already renders toolImages as tappable image cards.
+            "attachments" -> MessageSegment(
+                type = "tool",
+                content = block.text.ifBlank { "Attachments" },
+                toolName = "attachments",
+                toolCallId = "memoh-attachments-${block.id}",
+                toolState = ToolExecutionStates.SUCCEEDED,
+                toolImages = block.attachments.mapNotNull { att ->
+                    val file = cacheDir?.let { dir -> att.cachedFile(dir) ?: att.materialize(dir) }
+                    val path = file?.absolutePath ?: att.url.takeIf(String::isNotBlank)
+                        ?: return@mapNotNull null
+                    com.newoether.agora.model.ToolImageAttachment(
+                        path = path, mimeType = att.mime.ifBlank { "application/octet-stream" },
+                        sizeBytes = att.size, sha256 = att.id,
+                    )
+                },
+            ).takeIf { it.toolImages.isNotEmpty() }
+            // Unknown notice kinds keep their text but never become tool cards.
             else -> block.text.takeIf(String::isNotBlank)?.let { MessageSegment("answer", it) }
         }
     }.let { mapped ->
@@ -113,15 +141,17 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
             .joinToString("\n") { it.content },
         images = if (role == "user" && cacheDir != null) {
             attachments.mapNotNull { att ->
-                if (att.base64.isBlank() && att.url.isBlank()) null
-                else att.materialize(cacheDir)?.absolutePath ?: att.url.takeIf(String::isNotBlank) ?: ""
+                if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank()) null
+                else att.cachedFile(cacheDir)?.absolutePath
+                    ?: att.materialize(cacheDir)?.absolutePath
+                    ?: att.url.takeIf(String::isNotBlank) ?: ""
             }.filter(String::isNotEmpty)
         } else emptyList(),
         attachmentMeta = if (role == "user" && attachments.isNotEmpty()) {
             // Link every item to its file slot so the shared bubble's ordering and
             // tap-to-open resolution stay driven by metadata, exactly like native rows.
             AttachmentMeta(items = attachments.mapIndexedNotNull { index, att ->
-                if (att.base64.isBlank() && att.url.isBlank()) return@mapIndexedNotNull null
+                if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank()) return@mapIndexedNotNull null
                 AttachmentItem(
                     type = when {
                         att.mime.startsWith("image/") -> "image"

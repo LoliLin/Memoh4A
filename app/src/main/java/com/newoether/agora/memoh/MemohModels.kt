@@ -123,6 +123,8 @@ internal data class MemohAttachment(
     val size: Long = 0,
     val url: String = "",
     val base64: String = "",
+    /** Container path from server history; downloaded on demand (conversation.UIAttachment.path). */
+    val path: String = "",
 )
 
 internal data class MemohBlock(
@@ -206,6 +208,7 @@ internal fun decodeAttachments(array: JSONArray?): List<MemohAttachment> {
             size = item.optLong("size"),
             url = item.optString("url"),
             base64 = item.optString("base64"),
+            path = item.optString("path"),
         )
     }
 }

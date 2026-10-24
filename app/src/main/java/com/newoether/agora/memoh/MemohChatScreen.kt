@@ -134,10 +134,21 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var attachmentCacheRevision by remember { mutableStateOf(0) }
     val pendingAttachments = vm.pendingUserAttachments + vm.turns.flatMap { it.attachments }
     LaunchedEffect(pendingAttachments) {
-        val missing = pendingAttachments.filter { it.base64.isNotBlank() && it.cachedFile(context.cacheDir) == null }
-        if (missing.isNotEmpty()) {
+        val cacheDir = context.cacheDir
+        val botId = vm.bot?.id
+        val toDecode = pendingAttachments.filter { it.base64.isNotBlank() && it.cachedFile(cacheDir) == null }
+        // History attachments reference container paths; fetch their bytes on demand.
+        val toDownload = if (botId != null) {
+            pendingAttachments.filter { it.needsDownload() && it.cachedFile(cacheDir) == null }
+        } else emptyList()
+        if (toDecode.isNotEmpty() || toDownload.isNotEmpty()) {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                missing.forEach { it.materialize(context.cacheDir) }
+                toDecode.forEach { it.materialize(cacheDir) }
+                toDownload.forEach { att ->
+                    runCatching {
+                        vm.api.downloadAttachmentBytes(botId!!, att.path, att.cachedTarget(cacheDir))
+                    }
+                }
             }
             attachmentCacheRevision++
         }
@@ -463,19 +474,40 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                                 modelMenu = false
                                             },
                                         )
-                                        for (i in 0 until modelArray.length()) {
-                                            val model = modelArray.optJSONObject(i) ?: continue
-                                            val id = model.optString("id")
-                                            val label = model.optString("name").ifBlank { id }
-                                            ComposerModelMenuItem(
-                                                displayText = label,
-                                                selected = id == currentId,
-                                                onClick = {
-                                                    controller.setModelPreference(
-                                                        id, model.optString("default_reasoning_effort"))
-                                                    modelMenu = false
-                                                },
-                                            )
+                                        // Group by provider like Homem's model list: the provider
+                                        // name heads each section, models sorted inside.
+                                        val entries = (0 until modelArray.length())
+                                            .mapNotNull { modelArray.optJSONObject(it) }
+                                        val grouped = entries
+                                            .groupBy { it.optString("provider_name").ifBlank { it.optString("provider_id") } }
+                                            .toSortedMap(compareBy(String::isBlank, { it.lowercase() }))
+                                        grouped.forEach { (provider, models) ->
+                                            if (provider.isNotBlank()) {
+                                                AgoraDropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            provider,
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        )
+                                                    },
+                                                    enabled = false,
+                                                    onClick = {},
+                                                )
+                                            }
+                                            models.sortedBy { it.optString("name").lowercase() }.forEach { model ->
+                                                val id = model.optString("id")
+                                                val label = model.optString("name").ifBlank { id }
+                                                ComposerModelMenuItem(
+                                                    displayText = label,
+                                                    selected = id == currentId,
+                                                    onClick = {
+                                                        controller.setModelPreference(
+                                                            id, model.optString("default_reasoning_effort"))
+                                                        modelMenu = false
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                                 }
