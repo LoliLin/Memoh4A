@@ -108,14 +108,13 @@ internal class MemohAgentController(private val api: MemohApi) {
         }
     }
 
-    /** Load the model catalog for [agentId]; optional [modelId] validates a specific model. */
+    /** Load the chat-model catalog. Homem uses the team-level /models list filtered to chat. */
     suspend fun loadModels(botId: String, agentId: String, modelId: String = "") {
-        if (agentId.isBlank()) return
         val generation = ++refreshGeneration
         val identity = api.scope
         modelsLoading = true
         try {
-            val catalog = api.agentModels(botId, agentId, modelId)
+            val catalog = api.teamChatModels()
             if (generation == refreshGeneration && api.scope === identity) models = catalog
         } catch (e: CancellationException) {
             throw e

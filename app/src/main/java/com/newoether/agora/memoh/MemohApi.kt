@@ -658,6 +658,30 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
         request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/models" +
             if (modelId.isNotBlank()) "?model_id=${Uri.encode(modelId)}" else "")
 
+    /**
+     * Team-level chat-model catalog in the composer selector's own shape. Homem reads /models
+     * and filters type=="chat" && enable && catalog_available; we pre-filter into the same
+     * external.ModelCatalog shape the selector already consumes.
+     */
+    suspend fun teamChatModels(): JSONObject {
+        val response = request("/models")
+        val source = response.optJSONArray("items") ?: JSONArray()
+        val models = JSONArray()
+        for (i in 0 until source.length()) {
+            val item = source.optJSONObject(i) ?: continue
+            if (item.optString("type") != "chat") continue
+            if (item.optBoolean("enable", true) == false) continue
+            if (item.optJSONObject("config")?.optBoolean("catalog_available", true) == false) continue
+            models.put(JSONObject()
+                .put("id", item.optString("model_id").ifBlank { item.optString("id") })
+                .put("name", item.optString("name"))
+                .put("description", item.optString("description"))
+                .put("default_reasoning_effort", item.optString("default_reasoning_effort"))
+                .put("configured_model_id", response.optString("configured_model_id")))
+        }
+        return JSONObject().put("models", models)
+    }
+
     /** Delete the bot's whole message history (server-side, irreversible). */
     suspend fun deleteAllMessages(botId: String) {
         request("/bots/${Uri.encode(botId)}/messages", method = "DELETE")
