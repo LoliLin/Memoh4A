@@ -96,6 +96,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var queueOpen by remember { mutableStateOf(false) }
     var runtimeControlsOpen by remember { mutableStateOf(false) }
     var compactConfirm by remember { mutableStateOf(false) }
+    var terminalOpen by remember { mutableStateOf(false) }
     var botDetailsOpen by remember { mutableStateOf(false) }
     var backupOpen by remember { mutableStateOf(false) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
@@ -314,6 +315,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             MemohAccountAction.Files -> filesOpen = true
                             MemohAccountAction.Memory -> memoriesOpen = true
                             MemohAccountAction.Schedules -> schedulesOpen = true
+                            MemohAccountAction.Terminal -> terminalOpen = true
                             MemohAccountAction.Queue -> { queueOpen = true; vm.refreshQueue() }
                             MemohAccountAction.RuntimeControls -> runtimeControlsOpen = true
                             MemohAccountAction.Compact -> compactConfirm = true
@@ -677,6 +679,10 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         onOpenMemoryFromDetails = { memoriesOpen = true; botDetailsOpen = false },
         onOpenWorkspaceFromDetails = { filesOpen = true; botDetailsOpen = false },
     )
+
+    vm.bot?.takeIf { terminalOpen }?.let { selectedBot ->
+        MemohTerminalDialog(api = api, botId = selectedBot.id, onDismiss = { terminalOpen = false })
+    }
 }
 
 @Composable

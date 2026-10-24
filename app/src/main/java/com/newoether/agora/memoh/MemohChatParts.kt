@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
@@ -61,7 +62,7 @@ import com.newoether.agora.ui.theme.ChatType
 
 /** Account menu actions that the top bar's overflow surfaces. */
 internal enum class MemohAccountAction {
-    Search, BotDetails, Backup, Files, Memory, Schedules, Queue, RuntimeControls, Compact, Rename, Delete,
+    Search, BotDetails, Backup, Files, Memory, Schedules, Terminal, Queue, RuntimeControls, Compact, Rename, Delete,
 }
 
 /**
@@ -295,6 +296,12 @@ internal fun MemohAccountMenu(
             text = { Text("Workspace Files") },
             onClick = { dismiss(); onAction(MemohAccountAction.Files) },
         )
+        AgoraDropdownMenuItem(
+            text = { Text("Terminal") },
+            leadingIcon = { Icon(Icons.Default.Code, null) },
+            onClick = { dismiss(); onAction(MemohAccountAction.Terminal) },
+        )
+
         AgoraDropdownMenuItem(
             text = { Text("Memory") },
             onClick = { dismiss(); onAction(MemohAccountAction.Memory) },
