@@ -59,6 +59,7 @@ internal fun memohLiveStub(): ChatMessage = ChatMessage(
 /**
  * Materialize base64/URL attachments as cached files so the shared Agora bubble can render
  * them through its own attachment-thumbnail pipeline (Coil paths only, never raw base64).
+ * Image metadata links each item back to its file through imageIndex.
  */
 internal fun MemohAttachment.materialize(cacheDir: java.io.File): java.io.File? {
     if (base64.isBlank()) return null
@@ -70,6 +71,14 @@ internal fun MemohAttachment.materialize(cacheDir: java.io.File): java.io.File? 
         java.util.Base64.getDecoder().decode(base64).let { file.writeBytes(it) }
         file
     } catch (_: IllegalArgumentException) { null }
+}
+
+/** Cache lookup without writing; composition calls this, workers call [materialize]. */
+internal fun MemohAttachment.cachedFile(cacheDir: java.io.File): java.io.File? {
+    if (base64.isBlank()) return null
+    val safeName = name.ifBlank { "attachment-${id.hashCode()}" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val file = java.io.File(java.io.File(cacheDir, "attachments"), "${id.hashCode()}-$safeName")
+    return file.takeIf { it.exists() && it.length() > 0 }
 }
 
 private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false, cacheDir: java.io.File? = null): ChatMessage {
@@ -109,7 +118,10 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
             }.filter(String::isNotEmpty)
         } else emptyList(),
         attachmentMeta = if (role == "user" && attachments.isNotEmpty()) {
-            AttachmentMeta(items = attachments.map { att ->
+            // Link every item to its file slot so the shared bubble's ordering and
+            // tap-to-open resolution stay driven by metadata, exactly like native rows.
+            AttachmentMeta(items = attachments.mapIndexedNotNull { index, att ->
+                if (att.base64.isBlank() && att.url.isBlank()) return@mapIndexedNotNull null
                 AttachmentItem(
                     type = when {
                         att.mime.startsWith("image/") -> "image"
@@ -119,6 +131,8 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
                     },
                     fileName = att.name.takeIf(String::isNotBlank),
                     mimeType = att.mime.takeIf(String::isNotBlank),
+                    imageIndex = index,
+                    originalUri = att.url.takeIf(String::isNotBlank),
                 )
             })
         } else null,
