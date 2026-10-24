@@ -882,10 +882,19 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     internal fun upsertBlock(block: JSONObject) {
+        // A tool upsert may carry only its tool_call_id; the reference client matches on
+        // either identifier and stamps the row with the surviving id (Homem RuntimeState).
         val id = block.optInt("id", -1)
-        val existing = (0 until liveJson.length()).firstOrNull { liveJson.optJSONObject(it)?.optInt("id", -1) == id }
-        if (existing != null) liveJson.put(existing, block)
-        else liveJson.put(block)
+        val toolCallId = block.optString("tool_call_id")
+        val existing = (0 until liveJson.length()).firstOrNull { index ->
+            val row = liveJson.optJSONObject(index) ?: return@firstOrNull false
+            (id >= 0 && row.optInt("id", -1) == id) ||
+                (toolCallId.isNotBlank() && row.optString("tool_call_id") == toolCallId)
+        }
+        if (existing != null) {
+            if (id >= 0) block.put("id", liveJson.optJSONObject(existing)!!.optInt("id", id))
+            liveJson.put(existing, block)
+        } else liveJson.put(block)
     }
 
     internal fun settleIfTerminal(sid: String = session?.id.orEmpty()) {

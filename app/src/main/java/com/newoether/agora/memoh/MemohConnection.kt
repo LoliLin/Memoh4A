@@ -116,7 +116,9 @@ internal class MemohConnection(
         }
         state = MemohConnectionState.Retrying
         val wait = retryDelayMs
-        retryDelayMs = (wait * 3 / 2).coerceAtMost(10_000L)
+        // Homem doubles the backoff capped at 30s; the previous 1.5x/10s gave up sooner
+        // on flaky links that the reference client rides through.
+        retryDelayMs = (wait * 2).coerceAtMost(30_000L)
         retrying = scope.launch {
             delay(wait)
             if (next == generation && botId == id) attempt(id)

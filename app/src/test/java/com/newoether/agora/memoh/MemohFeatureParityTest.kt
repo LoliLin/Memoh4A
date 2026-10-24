@@ -173,15 +173,22 @@ class MemohFeatureParityTest {
     }
 
     @Test
-    fun `steer turn upserts and removals maintain the live steer notice`() {
-        val vmClass = MemohViewModel::class.java
-        // The delta merge is an extension over the ViewModel; verify the pure merge logic
-        // through the documented JSON contract without a server.
-        val delta = JSONObject().put("steer_turn_upserts", JSONArray()
-            .put(JSONObject().put("turn_id", "t1").put("text", "focus on tests")))
-        val rows = JSONArray()
-        // applySteerTurnUpserts is internal; exercised through applyRuntimeDelta below.
-        assertTrue(delta.getJSONArray("steer_turn_upserts").length() == 1)
+    fun `a tool upsert carrying only tool_call_id replaces the matching row`() {
+        // The delta merge lives on the ViewModel; exercise it through a bare instance.
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        val prefs = app.getSharedPreferences("memoh-native-merge", 0)
+        prefs.edit().clear().commit()
+        val vm = MemohViewModel(app)
+        try {
+            vm.upsertBlock(JSONObject().put("id", 1).put("type", "tool")
+                .put("tool_call_id", "call-9").put("content", "started"))
+            vm.upsertBlock(JSONObject().put("type", "tool")
+                .put("tool_call_id", "call-9").put("content", "finished"))
+            val merged = vm.liveJson
+            assertEquals(1, merged.length())
+            assertEquals("finished", merged.optJSONObject(0).getString("content"))
+            assertEquals("call-9", merged.optJSONObject(0).getString("tool_call_id"))
+        } finally { vm.logout(); prefs.edit().clear().commit() }
     }
 
     @Test
