@@ -51,6 +51,7 @@ import com.newoether.agora.model.StableMessageList
 import com.newoether.agora.ui.chat.ChatDrawerHost
 import com.newoether.agora.ui.chat.ChatTopBar
 import com.newoether.agora.ui.chat.MessageList
+import com.newoether.agora.ui.chat.rememberConversationInteractionState
 import com.newoether.agora.ui.chat.bottombar.ChatComposerLayout
 import com.newoether.agora.ui.chat.bottombar.ChatComposerSurface
 import com.newoether.agora.ui.chat.bottombar.ComposerControlGroup
@@ -79,6 +80,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     val scope = rememberCoroutineScope()
     val haptics = LocalAgoraHaptics.current
     val context = LocalContext.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     var botMenu by remember { mutableStateOf(false) }
     var accountMenu by remember { mutableStateOf(false) }
@@ -176,6 +178,15 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         (vm.sessions + listOfNotNull(vm.session)).distinctBy { it.id }
             .map { ChatConversation(id = it.id, title = it.title) }
     }
+    // Agora's own conversation search: matches within the visible transcript, shared
+    // top bar search UI, scroll-to-match. Memoh history is the message source.
+    val messagesState = remember { mutableStateOf(messages) }
+    messagesState.value = messages
+    val conversationInteraction = rememberConversationInteractionState(
+        currentConversationId = vm.session?.id,
+        messages = messagesState,
+        listState = listState,
+    )
 
     LaunchedEffect(vm.session?.id, messages.lastOrNull()?.id) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
@@ -269,12 +280,27 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             MemohConnectionState.Idle -> "Disconnected"
                         }
                     },
+                    searchActive = conversationInteraction.searchActive,
+                    searchQuery = conversationInteraction.searchQuery,
+                    searchMatchIndex = conversationInteraction.searchMatchIndex,
+                    searchMatchCount = conversationInteraction.searchMatches.size,
+                    onSearchQueryChange = conversationInteraction::updateSearchQuery,
+                    onSearchPrevious = { if (conversationInteraction.previousSearchMatch()) haptics.selection() },
+                    onSearchNext = { if (conversationInteraction.nextSearchMatch()) haptics.selection() },
+                    onSearchDismiss = {
+                        conversationInteraction.dismissSearch()
+                        focusManager.clearFocus()
+                    },
                     onOpenDrawer = { scope.launch { drawer.toggle(motion) } },
                     systemPromptEnabled = false,
                     onSystemPromptClick = {},
                     moreMenuContent = { dismiss -> MemohAccountMenu(vm, dismiss) { action ->
                         accountMenu = false
                         when (action) {
+                            MemohAccountAction.Search -> {
+                                focusManager.clearFocus()
+                                conversationInteraction.activateSearch()
+                            }
                             MemohAccountAction.BotDetails -> botDetailsOpen = true
                             MemohAccountAction.Backup -> { backupStatus = ""; backupOpen = true }
                             MemohAccountAction.Files -> filesOpen = true
