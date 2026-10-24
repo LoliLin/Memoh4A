@@ -26,7 +26,7 @@ import androidx.compose.material3.Icon
 
 /** Account menu actions that the top bar's overflow surfaces. */
 internal enum class MemohAccountAction {
-    BotDetails, Backup, Files, Memory, Schedules, Queue, Rename, Delete,
+    BotDetails, Backup, Files, Memory, Schedules, Queue, RuntimeControls, Compact, Rename, Delete,
 }
 
 /**
@@ -130,6 +130,14 @@ internal fun MemohAccountMenu(
             onClick = { dismiss(); onAction(MemohAccountAction.Queue) },
         )
         AgoraDropdownMenuItem(
+            text = { Text("Runtime Controls") },
+            onClick = { dismiss(); onAction(MemohAccountAction.RuntimeControls) },
+        )
+        AgoraDropdownMenuItem(
+            text = { Text("Compact Context") },
+            onClick = { dismiss(); onAction(MemohAccountAction.Compact) },
+        )
+        AgoraDropdownMenuItem(
             text = { Text("Rename chat") },
             onClick = { dismiss(); onAction(MemohAccountAction.Rename) },
         )
@@ -158,6 +166,8 @@ internal fun MemohDialogs(
     filesOpen: Boolean,
     schedulesOpen: Boolean,
     queueOpen: Boolean,
+    runtimeControlsOpen: Boolean,
+    compactConfirm: Boolean,
     backupOpen: Boolean,
     importUri: Uri?,
     backupStatus: String,
@@ -168,6 +178,8 @@ internal fun MemohDialogs(
     onFilesDismiss: () -> Unit,
     onSchedulesDismiss: () -> Unit,
     onQueueDismiss: () -> Unit,
+    onRuntimeControlsDismiss: () -> Unit,
+    onCompactDismiss: () -> Unit,
     onBackupDismiss: () -> Unit,
     onBackupStatusClear: () -> Unit,
     onImportConsumed: () -> Unit,
@@ -231,6 +243,22 @@ internal fun MemohDialogs(
     }
     if (queueOpen && vm.session != null) {
         MemohQueueDialog(vm, onDismiss = onQueueDismiss)
+    }
+    if (runtimeControlsOpen && vm.session != null) {
+        MemohRuntimeControlsDialog(vm, onDismiss = onRuntimeControlsDismiss)
+    }
+    if (compactConfirm) {
+        AlertDialog(
+            onDismissRequest = onCompactDismiss,
+            title = { Text("Compact Context") },
+            text = { Text("Ask the server to compact this conversation's context now? " +
+                "The conversation stays on the server; compaction summarizes older turns.") },
+            confirmButton = {
+                TextButton(onClick = { vm.compactSession(); onCompactDismiss() },
+                    enabled = !vm.runtimeControlsBusy) { Text("Compact") }
+            },
+            dismissButton = { TextButton(onClick = onCompactDismiss) { Text("Cancel") } },
+        )
     }
     if (renameDialog) {
         var draft = newTitle

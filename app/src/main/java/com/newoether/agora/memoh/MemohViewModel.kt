@@ -97,6 +97,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     var queueState by mutableStateOf<MemohQueueState?>(null); private set
     var queueBusy by mutableStateOf(false); private set
     private var queueRevision = 0
+    // Session runtime controls (permission/plan modes, goal, runtime commands).
+    var runtimeControlsJson by mutableStateOf<JSONObject?>(null); private set
+    var runtimeControlsBusy by mutableStateOf(false); private set
+    var runtimeGoalJson by mutableStateOf<JSONObject?>(null); private set
+    private var runtimeControlsRevision = 0
     var olderMessagesAvailable by mutableStateOf(false); private set
     var loadingOlderMessages by mutableStateOf(false); private set
     private var firstHistoryMessageId: String? = null
@@ -157,8 +162,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         navigationScope.coroutineContext[Job]?.cancelChildren()
         authRevision++; botRevision++; navigationRevision++
         attachmentDraftRevision++; historyRevision++; queueRevision++
+        runtimeControlsRevision++
         closeSocket(); clearRun()
         loading = false; loadingSessions = false; loadingOlderMessages = false; queueBusy = false
+        runtimeControlsJson = null; runtimeGoalJson = null; runtimeControlsBusy = false
         queueState = null; firstHistoryMessageId = null; olderMessagesAvailable = false
         consumeRestoredDraft()
         bots = emptyList(); agentController.clear(); agentController = MemohAgentController(MemohApi(api)); bot = null
@@ -227,6 +234,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         pendingUserText = null; pendingUserAttachments = emptyList()
         navigationScope.launch {
             runCatching { agentController.refresh(value.id) }
+            // Seed the composer model preference like the web welcome screen.
+            runCatching { api.modelPreferenceSeed(value.id) }.onSuccess { seed ->
+                agentController.setModelPreference(seed.optString("model_id"), seed.optString("reasoning_effort"))
+            }
         }
         navigationScope.launch {
             loadingSessions = true
@@ -256,6 +267,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         }
         attachmentDraftRevision++; historyRevision++
         queueRevision++
+        runtimeControlsRevision++
         resetCursor()
         if (value != null) agentController.selectFromSession(value.botAgentId)
         val previous = session?.id
@@ -263,6 +275,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         loadingOlderMessages = false
         turns = emptyList()
         queueState = null
+        runtimeControlsJson = null; runtimeGoalJson = null
         firstHistoryMessageId = null
         olderMessagesAvailable = false
         pendingUserText = null; pendingUserAttachments = emptyList()
@@ -273,6 +286,74 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", it.id))
             reloadHistory(it.id)
             refreshQueue()
+        }
+    }
+
+    // ---- Session runtime controls: modes, goal, runtime commands, compaction ----
+
+    fun refreshRuntimeControls() {
+        val b = bot?.id ?: return
+        val sid = session?.id ?: return
+        val revision = runtimeControlsRevision
+        navigationScope.launch {
+            try {
+                val controls = api.runtimeControls(b, sid)
+                val goal = if (controls.optJSONObject("capabilities")?.optBoolean("goal") == true)
+                    runCatching { api.runtimeGoal(b, sid) }.getOrNull() else null
+                if (runtimeControlsRevision == revision && bot?.id == b && session?.id == sid) {
+                    runtimeControlsJson = controls
+                    runtimeGoalJson = goal
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                if (runtimeControlsRevision == revision)
+                    error = e.message ?: "Failed to load runtime controls"
+            }
+        }
+    }
+
+    fun setRuntimeMode(modeId: String, plan: Boolean) {
+        mutateRuntimeControls("set the runtime mode") { b, sid -> api.setRuntimeMode(b, sid, modeId, plan) }
+    }
+
+    fun pauseRuntimeGoal() {
+        mutateRuntimeControls("pause the goal") { b, sid -> api.pauseRuntimeGoal(b, sid) }
+    }
+
+    fun clearRuntimeGoal() {
+        mutateRuntimeControls("clear the goal") { b, sid -> api.clearRuntimeGoal(b, sid) }
+    }
+
+    fun runRuntimeCommand(command: String) {
+        mutateRuntimeControls("run the command") { b, sid -> api.runRuntimeCommand(b, sid, command) }
+    }
+
+    fun compactSession() {
+        if (running) { error = "Stop the run before compacting context."; return }
+        mutateRuntimeControls("compact the context") { b, sid -> api.compactSession(b, sid) }
+    }
+
+    private inline fun mutateRuntimeControls(
+        action: String,
+        noinline block: suspend MemohApi.(botId: String, sessionId: String) -> JSONObject?,
+    ) {
+        val b = bot?.id ?: return
+        val sid = session?.id ?: return
+        if (runtimeControlsBusy) return
+        val revision = runtimeControlsRevision
+        runtimeControlsBusy = true
+        navigationScope.launch {
+            try {
+                api.block(b, sid)
+                if (runtimeControlsRevision == revision) refreshRuntimeControls()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                if (runtimeControlsRevision == revision) error = e.message ?: "Could not $action"
+            } finally {
+                if (runtimeControlsRevision == revision) runtimeControlsBusy = false
+            }
         }
     }
 
@@ -336,19 +417,43 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun cancelQueued(item: MemohQueueItem) {
+        mutateQueue("remove the queued message") { b, sid -> api.cancelQueueItem(b, sid, item) }
+    }
+
+    fun editQueued(item: MemohQueueItem, text: String) {
+        val value = text.trim()
+        if (value.isBlank()) return
+        mutateQueue("edit the queued message") { b, sid -> api.editQueueItem(b, sid, item, value) }
+    }
+
+    /** Move [item] above [beforeId] within its queue; null moves it to the end. */
+    fun reorderQueued(item: MemohQueueItem, beforeId: String?) {
+        mutateQueue("reorder the queue") { b, sid -> api.reorderQueue(b, sid, item.type, item, beforeId) }
+    }
+
+    /** Promote an accepted follow-up to steer the active run. */
+    fun promoteQueued(item: MemohQueueItem) {
+        if (item.type != "follow_up") return
+        mutateQueue("promote the message to steering") { b, sid -> api.promoteQueueItem(b, sid, item) }
+    }
+
+    private inline fun mutateQueue(
+        action: String,
+        noinline block: suspend MemohApi.(botId: String, sessionId: String) -> Unit,
+    ) {
         val b = bot?.id ?: return
         val sid = session?.id ?: return
-        if (queueBusy || queueState?.items?.none { it.id == item.id && it.type == item.type } != false) return
+        if (queueBusy) return
         val revision = queueRevision
         queueBusy = true
         navigationScope.launch {
             try {
-                api.cancelQueueItem(b, sid, item)
+                api.block(b, sid)
                 if (revision == queueRevision) refreshQueue()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (revision == queueRevision) error = e.message ?: "Could not remove queued message"
+                if (revision == queueRevision) error = e.message ?: "Could not $action"
             } finally {
                 if (revision == queueRevision) queueBusy = false
             }
@@ -487,6 +592,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         }
         val existingSession = session
         existingSession?.id?.let { payload.put("session_id", it) }
+        // Web composer parity: attach an explicit model preference only when the user chose one.
+        if (agentController.preferredModelId.isNotBlank()) {
+            payload.put("model_id", agentController.preferredModelId)
+            if (agentController.preferredReasoningEffort.isNotBlank())
+                payload.put("reasoning_effort", agentController.preferredReasoningEffort)
+        }
         awaitingAdmission[invocation] = payload
         pendingUserText = value
         pendingUserAttachments = attachments
@@ -649,6 +760,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     runId = event.optString("run_id")
                     running = true
                 }
+            }
+            "model_preference_settled" -> {
+                val settled = event.optString("model_id")
+                if (settled.isNotBlank()) agentController.onModelPreferenceSettled(settled)
             }
             "run_rejected", "error" -> {
                 if (invocation.isNotBlank() && awaitingAdmission.remove(invocation) != null) {
