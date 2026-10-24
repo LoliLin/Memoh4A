@@ -1,7 +1,6 @@
 package com.newoether.agora.tool
 
 import com.newoether.agora.api.EmbeddingClient
-import com.newoether.agora.api.LlamaEngine
 import com.newoether.agora.api.ProviderDefaults
 import com.newoether.agora.api.ToolDefinition
 import com.newoether.agora.api.ToolFunction
@@ -433,11 +432,8 @@ class RagToolProvider(
             return@withContext emptyList()
         }
         val queryEmbedding = if (config.type == com.newoether.agora.data.EmbeddingModelType.LOCAL) {
-            if (!LlamaEngine.isModelReady(config.localFilePath)) {
-                DebugLog.w("AgoraVM", "GM RAG: local model not ready")
-                return@withContext emptyList()
-            }
-            LlamaEngine.computeEmbedding(query, config.localFilePath)
+            DebugLog.w("AgoraVM", "Local semantic search is unavailable in Memoh4A")
+            return@withContext emptyList()
         } else {
             val apiKey = resolveEmbeddingApiKey(ctx)
             if (apiKey == null) {

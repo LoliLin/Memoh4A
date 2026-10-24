@@ -176,11 +176,10 @@ Agora remains Kotlin; Filo moves fully to Go with no Node.js runtime dependency.
 The current delivery includes merging Remote into the original Agora branch after
 qualification, preserving its existing commits and unrelated uncommitted changes.
 
-The owner requires a sustainable Filo and Agora baseline (2026-09-10). Split maintained
-source, tests, resources and contracts by responsibility before files approach 999 lines;
-target 700–800 lines or less. Never compress statements or remove useful formatting to
-evade this limit. Preserve established behavior throughout structural cleanup. Baseline
-equivalence checks and the full regression suite are mandatory after implementation;
+The Memoh4A owner removed the historical physical-line limit on 2026-10-24. Split
+source, tests, resources and contracts by responsibility without a numeric length gate.
+Preserve established behavior throughout structural cleanup. Baseline equivalence checks
+and the full regression suite remain required after implementation;
 every discovered regression blocks delivery until repaired or the change is reverted.
 Compiler/cache success, artifact creation, deployment and owner phone UI acceptance
 remain separate evidence. Keep the active goal open until its authorized work is complete.

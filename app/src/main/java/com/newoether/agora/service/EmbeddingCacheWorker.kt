@@ -11,7 +11,6 @@ import androidx.work.await
 import androidx.work.workDataOf
 import com.newoether.agora.AgoraApplication
 import com.newoether.agora.api.EmbeddingClient
-import com.newoether.agora.api.LlamaEngine
 import com.newoether.agora.api.ProviderDefaults
 import com.newoether.agora.data.EmbeddingIndexer
 import com.newoether.agora.data.EmbeddingModelConfig
@@ -312,17 +311,14 @@ class EmbeddingCacheWorker(
         val texts = candidates.map { candidate ->
             candidate.message.text.take(Constants.MAX_EMBEDDING_TEXT_LENGTH)
         }
-        val embeddings = if (model.type == EmbeddingModelType.LOCAL) {
-            LlamaEngine.computeEmbeddings(texts, model.localFilePath)
-        } else {
-            val (apiKey, baseUrl) = requireNotNull(remoteConfig)
-            EmbeddingClient.computeEmbeddings(
-                texts = texts,
-                apiKey = apiKey,
-                model = model.remoteModelName,
-                baseUrl = baseUrl,
-            )
-        }
+        check(model.type != EmbeddingModelType.LOCAL) { "Local inference is unavailable in Memoh4A" }
+        val (apiKey, baseUrl) = requireNotNull(remoteConfig)
+        val embeddings = EmbeddingClient.computeEmbeddings(
+            texts = texts,
+            apiKey = apiKey,
+            model = model.remoteModelName,
+            baseUrl = baseUrl,
+        )
         if (embeddings.size != candidates.size) return false
         candidates.forEachIndexed { index, candidate ->
             val embedding = embeddings[index] ?: return false
@@ -374,10 +370,7 @@ class EmbeddingCacheWorker(
         model: EmbeddingModelConfig,
         settingsManager: SettingsManager,
     ): Pair<String, String>? {
-        if (model.type == EmbeddingModelType.LOCAL) {
-            check(LlamaEngine.isModelReady(model.localFilePath)) { "Local model file not found" }
-            return null
-        }
+        check(model.type != EmbeddingModelType.LOCAL) { "Local inference is unavailable in Memoh4A" }
         val apiKey = model.remoteApiKey.ifBlank { resolveApiKey(settingsManager) ?: "" }
         check(apiKey.isNotBlank()) { "No API key configured" }
         return apiKey to model.remoteBaseUrl.ifBlank { resolveBaseUrl(settingsManager) }

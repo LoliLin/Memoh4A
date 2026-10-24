@@ -92,6 +92,12 @@ internal fun MemohAccountMenu(
     dismiss: () -> Unit,
     onAction: (MemohAccountAction) -> Unit,
 ) {
+    if (vm.bot != null) {
+        AgoraDropdownMenuItem(
+            text = { Text("Reconnect") },
+            onClick = { dismiss(); vm.retryConnection() },
+        )
+    }
     AgoraDropdownMenuItem(
         text = { Text("Refresh bots") },
         onClick = { dismiss(); vm.refreshBots() },

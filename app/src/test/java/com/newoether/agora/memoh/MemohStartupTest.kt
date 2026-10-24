@@ -63,6 +63,21 @@ class MemohStartupTest {
     }
 
     @Test
+    fun `shared foreground workers have a dataSync service declaration`() {
+        val app = compose.activity.application
+        val service = app.packageManager.getServiceInfo(
+            android.content.ComponentName(app, "androidx.work.impl.foreground.SystemForegroundService"), 0,
+        )
+        assertEquals(android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC, service.foregroundServiceType)
+        val permissions = app.packageManager.getPackageInfo(
+            app.packageName, android.content.pm.PackageManager.GET_PERMISSIONS,
+        ).requestedPermissions.orEmpty().toSet()
+        assertTrue("android.permission.FOREGROUND_SERVICE" in permissions)
+        assertTrue("android.permission.FOREGROUND_SERVICE_DATA_SYNC" in permissions)
+        assertFalse(compose.activity.getDatabasePath(ChatDatabase.DB_NAME).exists())
+    }
+
+    @Test
     fun `recreating the launcher keeps the remote login usable`() {
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText("API address").assertIsDisplayed()

@@ -19,9 +19,5 @@ gradlePlugin {
             id = "buildlogic.removefirstlast-fix"
             implementationClass = "buildlogic.RemoveFirstLastFixPlugin"
         }
-        create("kotlinSourceSize") {
-            id = "buildlogic.kotlin-source-size"
-            implementationClass = "buildlogic.KotlinSourceSizePlugin"
-        }
     }
 }

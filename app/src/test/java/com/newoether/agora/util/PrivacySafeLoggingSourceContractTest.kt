@@ -70,8 +70,9 @@ class PrivacySafeLoggingSourceContractTest {
         val sourceRoot = locateMainSourceRoot()
         val protectedSources = listOf(
             "com/newoether/agora/api/HttpClient.kt",
-            "com/newoether/agora/api/LlamaChatEngine.kt",
-            "com/newoether/agora/api/LlamaEngine.kt",
+            "com/newoether/agora/memoh/MemohConnection.kt",
+            "com/newoether/agora/memoh/MemohTransport.kt",
+            "com/newoether/agora/memoh/MemohCookieJar.kt",
             "com/newoether/agora/api/anthropic/AnthropicProvider.kt",
             "com/newoether/agora/api/gemini/GeminiProvider.kt",
             "com/newoether/agora/api/local/LocalProvider.kt",

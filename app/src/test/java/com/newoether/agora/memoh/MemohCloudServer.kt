@@ -37,6 +37,10 @@ internal class MemohCloudServer : Closeable {
                 exchange.requestURI.rawQuery, exchange.requestBody.bufferedReader().readText(),
                 exchange.requestHeaders.getFirst("Origin"))
             requests += seen
+            if (!seen.cookie.isNullOrEmpty() && seen.method !in setOf("GET", "HEAD", "OPTIONS") && seen.origin != origin) {
+                reply(exchange, """{"message":"cross-origin cookie-authenticated write forbidden"}""", 403)
+                return@createContext
+            }
             if (handler?.invoke(exchange, seen) == true) return@createContext
             val scoped = seen.path.startsWith("/api/memoh/") || seen.path == "/api/v1/ws-tickets"
             if (scoped && seen.team.isNullOrEmpty()) {

@@ -93,7 +93,7 @@ import com.newoether.agora.ui.common.LocalAgoraHaptics
 private fun MemohLogin(vm: MemohViewModel) {
     LaunchedEffect(vm.login.server) { vm.probeLoginMethod() }
     var passwordVisible by remember { mutableStateOf(false) }
-    val idle = !vm.login.signingIn && !vm.login.sendingCode
+    val idle = !vm.login.signingIn && !vm.login.sendingCode && !vm.restoringSession
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             Text("Memoh", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
@@ -101,6 +101,14 @@ private fun MemohLogin(vm: MemohViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
+            if (vm.restoringSession) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Text("Restoring your saved session…")
+            } else if (vm.sessionRestoreFailed) {
+                OutlinedButton(onClick = vm::retrySessionRestore, enabled = idle) {
+                    Text("Retry saved session")
+                }
+            }
             OutlinedTextField(value = vm.login.server, onValueChange = { vm.login.server = it }, enabled = idle,
                 label = { Text("API address") }, singleLine = true,
                 supportingText = {
@@ -124,7 +132,7 @@ private fun MemohLogin(vm: MemohViewModel) {
                 if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
                 if (!vm.login.codeSent) {
-                    Button(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.login.signingIn,
+                    Button(onClick = vm::sendLoginCode, enabled = idle,
                         modifier = Modifier.fillMaxWidth()) {
                         if (vm.login.sendingCode) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         else Text("Send code")
@@ -135,7 +143,7 @@ private fun MemohLogin(vm: MemohViewModel) {
                         if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         else Text("Verify and sign in")
                     }
-                    TextButton(onClick = vm::sendLoginCode, enabled = !vm.login.sendingCode && !vm.login.signingIn) {
+                    TextButton(onClick = vm::sendLoginCode, enabled = idle) {
                         Text(if (vm.login.sendingCode) "Sending" else "Resend code")
                     }
                 }
@@ -168,7 +176,7 @@ private fun MemohLogin(vm: MemohViewModel) {
                     modifier = Modifier.fillMaxWidth())
                 if (vm.error.isNotEmpty()) Text(vm.error, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
-                Button(onClick = vm::login, enabled = !vm.login.signingIn,
+                Button(onClick = vm::login, enabled = idle,
                     modifier = Modifier.fillMaxWidth()) {
                     if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Text("Connect")

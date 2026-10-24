@@ -103,15 +103,18 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     val backupScope = rememberCoroutineScope()
 
     // A rejected send restores the draft instead of losing it.
-    LaunchedEffect(vm.restoreDraft) {
+    LaunchedEffect(vm.restoreDraft, vm.restoreAttachments) {
         vm.restoreDraft?.let { rejected ->
-            if (field.text.isBlank()) field.edit { replace(0, length, rejected) }
+            if (rejected.isNotBlank()) field.edit {
+                if (length > 0) append("\n")
+                append(rejected)
+            }
+            selectedAttachments = (selectedAttachments + vm.restoreAttachments).distinct()
             vm.consumeRestoredDraft()
         }
     }
-    LaunchedEffect(vm.session?.id) { field.clearText() }
 
-    val messages = remember(vm.turns, vm.pendingUserText, vm.liveBlocks, vm.running) {
+    val messages = remember(vm.turns, vm.pendingUserText, vm.pendingUserAttachments, vm.liveBlocks, vm.running) {
         memohMessages(
             turns = vm.turns,
             pendingText = vm.pendingUserText,
@@ -126,7 +129,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             .map { ChatConversation(id = it.id, title = it.title) }
     }
 
-    LaunchedEffect(vm.session?.id, messages.size) {
+    LaunchedEffect(vm.session?.id, messages.lastOrNull()?.id) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
@@ -182,11 +185,14 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     totalTokens = 0,
                     contextTokenBudget = 0,
                     contextAvailable = false,
-                    // The socket can fail before it ever opens; showing the reason here is the
-                    // difference between "Reconnecting…" forever and a diagnosable failure.
-                    subtitle = vm.error.ifBlank {
-                        (vm.bot?.title ?: "Memoh") + " · " +
-                            if (vm.connected) "Connected" else "Reconnecting…"
+                    subtitle = vm.connection.error.ifBlank {
+                        (vm.bot?.title ?: "Memoh") + " · " + when (vm.connection.state) {
+                            MemohConnectionState.Connected -> "Connected"
+                            MemohConnectionState.Connecting -> "Connecting…"
+                            MemohConnectionState.Retrying -> "Reconnecting…"
+                            MemohConnectionState.Blocked -> "Connection failed"
+                            MemohConnectionState.Idle -> "Disconnected"
+                        }
                     },
                     onOpenDrawer = { scope.launch { drawer.toggle(motion) } },
                     systemPromptEnabled = false,
@@ -230,7 +236,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
-                        vm.error.isNotBlank() -> MemohNotice(vm.error, isError = true)
                         vm.bot == null -> MemohNotice("No accessible bots yet")
                         messages.isEmpty() -> MemohNotice(
                             "Start a conversation\nYour messages will stay on the Memoh server.",
@@ -278,7 +283,16 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     isExpandAnimating = false,
                     onExpand = { expanded = true },
                     onCollapse = { expanded = false },
-                    placeholder = "向 ${vm.bot?.title ?: "Memoh"} 提问…",
+                    placeholder = "向 ${vm.bot?.title ?: "Memoh"} 提问...",
+                    statusContent = {
+                        if (vm.error.isNotBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(vm.error, color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f).padding(12.dp), maxLines = 3)
+                                TextButton(onClick = vm::dismissError) { Text("Dismiss") }
+                            }
+                        }
+                    },
                     attachmentContent = {
                         if (selectedAttachments.isNotEmpty()) {
                             AttachmentDraftStrip(

@@ -70,7 +70,14 @@ class WebUiToolImagesTest {
         val root = temporary.newFolder("tool-media")
         val outside = temporary.newFile("outside.png").apply { writeBytes(bytes) }
         val link = File(root, "link.png")
-        Files.createSymbolicLink(link.toPath(), outside.toPath())
+        try {
+            Files.createSymbolicLink(link.toPath(), outside.toPath())
+        } catch (unsupported: UnsupportedOperationException) {
+            org.junit.Assume.assumeNoException("Host filesystem does not support symbolic links", unsupported)
+        } catch (denied: java.nio.file.FileSystemException) {
+            if (!System.getProperty("os.name", "").orEmpty().startsWith("Windows", ignoreCase = true)) throw denied
+            org.junit.Assume.assumeNoException("Windows account cannot create symbolic links", denied)
+        }
         assertNull(WebUiToolImages(root) { _, _ -> message(image(link)) }.open("c", "m", 1, 0))
     }
 }

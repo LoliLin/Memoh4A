@@ -13,7 +13,6 @@ import com.newoether.agora.data.repository.ConversationSettingsTransferCoordinat
 import com.newoether.agora.data.repository.SettingsRepository
 import com.newoether.agora.data.repository.TaskRepository
 import com.newoether.agora.data.AutoBackupManager
-import com.newoether.agora.api.LocalModelRuntime
 import com.newoether.agora.api.local.LocalProvider
 import com.newoether.agora.automation.AutomationScheduler
 import com.newoether.agora.automation.AutomationExecutionGate
@@ -66,10 +65,6 @@ class AppContainer(
         } catch (_: Exception) {
             "?"
         }
-
-    init {
-        LocalModelRuntime.initialize(application.applicationInfo.nativeLibraryDir)
-    }
 
     /** App-lifetime scope that backs the shared settings StateFlows.
      *  The handler is the last line of defense: children launched directly on this scope
@@ -146,9 +141,7 @@ class AppContainer(
             touchConversationData = { conversationId ->
                 conversationRepository.touchConversationData(conversationId)
             },
-        ).also {
-            LocalModelRuntime.bindIdleRetention(it.localModelIdleRetentionMinutes, appScope)
-        }
+        )
     }
     val conversationSettingsTransfers: ConversationSettingsTransferCoordinator by lazy {
         ConversationSettingsTransferCoordinator(conversationRepository, settingsRepository)
@@ -184,9 +177,8 @@ class AppContainer(
 
     // ── Generation singletons (process-scoped) ────────────────
     // Shared by both the foreground ChatViewModel and background task execution.
-    // [localProvider] must be unique per process; LocalModelRuntime owns the one embedded model
-    // lifecycle. [providerRegistry] holds the live provider map the
-    // generation pipeline reads and runs the long-lived credential/model sync jobs.
+    // Shared legacy UI still resolves providers through this registry. LocalProvider now
+    // reports that local execution is unavailable instead of loading a native runtime.
 
     val localProvider: LocalProvider by lazy { LocalProvider(appContext, settingsRepository) }
 
@@ -232,36 +224,9 @@ class AppContainer(
     /** Lets native import quiesce Task/Loop generation without serializing ordinary executions. */
     val automationExecutionGate: AutomationExecutionGate by lazy { AutomationExecutionGate() }
 
-    // ── Sandbox (flavor-specific) ─────────────────────────────
-
-    val sandboxManagerFactory: SandboxManagerFactory? by lazy {
-        try {
-            // fdroid flavor provides FdroidSandboxManagerFactory
-            Class.forName("com.newoether.agora.sandbox.FdroidSandboxManagerFactory")
-                .getDeclaredConstructor(
-                    android.content.Context::class.java,
-                    com.newoether.agora.data.repository.SettingsRepository::class.java,
-                )
-                .newInstance(appContext, settingsRepository) as SandboxManagerFactory
-        } catch (_: ClassNotFoundException) {
-            // play flavor provides PlaySandboxManagerFactory
-            try {
-                Class.forName("com.newoether.agora.sandbox.PlaySandboxManagerFactory")
-                    .getDeclaredConstructor()
-                    .newInstance() as SandboxManagerFactory
-            } catch (_: ClassNotFoundException) {
-                null
-            } catch (e: Exception) {
-                // Class exists but failed to construct — this is a real error, not a flavor miss.
-                com.newoether.agora.util.DebugLog.e("AppContainer", "PlaySandboxManagerFactory init failed", e)
-                null
-            }
-        } catch (e: Exception) {
-            // FdroidSandboxManagerFactory exists but failed to construct.
-            com.newoether.agora.util.DebugLog.e("AppContainer", "FdroidSandboxManagerFactory init failed", e)
-            null
-        }
-    }
+    // Execution belongs to Memoh. Shared settings/UI may keep this optional seam, but no
+    // local sandbox is constructed or discovered through reflection in this client.
+    val sandboxManagerFactory: SandboxManagerFactory? = null
 
     // ── Headless task execution (process-scoped) ──────────────
     // Drives a full generation with no ViewModel/UI, reusing the shared generation

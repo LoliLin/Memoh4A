@@ -2,7 +2,9 @@
 
 Experimental native Android client for [Memoh](https://memoh.ai), built from [Agora](https://github.com/newo-ether/Agora). Memoh remains the server-side owner of conversations, Agents, and tool execution.
 
-**Preview:** This code has not yet passed an Android build or been tested with a live Memoh account. See [the native integration guide](docs/MEMOH_NATIVE.md) for setup, implemented paths and limitations. The application ID is `in.kawaiis.memoh`, allowing side-by-side installation with Agora. The upstream GPL-3.0 LICENSE and attribution are preserved.
+**Preview:** Memoh4A uses Agora's native chat shell and a remote Memoh runtime. See [the native integration guide](docs/MEMOH_NATIVE.md) for setup, current build/test evidence and remaining account-flow limitations. The release application ID is `in.kawaiis.memoh`, allowing side-by-side installation with Agora. The upstream GPL-3.0 LICENSE and attribution are preserved.
+
+Build with Java 21 and an Android SDK using `./gradlew :app:testDebugUnitTest :app:assembleDebug`. There is one Debug/Release variant pair; the former store flavors, embedded llama/PRoot runtime and physical-line build gate have been removed. For an existing flavored checkout, run `:app:clean` once before the first unified build.
 
 ---
 

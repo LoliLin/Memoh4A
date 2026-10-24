@@ -4,8 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Runtime-delta merge for the live transcript, extracted from MemohViewModel to keep the
- * ViewModel under the 800-line source gate.
+ * Runtime-delta merge for the live transcript, separate from navigation and connection ownership.
  *
  * Semantics follow the reverse-engineered Memoh web socket protocol (web client):
  * - progress_appends: locate the block by id + type == "tool", append each entry to that

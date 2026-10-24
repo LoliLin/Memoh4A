@@ -1,6 +1,5 @@
 package com.newoether.agora.api.util.tokens
 
-import com.newoether.agora.api.LocalModelRuntime
 import com.newoether.agora.api.util.tokens.bpe.O200kBase
 import com.newoether.agora.model.ModelId
 import com.newoether.agora.util.Constants
@@ -16,7 +15,7 @@ enum class ContextCostFamily {
     OPENAI,
     GEMINI,
 
-    /** The embedded llama.cpp runtime, the only family whose exact vocabulary is on device. */
+    /** Imported local-model metadata; this client uses its offline estimate without a runtime. */
     LOCAL,
 
     /** Everything else, including arbitrary OpenAI-compatible endpoints. */
@@ -64,21 +63,17 @@ object ContextCostModels {
         when (family) {
             ContextCostFamily.ANTHROPIC -> AnthropicEnvelopeCosts.forModelName(modelName)
             ContextCostFamily.OPENAI -> OpenAiEnvelopeCost
-            // Gemini, the embedded runtime and unknown endpoints publish no framing constants. The
-            // local runtime's chat template cost arrives with exact tokenization instead.
+            // Gemini and imported/unknown models publish no framing constants.
             ContextCostFamily.GEMINI,
             ContextCostFamily.LOCAL,
             ContextCostFamily.GENERIC,
             -> EnvelopeCost.Default
         }
 
-    /**
-     * Text counting per family. Only the embedded runtime can be exact, because only it has the
-     * model's own vocabulary on the device; every remote family shares the offline counter.
-     */
+    /** Offline estimates, including legacy local-model settings without a resident model. */
     private fun textCounter(family: ContextCostFamily): TextTokenCounter = when (family) {
         ContextCostFamily.LOCAL -> LocalModelTextCounter(
-            exactCount = { text -> LocalModelRuntime.exactTokenCountOrNull(text) },
+            exactCount = { null },
         )
         // Every remote family counts through the one vocabulary that ships with the app. It is the
         // OpenAI families' own tokenizer; for the others it is a much closer proxy than counting

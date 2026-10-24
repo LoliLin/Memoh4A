@@ -61,12 +61,15 @@ internal suspend fun MemohApi.login(username: String, password: String): String 
 /** Local invalidation is synchronous; the old logout can only use the old identity's cookies. */
 internal fun MemohApi.endSession(): suspend () -> Unit {
     val old = scope.identity
+    old.cookies.retire(clearPersisted = true)
     clearIdentity()
     return {
         withContext(Dispatchers.IO) {
             val client = old.client.newBuilder().apply { interceptors().clear() }.build()
             try {
                 client.newCall(Request.Builder().url(old.endpoints.auth + "/auth/logout")
+                    .apply { if (old.bearer.isEmpty()) header("Origin", old.endpoints.origin)
+                        else header("Authorization", "Bearer ${old.bearer}") }
                     .post(ByteArray(0).toRequestBody()).build()).execute().close()
             } catch (_: IOException) { /* Local credentials are already gone. */ }
         }

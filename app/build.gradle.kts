@@ -66,16 +66,6 @@ android {
         }
     }
 
-    flavorDimensions += "store"
-    productFlavors {
-        create("play") {
-            dimension = "store"
-        }
-        create("fdroid") {
-            dimension = "store"
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -109,35 +99,20 @@ android {
     }
 }
 
-tasks.register<Copy>("copyPlayApk") {
-    from("build/outputs/apk/play/release")
+tasks.register<Copy>("copyReleaseApk") {
+    dependsOn("assembleRelease")
+    from(layout.buildDirectory.dir("outputs/apk/release"))
     into("release")
     include("*.apk")
 }
 
-tasks.register<Copy>("copyFdroidApk") {
-    from("build/outputs/apk/fdroid/release")
-    into("release")
-    include("*.apk")
-}
-
-tasks.register<Copy>("copyPlayBundle") {
-    from("build/outputs/bundle/playRelease")
+tasks.register<Copy>("copyReleaseBundle") {
+    dependsOn("bundleRelease")
+    from(layout.buildDirectory.dir("outputs/bundle/release"))
     into("release")
     include("*.aab")
 }
 
-afterEvaluate {
-    tasks.named("assemblePlayRelease") {
-        finalizedBy("copyPlayApk")
-    }
-    tasks.named("assembleFdroidRelease") {
-        finalizedBy("copyFdroidApk")
-    }
-    tasks.named("bundlePlayRelease") {
-        finalizedBy("copyPlayBundle")
-    }
-}
 
 dependencies {
     implementation(libs.androidx.core.ktx)

@@ -201,7 +201,7 @@ class SemanticIndexMutationSourceContractTest {
 
         assertFalse(worker.contains("EmbeddingCacheLocks.forModel(modelId).withLock"))
         assertTrue(worker.contains("EmbeddingClient.computeEmbeddings("))
-        assertTrue(worker.contains("LlamaEngine.computeEmbeddings("))
+        assertFalse(worker.contains("LlamaEngine"))
         assertTrue(worker.contains("database.commitSemanticEmbedding("))
         assertTrue(worker.contains("expectedFingerprint = candidate.fingerprint"))
         assertTrue(worker.contains("ExistingWorkPolicy.APPEND_OR_REPLACE"))
