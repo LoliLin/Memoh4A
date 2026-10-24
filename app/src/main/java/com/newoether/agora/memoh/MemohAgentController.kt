@@ -115,7 +115,19 @@ internal class MemohAgentController(private val api: MemohApi) {
         modelsLoading = true
         try {
             val catalog = api.teamChatModels()
-            if (generation == refreshGeneration && api.scope === identity) models = catalog
+            if (generation == refreshGeneration && api.scope === identity) {
+                models = catalog
+                // A welcome seed may have planted an id before the catalog arrived. If it does
+                // not resolve to a real entry it was a server default, not a user choice —
+                // clear it so the chip shows the settled name instead of a raw id.
+                val known = catalog.optJSONArray("models")?.let { arr ->
+                    (0 until arr.length()).any { i -> arr.optJSONObject(i)?.optString("id") == preferredModelId }
+                } ?: false
+                if (!known && preferredModelId.isNotBlank() && settledModelId.isBlank()) {
+                    preferredModelId = ""
+                    preferredReasoningEffort = ""
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
