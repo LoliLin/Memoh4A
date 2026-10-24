@@ -57,6 +57,7 @@ internal fun MemohViewModel.applyRuntimeDelta(delta: JSONObject, sid: String) {
             }
         }
     }
+    applyRequestUserTurn(delta.optJSONObject("request_user_turn"))
     applySteerTurnUpserts(delta.optJSONArray("steer_turn_upserts"))
     applySteerTurnRemovals(delta.optJSONArray("steer_turn_removals"))
     delta.optJSONObject("run")?.let { patch ->
@@ -69,6 +70,12 @@ internal fun MemohViewModel.applyRuntimeDelta(delta: JSONObject, sid: String) {
 }
 
 /** Queued steering text the server mirrors back; shown as a live "steering" notice row. */
+private fun MemohViewModel.applyRequestUserTurn(request: JSONObject?) {
+    // Homem folds run.request_user_turn into the visible user turns when user_turns is
+    // empty: it is the confirmed echo of the optimistic pending row.
+    if (request == null || request.optString("turn_id").isBlank()) return
+    recordPendingUserTurnId(request.optString("turn_id"))
+}
 private fun MemohViewModel.applySteerTurnUpserts(upserts: JSONArray?) {
     if (upserts == null) return
     for (i in 0 until upserts.length()) {
