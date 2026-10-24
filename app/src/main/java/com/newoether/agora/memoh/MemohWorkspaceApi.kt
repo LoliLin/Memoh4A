@@ -18,7 +18,6 @@ import java.io.IOException
  * Bot workspace files: listing, reading, revision-fenced writes, uploading and
  * the entry operations (mkdir/rename/delete/download/archive/extract).
  *
- * Split out of MemohApi to keep either file inside the 800-line source limit.
  * These are extension functions because they share the client's single
  * authenticated [MemohApi.request] path rather than a second HTTP client.
  */

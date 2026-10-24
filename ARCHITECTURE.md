@@ -1,8 +1,8 @@
-# Agora Architecture
+# Memoh4A Architecture
 
-This document describes the current repository architecture. It intentionally avoids
-line counts and exhaustive file inventories because those became stale faster than the
-contracts they were meant to explain.
+This document distinguishes the active Memoh client from the retained Agora components.
+It avoids physical-line budgets and exhaustive file inventories. The remote-client contract
+and its verification limits are recorded in `docs/MEMOH_NATIVE.md`.
 
 Normative development behavior is indexed by `.harness/PROJECTS.md`. Before changing Agora, read
 `development/README.md` and every applicable module contract; for message generation, Run
@@ -11,8 +11,30 @@ authoritative contract when older descriptive prose conflicts.
 
 ## 1. System shape
 
-Agora is a single-module Android application built with Kotlin, Jetpack Compose,
-coroutines, Room, DataStore, WorkManager, OkHttp, and a small native layer.
+Memoh4A is a single-module Android application built with Kotlin and Jetpack Compose.
+`MemohApplication` and `MemohActivity` start the remote workspace without constructing
+`AppContainer` or opening Agora's local conversation database.
+
+```text
+Agora chat drawer / top bar / message list / composer
+                         │
+                  MemohViewModel
+                    │         │
+     MemohConnection          MemohApi / MemohTransport
+     ticket, socket, retry    identity + team scopes, cancellable HTTP
+                    │         │
+                remote Memoh server
+          sessions, history, runs, tool execution
+```
+
+`MemohCookieJar` persists sealed cookies per origin and retires old identity writers.
+`MemohSessionResume` distinguishes credential rejection from an offline start. Navigation
+revisions fence history, files and agent results; connection generations fence socket callbacks.
+The server owns durable conversation history and agent work.
+
+Shared UI, settings and their data types remain available for reuse. Sections 3–10 describe
+the retained Agora graph and contracts rather than the launch path of the Memoh workspace.
+The retained generation graph is:
 
 ```text
 Compose UI
@@ -32,16 +54,16 @@ ChatViewModel ── MessageGenerationController ── ConversationStateRegistr
    └── MemoryManager / attachment files / export and backup files
 ```
 
-AppContainer owns process-scoped dependencies. Foreground-open automation bridges into the
+In the retained Agora graph, `AppContainer` owns process-scoped dependencies. Foreground-open automation bridges into the
 controller and joins the exact generation Job. Headless automation enters the same direct-only
 conversation mailbox and accepted-input graph transaction, while `TaskExecutionEngine` remains a
 bounded adapter for headless request building, Provider-effect execution, and the external
 body of mailbox-approved Compact effects.
 
-The project uses manual dependency injection through `di/AppContainer.kt`. Shared
-providers, repositories, automation coordinators, and the local inference engine are
-created once per process. A foreground `ChatViewModel` and headless automation reuse
-those instances instead of building competing stacks.
+That graph uses manual dependency injection through `di/AppContainer.kt`. Shared
+providers, repositories and automation coordinators are constructed together when this
+legacy container is explicitly used. No embedded inference engine or sandbox implementation
+is bound. The Memoh launch path does not construct this graph.
 
 ## 2. Source layout
 
@@ -55,17 +77,15 @@ those instances instead of building competing stacks.
 | `app/src/main/java/.../mcp` | MCP transports, protocol client, server registry, and tool discovery |
 | `app/src/main/java/.../automation` | Tasks, loops, scheduling, execution serialization |
 | `app/src/main/java/.../service` | Foreground generation and WorkManager entry points |
-| `app/src/main/java/.../sandbox` | Shared sandbox interfaces |
-| `app/src/fdroid` | PRoot-backed sandbox implementation |
-| `app/src/play` | Play flavor implementation without bundled PRoot binaries |
-| `app/src/main/cpp` | llama.cpp chat/embedding JNI and PRoot bridge |
-| `thirdparty` | Vendored/submodule native dependencies |
-| `build-logic` | Android bytecode compatibility transform and repository source-size policy |
+| `app/src/main/java/.../memoh` | Active remote client, authentication, connection ownership and server-backed screens |
+| `app/src/main/java/.../sandbox` | Optional interfaces used by retained shared UI; no bundled sandbox implementation |
+| `build-logic` | Android bytecode compatibility transform |
 | `server` | Optional Agora-related server components; not part of the APK runtime |
 | `docs` | User-facing MkDocs documentation |
 
-There are two store flavors, `fdroid` and `play`. The application currently targets
-Android API 36, supports API 24 and newer, and builds arm64 native artifacts.
+The application has ordinary `debug` and `release` variants, targets Android API 36 and
+supports API 26 and newer. Store-specific source sets and application-owned native runtimes
+have been removed.
 
 ## 3. State ownership
 
@@ -344,8 +364,9 @@ Haptics follow interaction meaning:
 
 ## 6. Providers and tools
 
-`LlmProvider` implementations cover OpenAI-compatible endpoints, Anthropic, Gemini,
-Ollama, and on-device llama.cpp. Provider-specific parsing stays inside each adapter;
+`LlmProvider` implementations retained for shared Agora code cover OpenAI-compatible endpoints,
+Anthropic, Gemini and Ollama. The Local adapter is a compatibility facade that reports local
+inference as unavailable. Provider-specific parsing stays inside each adapter;
 generation code consumes only normalized events. `ProviderPassRunner` is the common one-request
 closure boundary: its result carries conversation, owner, Run, durable pass, and effect identity,
 and malformed or duplicate completed tool metadata cannot authorize execution.
@@ -424,17 +445,14 @@ the shared mailbox contract.
 One-shot schedules preserve explicit past dates so validation can reject them. The
 scheduler must not silently reinterpret an expired date as next year.
 
-## 9. Native, sandbox, and remote shell
+## 9. Removed local runtime and retained remote shell
 
-The native layer exposes:
+The Memoh client does not package llama.cpp chat/embedding wrappers, PRoot or talloc.
+Optional sandbox interfaces remain for compatibility with shared settings, with no factory
+bound by `AppContainer`. Local embedding and local provider operations fail explicitly.
+Memoh bot tools execute on the remote server.
 
-- on-device chat generation;
-- local embeddings;
-- the F-Droid PRoot bridge.
-
-The F-Droid sandbox runs commands with concurrent output collection and an actual
-wall-clock timeout. The shared glob matcher is implemented without API-26-only
-`java.nio.file` APIs so the API 24 minimum remains real.
+The retained Agora remote adapters remain available for reuse:
 
 Remote shell supports Conch HTTP jobs and direct SSH with host-key trust. Conch requests use signed ephemeral-key/AES-GCM application-layer protection when an API key is configured; blank-key servers receive plain JSON and rely on HTTPS for transport confidentiality. Commands start as durable jobs: foreground execution is a bounded wait
 on the same process, and a timeout returns its job id instead of killing or replaying it. Separate
@@ -458,21 +476,19 @@ Recovery rules:
 
 ## 11. Build and regression gates
 
-Use the repository scripts from the project root:
+Build the Memoh client from the project root with Java 21 and an Android SDK:
 
 ```powershell
-.\build.ps1
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
-`build.ps1` is the required release gate because it configures the Android SDK and
-runs the repository's expected unit-test/build workflow. Deployment is a separate, explicitly
-authorized operation and is not part of the architecture or validation gate.
+The client has one `debug`/`release` variant pair. CI also assembles `:app:assembleRelease`
+and inspects APK entries for removed local runtime libraries. Deployment remains a separate,
+explicitly authorized operation.
 
-Every handwritten Kotlin source in main, test, flavor, and build-logic source sets is limited to
-999 physical lines by `verifyKotlinFileSize`. The task is wired into Gradle `check`, Android
-`preBuild`, `build.ps1`, and CI. Generated/build output, caches, and the vendored `thirdparty` tree
-are excluded; the temporary migration baseline is empty. The exact counting and baseline rules are
-documented in `development/kotlin-source-size-policy.md`.
+The former physical-line limit and `verifyKotlinFileSize` plugin have been removed by the
+2026-10-24 owner instruction. Split code by responsibility where useful; file length is not a
+build gate. The active remote-client ownership boundaries are documented in `docs/MEMOH_NATIVE.md`.
 
 High-risk changes require focused tests in addition to the full gate:
 

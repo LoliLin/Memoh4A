@@ -153,12 +153,12 @@ class CurrentApprovedFeatureSourceContractTest {
     }
 
     @Test
-    fun `Automation orders wake lock and flavor-safe battery actions in every locale`() {
+    fun `Automation orders wake lock and permission-safe battery actions in every locale`() {
         val page = sourceFile(
             "app/src/main/java/com/newoether/agora/ui/settings/SettingsAutomationPage.kt",
         )
         val manifest = sourceFile("app/src/main/AndroidManifest.xml")
-        val fdroidManifest = sourceFile("app/src/fdroid/AndroidManifest.xml")
+        val build = sourceFile("app/build.gradle.kts")
         val backgroundGroup = page
             .substringAfter("title = stringResource(R.string.automation_background_execution)")
             .substringBefore("if (showDocFab)")
@@ -180,7 +180,7 @@ class CurrentApprovedFeatureSourceContractTest {
         assertTrue(page.contains("Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS"))
         assertTrue(page.contains("Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
         assertFalse(manifest.contains("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
-        assertFalse(fdroidManifest.contains("REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
+        assertFalse(build.contains("productFlavors"))
         assertFalse(manifest.contains("android.permission.WAKE_LOCK"))
 
         val keys = listOf(

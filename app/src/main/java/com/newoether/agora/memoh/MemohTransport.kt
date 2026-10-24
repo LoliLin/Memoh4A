@@ -3,6 +3,12 @@ package com.newoether.agora.memoh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Call
+import okhttp3.Callback
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.IOException
+import kotlin.coroutines.resumeWithException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -23,7 +29,7 @@ internal open class MemohTransport(private val parent: MemohTransport? = null) {
     }
 
     internal class Identity(val endpoints: MemohEndpoints, var bearer: String) {
-        val cookies = MemohCookieJar(cookiePrefs)
+        val cookies = MemohCookieJar(cookiePrefs, origin = endpoints.origin.toHttpUrl())
         @Volatile var cookieAuthenticated = false
         lateinit var client: OkHttpClient
     }
@@ -60,6 +66,7 @@ internal open class MemohTransport(private val parent: MemohTransport? = null) {
     fun configure(server: String, bearer: String = "") = configure(MemohEndpoints.fromInput(server), bearer)
     @Synchronized fun configure(endpoints: MemohEndpoints, bearer: String = "") {
         val previous = active
+        previous.identity.cookies.retire()
         active = newScope(endpoints, bearer)
         previous.identity.client.dispatcher.cancelAll()
     }
@@ -107,7 +114,7 @@ internal open class MemohTransport(private val parent: MemohTransport? = null) {
                 // cross-site unless the request states its own origin. Without this every
                 // ticket request (and the socket handshake behind it) was refused with
                 // "cross-origin cookie-authenticated write forbidden".
-                if (identity.bearer.isEmpty() && identity.cookieAuthenticated) {
+                if (identity.bearer.isEmpty() && (identity.cookieAuthenticated || identity.cookies.hasSession())) {
                     header("Origin", identity.endpoints.origin)
                 }
             }
@@ -124,19 +131,35 @@ internal open class MemohTransport(private val parent: MemohTransport? = null) {
         if (method != "GET") builder.method(method,
             if (method == "DELETE" && body == null) null
             else (body?.toString() ?: "{}").toRequestBody("application/json; charset=utf-8".toMediaType()))
-        return withContext(Dispatchers.IO) {
-            captured.identity.client.newCall(builder.build()).execute().use { response ->
-                requireCurrent(captured)
-                if (!response.isSuccessful) throw MemohHttpException(response.code, errorFor(response))
-                val raw = response.body?.string().orEmpty()
-                requireCurrent(captured)
-                if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("["))
-                    JSONObject().put("items", org.json.JSONArray(raw)) else JSONObject(raw)
-            }
-        }
+        return captured.identity.client.newCall(builder.build()).awaitJson(captured)
     }
+
+    private suspend fun Call.awaitJson(captured: Scope): JSONObject = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(e)
+            }
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val result = response.use {
+                        requireCurrent(captured)
+                        if (!it.isSuccessful) throw MemohHttpException(it.code, errorFor(it))
+                        val raw = it.body?.string().orEmpty()
+                        requireCurrent(captured)
+                        if (raw.isBlank()) JSONObject() else if (raw.trim().startsWith("["))
+                            JSONObject().put("items", org.json.JSONArray(raw)) else JSONObject(raw)
+                    }
+                    continuation.resumeWith(Result.success(result))
+                } catch (failure: Exception) {
+                    if (continuation.isActive) continuation.resumeWithException(failure)
+                }
+            }
+        })
+    }
+
     internal fun errorFor(response: Response): String {
-        val parsed = runCatching { JSONObject(response.body?.string()?.take(2048).orEmpty()) }.getOrNull()
+        val parsed = runCatching { JSONObject(response.peekBody(2048).string()) }.getOrNull()
         return parsed?.optString("message")?.takeIf { it.isNotBlank() }
             ?: parsed?.optString("detail")?.takeIf { it.isNotBlank() }
             ?: parsed?.optString("reason")?.takeIf { it.isNotBlank() } ?: "HTTP ${response.code}"

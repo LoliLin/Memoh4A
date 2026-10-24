@@ -4,10 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
-/**
- * What the sign-in screen has typed into it. Kept out of [MemohViewModel] because none of it
- * affects a signed-in session, and the ViewModel has a hard 800-line budget.
- */
+/** Sign-in form and attempt revisions, independent of the authenticated workspace. */
 internal class MemohLoginForm(initialServer: String) {
     var server by mutableStateOf(initialServer)
     var username by mutableStateOf("")

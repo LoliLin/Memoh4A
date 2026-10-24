@@ -641,7 +641,6 @@ internal class ApplicationUiSourceContractTest : UiSourceContractFixture() {
             "app/src/main/java/com/newoether/agora/ui/settings/SettingsScaffold.kt",
         )
         val main = sourceFile("app/src/main/java/com/newoether/agora/MainActivity.kt")
-        val screenshotScript = sourceFile("scripts/generate-screenshots.ps1")
 
         assertFalse(twoPane.contains("scrollToItem("))
         assertFalse(twoPane.contains("rememberLazyListState"))
@@ -671,6 +670,14 @@ internal class ApplicationUiSourceContractTest : UiSourceContractFixture() {
         )
         assertTrue(providerPage.contains("SettingsSecondaryPane {"))
         assertTrue(main.contains("onBack = { showScreenshotSettings = false }"))
+    }
+
+    @Test
+    fun `optional screenshot tooling restores global animation settings`() {
+        val repository = sourceRoot().resolve("../../../..").canonicalFile
+        val script = File(repository, "scripts/generate-screenshots.ps1")
+        org.junit.Assume.assumeTrue("Optional screenshot script is not installed in this checkout", script.isFile)
+        val screenshotScript = script.readText()
         assertTrue(screenshotScript.contains("} finally {"))
         assertTrue(screenshotScript.contains(
             "Restore-GlobalSetting \$setting \$savedAnimationSettings[\$setting]"

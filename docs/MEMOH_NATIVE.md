@@ -7,14 +7,24 @@ This patch adds a **native Android Memoh chat and management client** to the exi
 Build the integrated source from `LoliLin/Memoh4A`:
 
 ```sh
-./gradlew :app:assembleFdroidDebug
+./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
+
+When updating an existing checkout from the former flavored layout, run `:app:clean` once first. Kotlin/AGP output can retain classes for deleted sources across that layout change; both unit tests and the packaged APK must be verified from fresh outputs.
 
 The fork has one Memoh4A launcher and its own Android application ID `in.kawaiis.memoh`. Its dedicated `MemohApplication` installs crash reporting without starting Agora's local database, tokenizer, llama runtime or automation services. The manifest registers only the Memoh launcher; the upstream Agora entry points remain source references. Building needs an Android SDK and Java 21, with no NDK, CMake, PRoot or llama submodule checkout.
 
 The current target is **Memoh Cloud at `https://app.memoh.net`**. Enter that origin in the login form; the client resolves platform requests to `/api/v1` and team business requests to `/api/memoh`. Remote connections require HTTPS.
 
-Cloud sign-in uses an emailed code, then confirms the platform identity and loads team memberships before requesting Bots. The picker preserves a valid team per account, supports switching and an empty-membership state, and scopes JSON, file and socket-ticket requests consistently. Cookies currently remain in memory, so a new process requires sign-in again. A 401 during Bot loading signs out the client. Google browser-to-app handoff, MFA, registration and password reset are not implemented.
+Cloud sign-in uses an emailed code, then confirms the platform identity and loads team memberships before requesting Bots. The picker preserves a valid team per account, supports switching and an empty-membership state, and scopes JSON, file and socket-ticket requests consistently. Cookies are sealed with AndroidKeyStore AES-GCM and partitioned by scheme, host and port. The former unscoped cookie is migrated only for the official Cloud origin. Only an explicit 401 rejects a restored credential; an offline restore keeps it and offers a retry. Logout removes the stored cookie synchronously and retires its jar, so late responses cannot overwrite a subsequent login. Google browser-to-app handoff, MFA, registration and password reset are not implemented.
+
+## Architecture boundaries (2026-10-24)
+
+- `MemohApplication`/`MemohActivity` define the client bootstrap and launcher. Memoh renders through Agora's shared drawer, top bar, message list, composer, theme and attachment components. The upstream settings, Markdown and screenshot source remains reusable.
+- The app has a single `debug`/`release` variant pair. Play/F-Droid source sets, PRoot implementation/tests, embedded llama ownership/JNI wrappers and the unused talloc sources are removed. Optional sandbox interfaces remain for shared settings. Imported local-provider requests fail explicitly instead of loading missing libraries. The 800-line plugin, baseline and policy are removed.
+- `MemohConnection` owns ticket creation, the current socket, callback generations, cancellation and capped reconnect delay. Ticket failures and socket failures follow the same path. Temporary I/O, 408, 429 and server errors retry; other 4xx errors wait for explicit Reconnect. A 401 ends the session. Old socket callbacks cannot mutate the new bot/team/account. Observation loss never means a server run stopped.
+- `MemohTransport` owns identity/team scopes and cancellable JSON requests. Cookie-authenticated requests and logout declare the server origin. JSON requests are not automatically replayed by application code. Only unacknowledged message invocations retain their existing `invocation_id` for socket recovery.
+- Pagination state resets on navigation. A short page or a cursor without progress ends older-message loading. Older history stays visible on request errors and prepending a page does not trigger a jump to the newest message. Admission timeout bounds offline pending sends and restores text plus attachments, while explicitly leaving server acceptance uncertain.
 
 ## Implemented
 
@@ -31,20 +41,34 @@ Cloud sign-in uses an emailed code, then confirms the platform identity and load
 - Structured Agent user-input responses (text, single-select, multi-select); control acknowledgement tracking and reconnect fencing
 - Server-side follow-up and steer queues for active runs, plus queue viewing and removal
 - Server-backed JSON history and session list, Markdown replies, optimistic pending user text
-- Original Agora conversations/settings unchanged
+- Shared Agora chat/settings source retained for reuse; Memoh conversation history remains server-backed.
+
+## Verification (2026-10-24, Asia/Shanghai)
+
+- A clean `:app:clean :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --continue` run executed 3,863 tests in 585 suites: 2 failures, 0 errors and 3 skips. All 124 Memoh tests in that run passed. The failures were a Settings source contract coupled to the already-missing optional screenshot script, and a WebUI image test whose symbolic-link setup lacked Windows privileges. Release vital lint also caught the retained foreground worker's missing `dataSync` manifest declaration.
+- The Settings and screenshot-tool contracts are now separate. Only the absent optional tool is skipped. The symbolic-link boundary assertion remains enabled on hosts that can create links; this Windows account records an explicit assumption skip. The shared foreground worker now declares its service type and required permissions while WorkManager initialization stays lazy.
+- Follow-up validation of `com.newoether.agora.memoh.*`, `ApplicationUiSourceContractTest`, `CurrentApprovedFeatureSourceContractTest` and `WebUiToolImagesTest` executed **160 tests in 25 suites: 158 passed, 0 failures/errors, 2 explicit environment/tooling skips**. The **125 Memoh tests all passed without skips**, including the added merged-manifest/startup check. This is a full-project initial run followed by focused regression checks, rather than a claim of a second all-green full-project run.
+- `:app:assembleDebug` and `:app:assembleRelease`, including release vital lint, completed successfully. Both APKs pass `apksigner verify`, launch `MemohActivity` through `MemohApplication`, and declare the merged `dataSync` service type. Native-library scans for llama/ggml/PRoot/talloc and DEX scans for the deleted runtime/factory types found zero matches in either APK.
+- Cookie persistence tests inject a reversible sealing codec because Robolectric has no AndroidKeyStore. They verify ownership, migration, retirement and envelope boundaries; they do not prove hardware-backed encryption on a device.
+
+| Artifact | Application ID | Size | SHA-256 |
+|---|---|---|---|
+| Debug, built 12:55:58 | `in.kawaiis.memoh.screenshots` | 62.90 MiB | `59565CFD104192BEF0A3D4A6DC996AAA080ED611300F983188916266110D1811` |
+| Release, built 13:01:13 | `in.kawaiis.memoh` | 23.91 MiB | `B3D30B707D1D031A4F1D72784697C41F6651578A7E46EC9293C662E9B45C0A94` |
+
+Earlier public HTTP/OAuth and local team-protocol evidence is recorded in [protocol evidence](MEMOH_CLOUD_PROTOCOL.md) and the [local probe](../tools/memoh-probe/README.md). Those checks are separate from authenticated Cloud messaging and from this build's local fixture tests.
 
 ## Gaps before daily use
 
-**2026-10-23 verification:** the APK compiles and packages; 118 targeted tests in 15 suites pass with zero failures, errors or skips. The Kotlin 800-line gate passes for 1,352 files. The 11 Node probe tests pass. Public Cloud HTTP checks confirm email sign-in configuration, enabled Google/GitHub providers and OAuth-start callback behavior. Local HTTP tests reproduce the missing-team error once and observe zero such errors through the corrected login/team/Bot/ticket/file flow. These targeted results do not establish a passing full-project suite or an authenticated Cloud message round trip. See [protocol evidence](MEMOH_CLOUD_PROTOCOL.md) and the [local probe](../tools/memoh-probe/README.md). Remaining gaps:
-
-- Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total draft cap and at most 10 files. There is no chunked message upload path; the workspace uploader handles larger standalone files.
+- Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.
 - Workspace file browser has no media preview and no folder upload (single file at a time, into the current directory).
 - Backup import uses the server default section set; per-section import selection is not exposed. Backup export supports selecting documented sections and an optional encryption passphrase. Encrypted imports can enter a passphrase when the server preview requests one.
 - Schedule workdir binding and per-schedule agent/ACP runtime selection are not exposed (the fields are plumbed for new-session schedules but there is no bot-workdir picker). Terminal, audio, slash commands, queue reorder/edit, and external-agent setup remain incomplete.
 - The runtime reducer handles the common snapshot/delta text and tool paths, but not the entire Memoh Web client's event/cursor/resync semantics. Do not use it for high-impact Agent operations without verifying reconnection and approval flows.
-- This fork launches directly into Memoh4A. The upstream Agora UI is not surfaced in the new navigation.
+- This fork launches into the Memoh workspace through Agora's shared chat shell. The broader upstream settings screens remain in source; not every settings entry is connected to the Memoh navigation.
 - Email-code Cloud sign-in is implemented; Google browser-to-app credential handoff and MFA remain unimplemented.
 - Tool details provide bounded raw input/output/diff text, not syntax-highlighted code/diff editors.
+- Native bitmap capture and visual comparison against the intended Agora worktree remain unverified. Shell render tests cover projected chat rows/top bar and the launcher tests exercise startup/login UI.
 - An authenticated Cloud send, reconnect, approval and history round trip remains to be exercised; public endpoints and local protocol tests are verified separately.
 
 ## Contract / next slice
