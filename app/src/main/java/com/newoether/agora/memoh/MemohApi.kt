@@ -895,6 +895,30 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
     suspend fun memoryUsage(botId: String): JSONObject =
         request("/bots/${Uri.encode(botId)}/memory/usage")
 
+    suspend fun terminalSocket(
+        botId: String,
+        cols: Int,
+        rows: Int,
+        listener: WebSocketListener,
+    ): WebSocket {
+        val captured = scope
+        val path = "/bots/${Uri.encode(botId)}/container/terminal/ws"
+        val builder = businessRequest(path, captured)
+        var url = (captured.identity.endpoints.api + path).toHttpUrl().newBuilder().apply {
+            if (captured.team.isNotEmpty()) addQueryParameter("team_id", captured.team)
+            addQueryParameter("cols", cols.coerceIn(1, 500).toString())
+            addQueryParameter("rows", rows.coerceIn(1, 500).toString())
+        }.build()
+        if (captured.identity.bearer.isEmpty()) {
+            val ticket = teamPlatformRequest("/ws-tickets", JSONObject(), method = "POST")
+                .optString("ticket")
+            if (ticket.isBlank()) throw IOException("Memoh did not return a WebSocket ticket")
+            url = url.newBuilder().addQueryParameter("ticket", ticket).build()
+        }
+        requireCurrent(captured)
+        return captured.identity.client.newWebSocket(builder.url(url).build(), listener)
+    }
+
     /**
      * Opens the runtime socket.
      *

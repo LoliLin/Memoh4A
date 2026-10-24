@@ -143,6 +143,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.okhttp)
+    implementation("androidx.webkit:webkit:1.14.0")
     implementation(libs.material.color.utilities)
     implementation(libs.lottie.compose)
     implementation(libs.work.runtime.ktx)
