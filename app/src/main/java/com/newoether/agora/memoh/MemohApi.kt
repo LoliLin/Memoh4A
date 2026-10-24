@@ -535,6 +535,13 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
         return MemohQueueState(data.optBoolean("steer_supported"), items)
     }
 
+    /** Per-queue listing variants (the combined /queue endpoint covers both in one call). */
+    suspend fun followUpQueue(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/follow-up-queue")
+
+    suspend fun steerQueue(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/steer-queue")
+
     suspend fun enqueueQueue(botId: String, sessionId: String, type: String,
                              text: String, invocationId: String) {
         require(type == "steer" || type == "follow_up") { "Invalid queue type" }
@@ -548,6 +555,255 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
         request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/$path/${Uri.encode(item.id)}",
             method = "DELETE")
     }
+
+    /** Edit an accepted queue item in place (PATCH {text} on the steer or follow-up queue). */
+    suspend fun editQueueItem(botId: String, sessionId: String, item: MemohQueueItem, text: String) {
+        val path = if (item.type == "steer") "steer-queue" else "follow-up-queue"
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/$path/${Uri.encode(item.id)}",
+            JSONObject().put("text", text.trim()), method = "PATCH")
+    }
+
+    /** Per-queue edit variants with an explicit type, matching the documented paths. */
+    suspend fun editFollowUpQueueItem(botId: String, sessionId: String, itemId: String, text: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/follow-up-queue/${Uri.encode(itemId)}",
+            JSONObject().put("text", text.trim()), method = "PATCH")
+    }
+
+    suspend fun cancelFollowUpQueueItem(botId: String, sessionId: String, itemId: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/follow-up-queue/${Uri.encode(itemId)}",
+            method = "DELETE")
+    }
+
+    suspend fun enqueueFollowUp(botId: String, sessionId: String, text: String, invocationId: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/follow-up-queue",
+            JSONObject().put("invocation_id", invocationId).put("text", text))
+    }
+
+    suspend fun reorderFollowUpQueue(botId: String, sessionId: String, itemId: String, beforeId: String?) {
+        val body = JSONObject().put("item", JSONObject().put("item_id", itemId))
+        if (!beforeId.isNullOrBlank()) body.put("before", JSONObject().put("item_id", beforeId))
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/follow-up-queue/reorder",
+            body, method = "PUT")
+    }
+
+    suspend fun enqueueSteer(botId: String, sessionId: String, text: String, invocationId: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/steer-queue",
+            JSONObject().put("invocation_id", invocationId).put("text", text))
+    }
+
+    suspend fun cancelSteerQueueItem(botId: String, sessionId: String, itemId: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/steer-queue/${Uri.encode(itemId)}",
+            method = "DELETE")
+    }
+
+    suspend fun editSteerQueueItem(botId: String, sessionId: String, itemId: String, text: String) {
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/steer-queue/${Uri.encode(itemId)}",
+            JSONObject().put("text", text.trim()), method = "PATCH")
+    }
+
+    suspend fun reorderSteerQueue(botId: String, sessionId: String, itemId: String, beforeId: String?) {
+        val body = JSONObject().put("item", JSONObject().put("item_id", itemId))
+        if (!beforeId.isNullOrBlank()) body.put("before", JSONObject().put("item_id", beforeId))
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/steer-queue/reorder",
+            body, method = "PUT")
+    }
+
+    /** Move [item] so it lands before [beforeId]; a null target moves it to the end. */
+    suspend fun reorderQueue(botId: String, sessionId: String, type: String, item: MemohQueueItem, beforeId: String?) {
+        require(type == "steer" || type == "follow_up") { "Invalid queue type" }
+        val path = if (type == "steer") "steer-queue/reorder" else "follow-up-queue/reorder"
+        val body = JSONObject().put("item", JSONObject().put("item_id", item.id))
+        if (!beforeId.isNullOrBlank()) body.put("before", JSONObject().put("item_id", beforeId))
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/$path", body, method = "PUT")
+    }
+
+    /** Promote an accepted follow-up to steer the active run. */
+    suspend fun promoteQueueItem(botId: String, sessionId: String, item: MemohQueueItem) {
+        require(item.type == "follow_up") { "Only follow-up items can be promoted" }
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/follow-up-queue/${Uri.encode(item.id)}/steer",
+            method = "POST")
+    }
+
+    // ---- Session runtime controls (permission/plan modes, goal, runtime commands, model seed) ----
+
+    suspend fun runtimeControls(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/runtime-controls")
+
+    suspend fun setRuntimeMode(botId: String, sessionId: String, modeId: String, plan: Boolean): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/runtime-controls/mode",
+            JSONObject().put("mode_id", modeId).put("mode_kind", if (plan) "plan" else "permission"),
+            method = "PATCH")
+
+    suspend fun runtimeGoal(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/runtime-controls/goal")
+
+    suspend fun pauseRuntimeGoal(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/runtime-controls/goal",
+            JSONObject().put("action", "pause"), method = "POST")
+
+    suspend fun clearRuntimeGoal(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/runtime-controls/goal",
+            JSONObject().put("action", "clear"), method = "POST")
+
+    suspend fun runRuntimeCommand(botId: String, sessionId: String, command: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/runtime-controls/commands",
+            JSONObject().put("command", command), method = "POST")
+
+    /** Welcome-composer model seed shown before the first send of a new conversation. */
+    suspend fun modelPreferenceSeed(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/model-preference-seed")
+
+    /** Model catalog a bot Agent can use (GET agents/{id}/models → external.ModelCatalog). */
+    suspend fun agentModels(botId: String, agentId: String, modelId: String = ""): JSONObject =
+        request("/bots/${Uri.encode(botId)}/agents/${Uri.encode(agentId)}/models" +
+            if (modelId.isNotBlank()) "?model_id=${Uri.encode(modelId)}" else "")
+
+    /** Delete the bot's whole message history (server-side, irreversible). */
+    suspend fun deleteAllMessages(botId: String) {
+        request("/bots/${Uri.encode(botId)}/messages", method = "DELETE")
+    }
+
+    /** Locate a history message by its external id and load surrounding context. */
+    suspend fun locateMessage(
+        botId: String, sessionId: String, externalMessageId: String,
+        before: Int = 20, after: Int = 20,
+    ): JSONObject = request(
+        "/bots/${Uri.encode(botId)}/messages/locate?session_id=${Uri.encode(sessionId)}" +
+            "&external_message_id=${Uri.encode(externalMessageId)}" +
+            "&before=$before&after=$after")
+
+    // ---- Session extras: status, fork, context lifecycle, invocation lookup ----
+
+    suspend fun sessionStatus(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/status")
+
+    suspend fun forkSession(botId: String, sessionId: String, messageId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/fork",
+            JSONObject().put("message_id", messageId), method = "POST")
+
+    suspend fun contextLifecycle(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/context-lifecycle")
+
+    suspend fun invocation(botId: String, sessionId: String, invocationId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/invocations/${Uri.encode(invocationId)}")
+
+    // ---- ACP session runtime (bound variant of the runtime controls) ----
+
+    suspend fun sessionAcpRuntime(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/acp-runtime")
+
+    suspend fun ensureSessionAcpRuntime(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/acp-runtime",
+            JSONObject(), method = "POST")
+
+    suspend fun setSessionAcpRuntimeMode(botId: String, sessionId: String, modeId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/acp-runtime/mode",
+            JSONObject().put("mode_id", modeId), method = "PATCH")
+
+    suspend fun setSessionAcpRuntimeModel(botId: String, sessionId: String, modelId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/acp-runtime/model",
+            JSONObject().put("model_id", modelId), method = "PATCH")
+
+    suspend fun setSessionAcpRuntimeReasoning(botId: String, sessionId: String, effort: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/acp-runtime/reasoning",
+            JSONObject().put("reasoning_effort", effort), method = "PATCH")
+
+    // ---- Session-level tool approvals (HTTP variant of the WS control flow) ----
+
+    suspend fun approveToolCall(botId: String, approvalId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/tool-approvals/${Uri.encode(approvalId)}/approve",
+            JSONObject(), method = "POST")
+
+    suspend fun rejectToolCall(botId: String, approvalId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/tool-approvals/${Uri.encode(approvalId)}/reject",
+            JSONObject(), method = "POST")
+
+    // ---- Bot channel message sending (server-side channel delivery) ----
+
+    suspend fun sendChannelMessage(botId: String, platform: String, body: JSONObject): JSONObject =
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}/send", body)
+
+    suspend fun sendChannelChatMessage(botId: String, platform: String, body: JSONObject): JSONObject =
+        request("/bots/${Uri.encode(botId)}/channel/${Uri.encode(platform)}/send_chat", body)
+
+    // ---- Bot user settings (per-bot key/value) ----
+
+    suspend fun botSettings(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/settings")
+
+    suspend fun updateBotSettings(botId: String, body: JSONObject): JSONObject =
+        request("/bots/${Uri.encode(botId)}/settings", body, method = "PUT")
+
+    suspend fun deleteBotSettings(botId: String) {
+        request("/bots/${Uri.encode(botId)}/settings", method = "DELETE")
+    }
+
+    // ---- Workdirs ----
+
+    suspend fun workdirs(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workdirs")
+
+    suspend fun createWorkdir(botId: String, path: String, name: String = ""): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workdirs",
+            JSONObject().put("path", path.trim()).put("name", name.trim()), method = "POST")
+
+    suspend fun renameWorkdir(botId: String, workdirId: String, name: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workdirs/${Uri.encode(workdirId)}",
+            JSONObject().put("name", name.trim()), method = "PATCH")
+
+    suspend fun archiveWorkdir(botId: String, workdirId: String) {
+        request("/bots/${Uri.encode(botId)}/workdirs/${Uri.encode(workdirId)}", method = "DELETE")
+    }
+
+    suspend fun workdirGitBranch(botId: String, workdirId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workdirs/${Uri.encode(workdirId)}/git-branch")
+
+    suspend fun switchWorkdirGitBranch(botId: String, workdirId: String, branch: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workdirs/${Uri.encode(workdirId)}/git-branch",
+            JSONObject().put("branch", branch.trim()), method = "POST")
+
+    suspend fun workdirDirectories(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workdirs/directories")
+
+    // ---- Workspace targets ----
+
+    suspend fun workspaceTargets(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workspace-targets")
+
+    suspend fun setPrimaryWorkspaceTarget(botId: String, targetId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workspace-targets/primary",
+            JSONObject().put("target_id", targetId), method = "PUT")
+
+    suspend fun setWorkspaceTargetToolApproval(botId: String, targetId: String, approval: JSONObject): JSONObject =
+        request("/bots/${Uri.encode(botId)}/workspace-targets/${Uri.encode(targetId)}/tool-approval",
+            approval, method = "PUT")
+
+    suspend fun deleteWorkspaceTarget(botId: String, targetId: String) {
+        request("/bots/${Uri.encode(botId)}/workspace-targets/${Uri.encode(targetId)}", method = "DELETE")
+    }
+
+    // ---- Token usage ----
+
+    suspend fun tokenUsage(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/token-usage")
+
+    suspend fun tokenUsageRecords(botId: String, limit: Int = 50, offset: Int = 0): JSONObject =
+        request("/bots/${Uri.encode(botId)}/token-usage/records?limit=$limit&offset=$offset")
+
+    // ---- Skills catalog (chat-time skill selection) ----
+
+    suspend fun skillsCatalog(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/skills/catalog")
+
+    // ---- Bot TTS ----
+
+    suspend fun ttsSynthesize(botId: String, body: JSONObject): JSONObject =
+        request("/bots/${Uri.encode(botId)}/tts/synthesize", body, method = "POST")
+
+    // ---- Compaction ----
+
+    suspend fun compactSession(botId: String, sessionId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/compact", method = "POST")
 
     suspend fun memoryConfig(): JSONObject =
         request("/memory/config")

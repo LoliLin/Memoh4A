@@ -39,7 +39,9 @@ Cloud sign-in uses an emailed code, then confirms the platform identity and load
 - Cloud WebSocket `/bots/{bot_id}/web/ws`: request a team-scoped short-lived ticket, include `team_id` and `ticket` in the URL, and preserve runtime subscribe/unsubscribe, reconnect and admission replay
 - Runtime snapshot/delta text, reasoning, tool input/output/diff details, stop action and permission choices
 - Structured Agent user-input responses (text, single-select, multi-select); control acknowledgement tracking and reconnect fencing
-- Server-side follow-up and steer queues for active runs, plus queue viewing and removal
+- Server-side follow-up and steer queues for active runs: viewing, editing, reordering, promoting to steer, and removal
+- Session runtime controls: permission/plan mode switching, runtime-owned goal (pause/clear with usage), runtime commands, and immediate context compaction
+- Chat-time model preference: Agent model catalog picker with reasoning effort, welcome-composer model seed, `model_id`/`reasoning_effort` send parameters, and `model_preference_settled` tracking
 - Server-backed JSON history and session list, Markdown replies, optimistic pending user text
 - Shared Agora chat/settings source retained for reuse; Memoh conversation history remains server-backed.
 
@@ -58,13 +60,26 @@ Cloud sign-in uses an emailed code, then confirms the platform identity and load
 
 Earlier public HTTP/OAuth and local team-protocol evidence is recorded in [protocol evidence](MEMOH_CLOUD_PROTOCOL.md) and the [local probe](../tools/memoh-probe/README.md). Those checks are separate from authenticated Cloud messaging and from this build's local fixture tests.
 
+## API parity ledger (2026-10-24)
+
+A literal audit of all 338 documented Swagger operations against Android source path literals: **329 operations are wired through `MemohApi`/`MemohAdminApi`**, 9 remain intentionally unwired. The audit script matches static path segments in order inside one Kotlin string literal; a hit proves a call wrapper exists, not a dedicated screen.
+
+The 9 unwired operations and why:
+
+- `GET /bots/{bot_id}/container/terminal/ws` — interactive WebSocket terminal; not in the mobile client yet.
+- `POST /bots/{bot_id}/mcp-stdio`, `POST /bots/{bot_id}/mcp-stdio/{connection_id}` — MCP stdio proxy bridging; server-side administration path.
+- `POST /bots/{bot_id}/tools` — unified MCP tools gateway used by the web tool runner.
+- `POST /bots/{bot_id}/web/messages`, `GET /bots/{bot_id}/web/stream` — local-channel message/SSE path superseded by the realtime WebSocket.
+- `GET /bots/{bot_id}/sessions/events` — SSE stream confirmed dead code in the current web bundle.
+- `GET /oauth/mcp/callback`, `GET /providers/oauth/callback` — server-rendered OAuth callback routes; a native client completes OAuth through the browser handoff instead.
+
 ## Gaps before daily use
 
 - Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.
 - Workspace file browser has no media preview and no folder upload (single file at a time, into the current directory).
 - Backup import uses the server default section set; per-section import selection is not exposed. Backup export supports selecting documented sections and an optional encryption passphrase. Encrypted imports can enter a passphrase when the server preview requests one.
-- Schedule workdir binding and per-schedule agent/ACP runtime selection are not exposed (the fields are plumbed for new-session schedules but there is no bot-workdir picker). Terminal, audio, slash commands, queue reorder/edit, and external-agent setup remain incomplete.
-- The runtime reducer handles the common snapshot/delta text and tool paths, but not the entire Memoh Web client's event/cursor/resync semantics. Do not use it for high-impact Agent operations without verifying reconnection and approval flows.
+- Schedule workdir binding and per-schedule agent/ACP runtime selection are not exposed (the fields are plumbed for new-session schedules but there is no bot-workdir picker). Terminal, audio, and slash commands remain incomplete.
+- The runtime reducer now covers the web delta contract (snapshot replacement, reset, message upserts/appends, progress appends, user/steer turn upserts and removals, run patches), but `retry_message`/`edit_message` composer actions and `command_result`/`command_error` slash-command events are not yet surfaced in the UI.
 - This fork launches into the Memoh workspace through Agora's shared chat shell. The broader upstream settings screens remain in source; not every settings entry is connected to the Memoh navigation.
 - Email-code Cloud sign-in is implemented; Google browser-to-app credential handoff and MFA remain unimplemented.
 - Tool details provide bounded raw input/output/diff text, not syntax-highlighted code/diff editors.

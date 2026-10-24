@@ -83,6 +83,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var memoriesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
     var queueOpen by remember { mutableStateOf(false) }
+    var runtimeControlsOpen by remember { mutableStateOf(false) }
+    var compactConfirm by remember { mutableStateOf(false) }
     var botDetailsOpen by remember { mutableStateOf(false) }
     var backupOpen by remember { mutableStateOf(false) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
@@ -91,6 +93,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var pendingBackupPassphrase by remember { mutableStateOf("") }
     var newTitle by remember { mutableStateOf("") }
     var sendQueueMenu by remember { mutableStateOf(false) }
+    var modelMenu by remember { mutableStateOf(false) }
     var selectedAttachments by remember(vm.attachmentDraftOwner) {
         mutableStateOf<List<MemohAttachment>>(emptyList())
     }
@@ -206,6 +209,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             MemohAccountAction.Memory -> memoriesOpen = true
                             MemohAccountAction.Schedules -> schedulesOpen = true
                             MemohAccountAction.Queue -> { queueOpen = true; vm.refreshQueue() }
+                            MemohAccountAction.RuntimeControls -> runtimeControlsOpen = true
+                            MemohAccountAction.Compact -> compactConfirm = true
                             MemohAccountAction.Rename -> {
                                 newTitle = vm.session?.title.orEmpty(); renameDialog = true
                             }
@@ -347,6 +352,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                         }
                                     }
                                 }
+                                // Chat-time model preference, matching the web composer.
+                                MemohModelPicker(vm, modelMenu, { modelMenu = it })
                             }
                             val showStop = vm.running && vm.runId.isNotBlank()
                             ComposerSendButton(
@@ -378,6 +385,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         deleteDialog = deleteDialog,
         botDetailsOpen = botDetailsOpen, memoriesOpen = memoriesOpen,
         filesOpen = filesOpen, schedulesOpen = schedulesOpen, queueOpen = queueOpen,
+        runtimeControlsOpen = runtimeControlsOpen, compactConfirm = compactConfirm,
         backupOpen = backupOpen, importUri = importUri, backupStatus = backupStatus,
         onRenameDismiss = { renameDialog = false },
         onDeleteDismiss = { deleteDialog = false },
@@ -386,6 +394,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         onFilesDismiss = { filesOpen = false },
         onSchedulesDismiss = { schedulesOpen = false },
         onQueueDismiss = { queueOpen = false },
+        onRuntimeControlsDismiss = { runtimeControlsOpen = false },
+        onCompactDismiss = { compactConfirm = false },
         onBackupDismiss = { backupOpen = false },
         onBackupStatusClear = { backupStatus = "" },
         onImportConsumed = { importUri = null },

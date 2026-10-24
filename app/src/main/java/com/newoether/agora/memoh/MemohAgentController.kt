@@ -24,6 +24,16 @@ internal class MemohAgentController(private val api: MemohApi) {
         private set
     var selectedAgentId by mutableStateOf("")
         private set
+    // Chat-time model preference for the next send (web composer parity).
+    var models by mutableStateOf<JSONObject?>(null)
+        private set
+    var modelsLoading by mutableStateOf(false)
+        private set
+    var preferredModelId by mutableStateOf("")
+    var preferredReasoningEffort by mutableStateOf("")
+    /** Server-confirmed preference from model_preference_settled events. */
+    var settledModelId by mutableStateOf("")
+        private set
 
     val selectedAgent: MemohAgent?
         get() = agents.firstOrNull { it.id == selectedAgentId }
@@ -55,6 +65,11 @@ internal class MemohAgentController(private val api: MemohApi) {
         selectedAgentId = ""
         error = ""
         loading = false
+        models = null
+        modelsLoading = false
+        preferredModelId = ""
+        preferredReasoningEffort = ""
+        settledModelId = ""
     }
 
     suspend fun refresh(botId: String) {
@@ -91,6 +106,34 @@ internal class MemohAgentController(private val api: MemohApi) {
             currentCoroutineContext().ensureActive()
             if (current() && profiles.isEmpty()) error = e.message ?: "ACP Agent profiles are unavailable"
         }
+    }
+
+    /** Load the model catalog for [agentId]; optional [modelId] validates a specific model. */
+    suspend fun loadModels(botId: String, agentId: String, modelId: String = "") {
+        if (agentId.isBlank()) return
+        val generation = ++refreshGeneration
+        val identity = api.scope
+        modelsLoading = true
+        try {
+            val catalog = api.agentModels(botId, agentId, modelId)
+            if (generation == refreshGeneration && api.scope === identity) models = catalog
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Model choice is optional; keep the composer usable without a catalog.
+        } finally {
+            if (generation == refreshGeneration && api.scope === identity) modelsLoading = false
+        }
+    }
+
+    fun setModelPreference(modelId: String, reasoningEffort: String) {
+        preferredModelId = modelId
+        preferredReasoningEffort = reasoningEffort
+    }
+
+    /** Record the server's own settled preference (model_preference_settled event). */
+    fun onModelPreferenceSettled(modelId: String) {
+        settledModelId = modelId
     }
 
     suspend fun create(botId: String, name: String, optionId: String): MemohAgent {
