@@ -160,6 +160,8 @@ internal data class MemohTurn(
     val text: String = "",
     val blocks: List<MemohBlock> = emptyList(),
     val attachments: List<MemohAttachment> = emptyList(),
+    /** Server turn_id used by retry_message/edit_message; may differ from the row identity. */
+    val turnId: String = "",
 )
 
 internal fun decodeAccount(obj: JSONObject): MemohAccount = MemohAccount(
@@ -219,6 +221,7 @@ internal fun decodeTurn(obj: JSONObject): MemohTurn {
         text = obj.optString("text"),
         blocks = decodeBlocks(obj.optJSONArray("messages")),
         attachments = decodeAttachments(obj.optJSONArray("attachments")),
+        turnId = obj.optString("turn_id"),
     )
 }
 

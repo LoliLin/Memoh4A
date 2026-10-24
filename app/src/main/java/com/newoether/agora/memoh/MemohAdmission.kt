@@ -9,10 +9,17 @@ internal fun MemohViewModel.armAdmissionTimeout(invocation: String, draft: Strin
     admissionTimeoutJob = navigationScope.launch {
         delay(ADMISSION_TIMEOUT_MS)
         if (admissionInvocations.remove(invocation) != null) {
-            if (pendingUserText == draft) restorePendingDraft()
-            error = "The server has not acknowledged this message within " +
-                "${ADMISSION_TIMEOUT_MS / 1000} seconds. The draft was restored. " +
-                "It may still have been accepted; check the conversation before sending again."
+            // A mutation has no optimistic pending draft to restore; only plain sends do.
+            if (pendingUserText != null && pendingUserText == draft) restorePendingDraft()
+            error = if (pendingUserText != null || draft.isEmpty()) {
+                "The server has not acknowledged this message within " +
+                    "${ADMISSION_TIMEOUT_MS / 1000} seconds. The draft was restored. " +
+                    "It may still have been accepted; check the conversation before sending again."
+            } else {
+                "The server has not acknowledged this edit within " +
+                    "${ADMISSION_TIMEOUT_MS / 1000} seconds. " +
+                    "It may still have been applied; check the conversation before retrying."
+            }
         }
     }
 }
