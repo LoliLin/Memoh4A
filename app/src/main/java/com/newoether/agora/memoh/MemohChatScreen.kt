@@ -249,9 +249,19 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             messages = stable,
                             conversationId = vm.session?.id,
                             state = listState,
-                            messageActionsEnabled = false,
-                            readOnlyActions = true,
+                            messageActionsEnabled = !vm.running,
+                            readOnlyActions = vm.running,
                             isLoading = vm.running,
+                            onEditMessage = { messageId, newText ->
+                                vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
+                                    ?.takeIf { it.role == "user" && it.turnId.isNotBlank() }
+                                    ?.let { vm.mutateTurn(it.turnId, retry = false, text = newText) } == true
+                            },
+                            onRegenerate = { messageId ->
+                                vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
+                                    ?.takeIf { it.turnId.isNotBlank() }
+                                    ?.let { vm.mutateTurn(it.turnId, retry = true) } == true
+                            },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .onSizeChanged { },

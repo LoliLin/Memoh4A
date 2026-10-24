@@ -647,6 +647,36 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             .put("control_id", controlId))
     }
 
+    /**
+     * Retry from a turn or edit an already-sent user turn (web `retry_message`/`edit_message`).
+     * Only meaningful when no run is active; Homem's client hides both actions otherwise.
+     * The server creates the follow-up run; [turnId] addresses the turn to mutate.
+     */
+    fun mutateTurn(turnId: String, retry: Boolean, text: String? = null): Boolean {
+        val sid = session?.id?.takeIf { it.isNotBlank() } ?: return false
+        if (turnId.isBlank()) return false
+        if (running || awaitingAdmission.isNotEmpty() || pendingUserText != null) {
+            error = "Wait for the current run to finish before editing history."
+            return false
+        }
+        val payload = JSONObject().put("type", if (retry) "retry_message" else "edit_message")
+            .put("invocation_id", UUID.randomUUID().toString())
+            .put("session_id", sid)
+            .put("turn_id", turnId)
+        text?.let { payload.put("text", it) }
+        if (agentController.preferredModelId.isNotBlank()) payload.put("model_id", agentController.preferredModelId)
+        val invocation = payload.optString("invocation_id")
+        awaitingAdmission[invocation] = payload
+        armAdmissionTimeout(invocation, text.orEmpty())
+        if (connected) {
+            sendNow(payload)
+        } else {
+            error = "Reconnecting to send your edit."
+            ensureConnection(bot?.id ?: return false)
+        }
+        return true
+    }
+
     private fun submitInteraction(decisionId: String, payload: JSONObject) {
         if (decisionId.isBlank() || !controlsReady || session == null ||
             decisionId in waitingForInteraction) return

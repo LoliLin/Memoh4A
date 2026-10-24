@@ -207,4 +207,44 @@ class MemohFeatureParityTest {
         awaitState { vm.queueState?.items?.isEmpty() == true }
         assertEquals(1, mutationCount)
     }
+
+    @Test
+    fun `retrying a turn sends retry_message with the server turn id`() = withCloud { vm, server ->
+        server.handler = { exchange, seen ->
+            if (seen.path.endsWith("/messages")) {
+                server.reply(exchange, JSONObject().put("items", JSONArray()
+                    .put(JSONObject().put("turn_id", "srv-turn-7").put("role", "user").put("text", "old"))).toString())
+                true
+            } else false
+        }
+        login(vm)
+        vm.selectSession(MemohSession("chat", "Chat", "agent"))
+        awaitState { vm.turns.isNotEmpty() }
+        assertEquals("srv-turn-7", vm.turns.first().turnId)
+        val accepted = vm.mutateTurn("srv-turn-7", retry = true)
+        assertTrue(accepted)
+        val payload = vm.admissionInvocations.values.single()
+        assertEquals("retry_message", payload.getString("type"))
+        assertEquals("srv-turn-7", payload.getString("turn_id"))
+        assertEquals("chat", payload.getString("session_id"))
+    }
+
+    @Test
+    fun `editing a turn carries the new text and is refused while running`() = withCloud { vm, server ->
+        server.handler = { exchange, seen ->
+            if (seen.path.endsWith("/messages")) {
+                server.reply(exchange, JSONObject().put("items", JSONArray()
+                    .put(JSONObject().put("turn_id", "srv-turn-9").put("role", "user").put("text", "first"))).toString())
+                true
+            } else false
+        }
+        login(vm)
+        vm.selectSession(MemohSession("chat", "Chat", "agent"))
+        awaitState { vm.turns.isNotEmpty() }
+        assertTrue(vm.mutateTurn("srv-turn-9", retry = false, text = "edited"))
+        val payload = vm.admissionInvocations.values.single()
+        assertEquals("edit_message", payload.getString("type"))
+        assertEquals("edited", payload.getString("text"))
+        assertFalse(vm.mutateTurn("srv-turn-9", retry = false, text = "again"))
+    }
 }
