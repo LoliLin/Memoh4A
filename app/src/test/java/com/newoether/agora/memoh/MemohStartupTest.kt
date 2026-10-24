@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.newoether.agora.data.local.ChatDatabase
@@ -58,7 +59,9 @@ class MemohStartupTest {
         assertNotNull(WorkManager.getInstance(app))
         assertNotNull((app as Configuration.Provider).workManagerConfiguration)
         compose.onNodeWithText("API address").assertIsDisplayed()
-        compose.onNodeWithText("Connect").assertIsDisplayed()
+        // The fixture answers password; the probe sets the form method asynchronously.
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Connect").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Connect").performScrollTo().assertIsDisplayed()
         assertFalse(compose.activity.getDatabasePath(ChatDatabase.DB_NAME).exists())
     }
 
@@ -81,7 +84,8 @@ class MemohStartupTest {
     fun `recreating the launcher keeps the remote login usable`() {
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText("API address").assertIsDisplayed()
-        compose.onNodeWithText("Connect").assertIsDisplayed()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Connect").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Connect").performScrollTo().assertIsDisplayed()
         assertFalse(compose.activity.getDatabasePath(ChatDatabase.DB_NAME).exists())
     }
 }

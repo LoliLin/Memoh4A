@@ -52,6 +52,9 @@ import com.newoether.agora.ui.chat.ChatTopBar
 import com.newoether.agora.ui.chat.MessageList
 import com.newoether.agora.ui.chat.bottombar.ChatComposerLayout
 import com.newoether.agora.ui.chat.bottombar.ChatComposerSurface
+import com.newoether.agora.ui.chat.bottombar.ComposerControlGroup
+import com.newoether.agora.ui.chat.bottombar.ComposerModelMenuItem
+import com.newoether.agora.ui.chat.bottombar.ComposerModelSelector
 import com.newoether.agora.ui.chat.bottombar.ComposerSendButton
 import com.newoether.agora.ui.chat.rememberChatDrawerState
 import com.newoether.agora.ui.common.LocalAgoraHaptics
@@ -282,6 +285,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                     ?.takeIf { it.turnId.isNotBlank() }
                                     ?.let { vm.mutateTurn(it.turnId, retry = true) } == true
                             },
+                            onFork = { messageId ->
+                                vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
+                                    ?.takeIf { it.turnId.isNotBlank() }
+                                    ?.let { vm.forkFromTurn(it.turnId) }
+                            },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .onSizeChanged { },
@@ -342,7 +350,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            ComposerControlGroup {
                                 AttachmentPickerButton(
                                     enabled = vm.bot != null,
                                     currentOwner = { vm.attachmentDraftOwner },
@@ -382,28 +390,62 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                         }
                                     }
                                 }
-                            }
-                            // Agora's own composer controls capsule with the model selector.
-                            androidx.compose.material3.TextButton(
-                                onClick = { modelMenu = true },
-                                enabled = vm.agentController.selectedAgentId.isNotBlank(),
-                            ) {
+                                // Agora's own capsule selector: width-fading label, real dropdown.
                                 val controller = vm.agentController
                                 val catalog = controller.models
-                                val modelName = catalog?.optJSONArray("models")?.let { models ->
-                                    val current = controller.preferredModelId.ifBlank { controller.settledModelId }
+                                val modelArray = catalog?.optJSONArray("models")
+                                val currentId = controller.preferredModelId.ifBlank { controller.settledModelId }
+                                val displayName = modelArray?.let { models ->
                                     (0 until models.length())
                                         .mapNotNull { models.optJSONObject(it) }
-                                        .firstOrNull { it.optString("id") == current }
-                                        ?.optString("name")
+                                        .firstOrNull { it.optString("id") == currentId }
+                                        ?.optString("name").orEmpty()
                                 }.orEmpty()
-                                Text(
-                                    if (controller.modelsLoading) "模型加载中…"
-                                    else if (modelName.isNotBlank()) modelName
-                                    else if (controller.settledModelId.isNotBlank()) shortenModel(controller.settledModelId)
-                                    else "模型",
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
+                                ComposerModelSelector(
+                                    displayText = when {
+                                        controller.modelsLoading -> "…"
+                                        displayName.isNotBlank() -> displayName
+                                        currentId.isNotBlank() -> currentId.substringAfterLast('/').take(24)
+                                        modelArray == null || modelArray.length() == 0 -> "模型"
+                                        else -> "选择模型"
+                                    },
+                                    isModelValid = currentId.isNotBlank(),
+                                    expanded = modelMenu,
+                                    onClick = { modelMenu = !modelMenu },
+                                    onDismissRequest = { modelMenu = false },
+                                    enabled = controller.selectedAgentId.isNotBlank(),
+                                ) {
+                                    if (modelArray == null || modelArray.length() == 0) {
+                                        AgoraDropdownMenuItem(
+                                            text = { Text(if (controller.modelsLoading) "模型加载中…" else "没有可用模型") },
+                                            enabled = false,
+                                            onClick = {},
+                                        )
+                                    } else {
+                                        ComposerModelMenuItem(
+                                            displayText = "跟随 Bot 默认",
+                                            selected = controller.preferredModelId.isBlank(),
+                                            onClick = {
+                                                controller.setModelPreference("", "")
+                                                modelMenu = false
+                                            },
+                                        )
+                                        for (i in 0 until modelArray.length()) {
+                                            val model = modelArray.optJSONObject(i) ?: continue
+                                            val id = model.optString("id")
+                                            val label = model.optString("name").ifBlank { id }
+                                            ComposerModelMenuItem(
+                                                displayText = label,
+                                                selected = id == currentId,
+                                                onClick = {
+                                                    controller.setModelPreference(
+                                                        id, model.optString("default_reasoning_effort"))
+                                                    modelMenu = false
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
                             }
                             val showStop = vm.running && vm.runId.isNotBlank()
                             ComposerSendButton(

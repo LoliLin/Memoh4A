@@ -677,9 +677,11 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
     suspend fun sessionStatus(botId: String, sessionId: String): JSONObject =
         request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/status")
 
-    suspend fun forkSession(botId: String, sessionId: String, messageId: String): JSONObject =
-        request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/fork",
-            JSONObject().put("message_id", messageId), method = "POST")
+    suspend fun forkSession(botId: String, sessionId: String, turnId: String): MemohSession? {
+        val created = request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/fork",
+            JSONObject().put("turn_id", turnId), method = "POST")
+        return created.optString("id").takeIf { it.isNotBlank() }?.let { decodeSession(created) }
+    }
 
     suspend fun contextLifecycle(botId: String, sessionId: String): JSONObject =
         request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}/context-lifecycle")

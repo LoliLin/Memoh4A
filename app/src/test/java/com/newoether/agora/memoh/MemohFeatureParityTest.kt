@@ -254,4 +254,27 @@ class MemohFeatureParityTest {
         assertEquals("edited", payload.getString("text"))
         assertFalse(vm.mutateTurn("srv-turn-9", retry = false, text = "again"))
     }
+
+    @Test
+    fun `forking from a turn posts turn_id and navigates to the forked session`() = withCloud { vm, server ->
+        var forkBody: String? = null
+        server.handler = { exchange, seen ->
+            when {
+                seen.path.endsWith("/fork") -> {
+                    forkBody = seen.body
+                    server.reply(exchange, JSONObject()
+                        .put("id", "fork-1").put("title", "Forked")
+                        .put("bot_agent_id", "agent").put("runtime_type", "codex").toString())
+                    true
+                }
+                else -> false
+            }
+        }
+        login(vm)
+        vm.selectSession(MemohSession("chat", "Chat", "agent"))
+        vm.forkFromTurn("srv-turn-3")
+        awaitState { vm.session?.id == "fork-1" }
+        assertEquals("""{"turn_id":"srv-turn-3"}""", forkBody)
+        assertTrue(vm.sessions.any { it.id == "fork-1" })
+    }
 }
