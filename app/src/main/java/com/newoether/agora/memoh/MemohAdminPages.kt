@@ -6,23 +6,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,26 +35,35 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.newoether.agora.R
+import com.newoether.agora.ui.components.AgoraDropdownMenu
+import com.newoether.agora.ui.components.AgoraDropdownMenuItem
+import com.newoether.agora.ui.components.providerIcon
 import com.newoether.agora.ui.settings.CollapsingSettingsScaffold
+import com.newoether.agora.ui.settings.GuardedAnimatedContent
+import com.newoether.agora.ui.settings.SettingsAddItem
 import com.newoether.agora.ui.settings.SettingsGroup
 import com.newoether.agora.ui.settings.SettingsGroupColumn
 import com.newoether.agora.ui.settings.SettingsItem
+import com.newoether.agora.ui.settings.rememberSettingsScrollState
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
- * 供应商与模型管理。网页把这两屏放在团队设置里，缺了它们新设备装完就走不完
- * 「配好供应商 → 建模型 → 能聊天」这条最短路径。
+ * 供应商与模型的团队配置。结构照 Agora 的 SettingsProviderPage：
+ * 列表页只读，点行进详情页（GuardedAnimatedContent 二级面板），新增走独立页。
+ * 之前把增删改都塞进一个 AlertDialog，和 Agora 的配置界面完全不是一回事。
  */
 @Composable
 internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
@@ -62,11 +74,9 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     var models by remember { mutableStateOf<List<MemohAdminModel>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
-    var editing by remember { mutableStateOf<MemohProvider?>(null) }
-    var creating by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf<MemohProvider?>(null) }
-    var testing by remember { mutableStateOf("") }
-    var testResult by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var selectedProviderId by rememberSaveable { mutableStateOf<String?>(null) }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    val scrollState = rememberSettingsScrollState()
 
     suspend fun reload() {
         loading = true
@@ -77,7 +87,6 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            // Cloud answers 403 for ordinary members; that is "managed by your admin", not a bug.
             error = if (failure is MemohHttpException && failure.status == 403)
                 uiResources.getString(R.string.memoh_ui_providers_managed_by_admin)
             else failure.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
@@ -88,292 +97,620 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { reload() }
 
-    CollapsingSettingsScaffold(title = uiResources.getString(R.string.memoh_ui_providers_models), onBack = onBack) {
+    val selected = providers.firstOrNull { it.id == selectedProviderId }
+    Box(Modifier.fillMaxSize()) {
+        GuardedAnimatedContent(
+            targetState = selectedProviderId to adding,
+            forward = selectedProviderId != null || adding,
+        ) { (providerId, isAdding) ->
+            when {
+                isAdding -> MemohSecondaryPane {
+                    MemohNewProviderPage(
+                        onBack = { adding = false },
+                        onCreated = { adding = false; scope.launch { reload() } },
+                    )
+                }
+                providerId != null -> {
+                    val provider = providers.firstOrNull { it.id == providerId }
+                    if (provider == null) {
+                        // The list refreshed under us (deleted elsewhere): fall back to the list.
+                        LaunchedEffect(providerId) { selectedProviderId = null }
+                    } else {
+                        MemohSecondaryPane {
+                            MemohProviderDetailPage(
+                                provider = provider,
+                                models = models.filter { it.providerId == provider.id },
+                                onBack = { selectedProviderId = null },
+                                onChanged = { scope.launch { reload() } },
+                            )
+                        }
+                    }
+                }
+                else -> CollapsingSettingsScaffold(
+                    title = uiResources.getString(R.string.memoh_ui_providers_models),
+                    onBack = onBack,
+                    scrollState = scrollState,
+                ) {
+                    SettingsGroupColumn {
+                        if (error.isNotBlank()) {
+                            SettingsGroup(
+                                title = uiResources.getString(R.string.memoh_ui_status),
+                                items = listOf({
+                                    SettingsItem(
+                                        headlineContent = {
+                                            Text(error, color = MaterialTheme.colorScheme.error)
+                                        },
+                                        trailingContent = {
+                                            TextButton(onClick = { scope.launch { reload() } }) {
+                                                Text(uiResources.getString(R.string.memoh_ui_retry))
+                                            }
+                                        },
+                                    )
+                                }),
+                            )
+                        }
+
+                        SettingsGroup(
+                            title = uiResources.getString(R.string.memoh_ui_providers),
+                            items = buildList {
+                                if (loading && providers.isEmpty()) {
+                                    add {
+                                        SettingsItem(
+                                            headlineContent = {
+                                                CircularProgressIndicator(
+                                                    Modifier.size(18.dp),
+                                                    strokeWidth = 2.dp,
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+                                providers.forEach { provider ->
+                                    add {
+                                        val configured = provider.hasApiKey || provider.baseUrl.isNotBlank()
+                                        val tint = if (configured) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        SettingsItem(
+                                            headlineContent = { Text(provider.name, fontWeight = FontWeight.Medium) },
+                                            supportingContent = {
+                                                Text(
+                                                    provider.baseUrl.ifBlank {
+                                                        uiResources.getString(R.string.memoh_ui_not_configured)
+                                                    },
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            },
+                                            leadingContent = {
+                                                val iconRes = providerIcon(provider.name)
+                                                if (iconRes != 0) {
+                                                    Icon(
+                                                        painterResource(iconRes),
+                                                        null,
+                                                        tint = tint,
+                                                        modifier = Modifier.size(24.dp),
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        Icons.Default.Cloud,
+                                                        null,
+                                                        tint = tint,
+                                                        modifier = Modifier.size(24.dp),
+                                                    )
+                                                }
+                                            },
+                                            trailingContent = {
+                                                StreamBadge(
+                                                    text = provider.displayType,
+                                                    container = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                                    content = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            },
+                                            modifier = Modifier.clickable { selectedProviderId = provider.id },
+                                        )
+                                    }
+                                }
+                                add {
+                                    SettingsAddItem(
+                                        label = uiResources.getString(R.string.memoh_ui_add_provider),
+                                        onClick = { adding = true },
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Agora's own secondary-pane wrapper is module-internal, so provide the same local it sets:
+ * a pushed page keeps its Back affordance visible even inside a two-pane shell.
+ */
+@Composable
+private fun MemohSecondaryPane(content: @Composable () -> Unit) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.newoether.agora.ui.settings.LocalSettingsPaneBackButtonVisible provides true,
+        content = content,
+    )
+}
+
+/** Small rounded label, matching the protocol badges Agora puts on provider rows. */
+@Composable
+private fun StreamBadge(
+    text: String,
+    container: androidx.compose.ui.graphics.Color,
+    content: androidx.compose.ui.graphics.Color,
+) {
+    Surface(shape = RoundedCornerShape(4.dp), color = container, contentColor = content) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
+/** One provider's own page: connectivity, models under it, and its own destructive action. */
+@Composable
+private fun MemohProviderDetailPage(
+    provider: MemohProvider,
+    models: List<MemohAdminModel>,
+    onBack: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    val uiResources = LocalContext.current.resources
+    val scope = rememberCoroutineScope()
+    val admin = remember { MemohAdminApi() }
+    var testing by remember { mutableStateOf(false) }
+    var testMessage by remember { mutableStateOf("") }
+    var testFailed by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    val scrollState = rememberSettingsScrollState()
+
+    CollapsingSettingsScaffold(title = provider.name, onBack = onBack, scrollState = scrollState) {
         SettingsGroupColumn {
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_connection),
+                items = listOf(
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_api_key)) },
+                            supportingContent = {
+                                Text(
+                                    if (provider.hasApiKey) uiResources.getString(R.string.memoh_ui_key_configured)
+                                    else uiResources.getString(R.string.memoh_ui_not_configured),
+                                )
+                            },
+                            modifier = Modifier.heightIn(min = 64.dp),
+                        )
+                    },
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_base_url)) },
+                            supportingContent = {
+                                Text(
+                                    provider.baseUrl.ifBlank {
+                                        uiResources.getString(R.string.memoh_ui_not_configured)
+                                    },
+                                )
+                            },
+                            modifier = Modifier.heightIn(min = 64.dp),
+                        )
+                    },
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_test_connection)) },
+                            supportingContent = {
+                                Text(
+                                    when {
+                                        testMessage.isNotBlank() -> testMessage
+                                        else -> uiResources.getString(R.string.memoh_ui_test_connection_desc)
+                                    },
+                                    color = if (testFailed) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            trailingContent = {
+                                if (testing) {
+                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                } else {
+                                    TextButton(onClick = {
+                                        testing = true
+                                        scope.launch {
+                                            val outcome = runCatching { admin.testProvider(provider.id) }
+                                            testing = false
+                                            testFailed = outcome.isFailure
+                                            testMessage = outcome.fold(
+                                                onSuccess = { uiResources.getString(R.string.memoh_ui_test_passed) },
+                                                onFailure = {
+                                                    it.message ?: uiResources.getString(R.string.memoh_ui_test_failed)
+                                                },
+                                            )
+                                        }
+                                    }) { Text(uiResources.getString(R.string.memoh_ui_test)) }
+                                }
+                            },
+                            modifier = Modifier.heightIn(min = 64.dp),
+                        )
+                    },
+                ),
+            )
+
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_models),
+                items = buildList {
+                    if (models.isEmpty()) {
+                        add {
+                            SettingsItem(
+                                headlineContent = {
+                                    Text(
+                                        uiResources.getString(R.string.memoh_ui_no_models_configured),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                modifier = Modifier.heightIn(min = 64.dp),
+                            )
+                        }
+                    }
+                    models.forEach { model ->
+                        var showMenu by remember(model.id) { mutableStateOf(false) }
+                        add {
+                            SettingsItem(
+                                headlineContent = { Text(model.label, fontWeight = FontWeight.Medium) },
+                                supportingContent = {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(model.modelId, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (model.contextWindow > 0) {
+                                            StreamBadge(
+                                                text = "ctx ${formatTokens(model.contextWindow)}",
+                                                container = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                                content = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        model.reasoningEfforts.firstOrNull()?.let { effort ->
+                                            StreamBadge(
+                                                text = effort,
+                                                container = MaterialTheme.colorScheme.tertiaryContainer,
+                                                content = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            )
+                                        }
+                                        if (!model.enabled) {
+                                            StreamBadge(
+                                                text = uiResources.getString(R.string.memoh_ui_disabled),
+                                                container = MaterialTheme.colorScheme.errorContainer,
+                                                content = MaterialTheme.colorScheme.onErrorContainer,
+                                            )
+                                        }
+                                    }
+                                },
+                                trailingContent = {
+                                    Box {
+                                        IconButton(
+                                            onClick = { showMenu = true },
+                                            modifier = Modifier.size(24.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Default.MoreVert,
+                                                uiResources.getString(R.string.memoh_ui_options),
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                        AgoraDropdownMenu(
+                                            expanded = showMenu,
+                                            onDismissRequest = { showMenu = false },
+                                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                            tonalElevation = 16.dp,
+                                        ) {
+                                            AgoraDropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        if (model.enabled) uiResources.getString(R.string.memoh_ui_disable)
+                                                        else uiResources.getString(R.string.memoh_ui_enable),
+                                                    )
+                                                },
+                                                leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                                onClick = {
+                                                    showMenu = false
+                                                    scope.launch {
+                                                        runCatching {
+                                                            admin.updateModel(
+                                                                model.id,
+                                                                JSONObject().put("enable", !model.enabled),
+                                                            )
+                                                        }.onFailure { error = it.message.orEmpty() }
+                                                            .onSuccess { onChanged() }
+                                                    }
+                                                },
+                                            )
+                                            AgoraDropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        uiResources.getString(R.string.memoh_ui_remove),
+                                                        color = MaterialTheme.colorScheme.error,
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Default.Delete,
+                                                        null,
+                                                        tint = MaterialTheme.colorScheme.error,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showMenu = false
+                                                    scope.launch {
+                                                        runCatching { admin.deleteModel(model.id) }
+                                                            .onFailure { error = it.message.orEmpty() }
+                                                            .onSuccess { onChanged() }
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.heightIn(min = 64.dp),
+                            )
+                        }
+                    }
+                },
+            )
+
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_provider_actions),
+                items = listOf(
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_edit_provider)) },
+                            leadingContent = { Icon(Icons.Default.Edit, null) },
+                            modifier = Modifier
+                                .heightIn(min = 56.dp)
+                                .clickable { editing = true },
+                        )
+                    },
+                    {
+                        SettingsItem(
+                            headlineContent = {
+                                Text(
+                                    uiResources.getString(R.string.memoh_ui_remove_provider),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            supportingContent = {
+                                Text(uiResources.getString(R.string.memoh_ui_remove_provider_desc))
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+                            },
+                            modifier = Modifier
+                                .heightIn(min = 64.dp)
+                                .clickable { deleting = true },
+                        )
+                    },
+                ),
+            )
+
             if (error.isNotBlank()) {
                 SettingsGroup(
                     title = uiResources.getString(R.string.memoh_ui_status),
                     items = listOf({
                         SettingsItem(
-                            headlineContent = { Text(error, color = MaterialTheme.colorScheme.error) },
-                            trailingContent = {
-                                TextButton(onClick = { scope.launch { reload() } }) {
-                                    Text(uiResources.getString(R.string.memoh_ui_retry))
-                                }
-                            },
+                            headlineContent = {
+                                Text(error, color = MaterialTheme.colorScheme.error)
+                            }
                         )
                     }),
                 )
             }
-            if (loading) {
-                SettingsGroup(
-                    title = uiResources.getString(R.string.memoh_ui_loading),
-                    items = listOf({
-                        SettingsItem(headlineContent = { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) })
-                    }),
-                )
-            }
-            SettingsGroup(
-                title = uiResources.getString(R.string.memoh_ui_providers),
-                items = buildList {
-                    providers.forEach { provider ->
-                        add {
-                            SettingsItem(
-                                headlineContent = {
-                                    Text(provider.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                },
-                                supportingContent = {
-                                    Text(
-                                        buildString {
-                                            append(provider.displayType)
-                                            if (provider.baseUrl.isNotBlank()) append(" · ${provider.baseUrl}")
-                                            if (!provider.hasApiKey) append(" · ${uiResources.getString(R.string.memoh_ui_no_key)}")
-                                            if (provider.managed) append(" · ${uiResources.getString(R.string.memoh_ui_managed)}")
-                                        },
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                },
-                                trailingContent = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (testing == provider.id) {
-                                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                        } else {
-                                            TextButton(onClick = {
-                                                testing = provider.id
-                                                testResult = null
-                                                scope.launch {
-                                                    val outcome = runCatching { admin.testProvider(provider.id) }
-                                                    testing = ""
-                                                    testResult = provider.id to (outcome.fold(
-                                                        onSuccess = { uiResources.getString(R.string.memoh_ui_test_passed) },
-                                                        onFailure = { it.message ?: uiResources.getString(R.string.memoh_ui_test_failed) },
-                                                    ))
-                                                }
-                                            }) { Text(uiResources.getString(R.string.memoh_ui_test)) }
-                                        }
-                                        IconButton(onClick = { editing = provider }, enabled = !provider.managed) {
-                                            Icon(Icons.Default.Edit, uiResources.getString(R.string.memoh_ui_edit))
-                                        }
-                                        IconButton(onClick = { deleting = provider }, enabled = !provider.managed) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                uiResources.getString(R.string.memoh_ui_remove),
-                                                tint = MaterialTheme.colorScheme.error,
-                                            )
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-                    add {
-                        SettingsItem(
-                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_add_provider)) },
-                            leadingContent = { Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary) },
-                            modifier = Modifier.clickable { creating = true },
-                        )
-                    }
-                },
-            )
-            testResult?.let { (providerId, message) ->
-                val name = providers.firstOrNull { it.id == providerId }?.name.orEmpty()
-                if (name.isNotBlank()) {
-                    SettingsGroup(
-                        title = uiResources.getString(R.string.memoh_ui_last_test),
-                        items = listOf({
-                            SettingsItem(headlineContent = { Text(name) }, supportingContent = { Text(message) })
-                        }),
-                    )
-                }
-            }
-            SettingsGroup(
-                title = uiResources.getString(R.string.memoh_ui_models),
-                items = buildList {
-                    val byProvider = providers.associateBy { it.id }
-                    models.forEach { model ->
-                        add {
-                            SettingsItem(
-                                headlineContent = { Text(model.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                supportingContent = {
-                                    Text(
-                                        buildString {
-                                            append(model.modelId)
-                                            byProvider[model.providerId]?.name?.let { append(" · $it") }
-                                            if (model.contextWindow > 0) append(" · ${model.contextWindow} ctx")
-                                            if (model.reasoningEfforts.isNotEmpty())
-                                                append(" · ${model.reasoningEfforts.joinToString("/")}")
-                                            if (!model.enabled) append(" · ${uiResources.getString(R.string.memoh_ui_disabled)}")
-                                        },
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                },
-                                trailingContent = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Switch(
-                                            checked = model.enabled,
-                                            onCheckedChange = { next ->
-                                                scope.launch {
-                                                    runCatching {
-                                                        admin.updateModel(model.id, JSONObject().put("enable", next))
-                                                    }.onFailure {
-                                                        error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
-                                                    }.onSuccess { reload() }
-                                                }
-                                            },
-                                        )
-                                        IconButton(onClick = {
-                                            scope.launch {
-                                                runCatching { admin.deleteModel(model.id) }
-                                                    .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error) }
-                                                    .onSuccess { reload() }
-                                            }
-                                        }) {
-                                            Icon(Icons.Default.Delete, uiResources.getString(R.string.memoh_ui_remove))
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-                    if (models.isEmpty() && !loading) {
-                        add { SettingsItem(headlineContent = { Text(uiResources.getString(R.string.memoh_ui_no_models_configured)) }) }
-                    }
-                },
-            )
         }
     }
 
-    if (creating || editing != null) {
-        MemohProviderEditor(
-            existing = editing,
-            onDismiss = { creating = false; editing = null },
-            onSave = { name, clientType, baseUrl, apiKey, enabled ->
+    if (editing) {
+        MemohProviderFormPage(
+            title = uiResources.getString(R.string.memoh_ui_edit_provider),
+            existing = provider,
+            onBack = { editing = false },
+            onSave = { name, clientType, baseUrl, apiKey ->
                 scope.launch {
-                    val outcome = runCatching {
-                        if (editing == null) {
-                            admin.createProviderFromRequest(
-                                providerRequestBody(name, clientType, baseUrl, apiKey, null, create = true)
-                                    .put("enable", enabled),
-                            )
-                        } else {
-                            admin.updateProviderFromRequest(
-                                editing!!.id,
-                                providerRequestBody(name, clientType, baseUrl, apiKey, editing, create = false)
-                                    .put("enable", enabled),
-                            )
-                        }
-                    }
-                    creating = false
-                    editing = null
-                    outcome.onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error) }
-                    if (outcome.isSuccess) reload()
+                    runCatching {
+                        admin.updateProviderFromRequest(
+                            provider.id,
+                            providerRequestBody(name, clientType, baseUrl, apiKey, provider, create = false),
+                        )
+                    }.onFailure { error = it.message.orEmpty() }
+                        .onSuccess { editing = false; onChanged() }
                 }
             },
         )
     }
 
-    deleting?.let { provider ->
+    if (deleting) {
         AlertDialog(
-            onDismissRequest = { deleting = null },
+            onDismissRequest = { deleting = false },
             title = { Text(uiResources.getString(R.string.memoh_ui_remove_provider)) },
             text = { Text(uiResources.getString(R.string.memoh_ui_remove_provider_confirm, provider.name)) },
             confirmButton = {
                 TextButton(onClick = {
-                    deleting = null
+                    deleting = false
                     scope.launch {
                         runCatching { admin.deleteProvider(provider.id) }
-                            .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error) }
-                            .onSuccess { reload() }
+                            .onFailure { error = it.message.orEmpty() }
+                            .onSuccess { onBack(); onChanged() }
                     }
-                }) { Text(uiResources.getString(R.string.memoh_ui_remove), color = MaterialTheme.colorScheme.error) }
+                }) {
+                    Text(uiResources.getString(R.string.memoh_ui_remove), color = MaterialTheme.colorScheme.error)
+                }
             },
             dismissButton = {
-                TextButton(onClick = { deleting = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
+                TextButton(onClick = { deleting = false }) {
+                    Text(uiResources.getString(R.string.memoh_ui_cancel))
+                }
             },
         )
     }
 }
 
+/** New-provider page: full settings page, not a dialog, so the form gets room and a title bar. */
 @Composable
-private fun MemohProviderEditor(
+private fun MemohNewProviderPage(onBack: () -> Unit, onCreated: () -> Unit) {
+    val uiResources = LocalContext.current.resources
+    val admin = remember { MemohAdminApi() }
+    val scope = rememberCoroutineScope()
+    var error by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+
+    MemohProviderFormPage(
+        title = uiResources.getString(R.string.memoh_ui_add_provider),
+        existing = null,
+        saving = saving,
+        error = error,
+        onBack = onBack,
+        onSave = { name, clientType, baseUrl, apiKey ->
+            saving = true
+            error = ""
+            scope.launch {
+                runCatching {
+                    admin.createProviderFromRequest(
+                        providerRequestBody(name, clientType, baseUrl, apiKey, null, create = true),
+                    )
+                }.onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error) }
+                    .onSuccess { onCreated() }
+                saving = false
+            }
+        },
+    )
+}
+
+@Composable
+private fun MemohProviderFormPage(
+    title: String,
     existing: MemohProvider?,
-    onDismiss: () -> Unit,
-    onSave: (name: String, clientType: String, baseUrl: String, apiKey: String, enabled: Boolean) -> Unit,
+    onBack: () -> Unit,
+    onSave: (name: String, clientType: String, baseUrl: String, apiKey: String) -> Unit,
+    saving: Boolean = false,
+    error: String = "",
 ) {
     val uiResources = LocalContext.current.resources
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var clientType by remember { mutableStateOf(existing?.clientType.orEmpty()) }
     var baseUrl by remember { mutableStateOf(existing?.baseUrl.orEmpty()) }
     var apiKey by remember { mutableStateOf("") }
-    var enabled by remember { mutableStateOf(existing?.enabled ?: true) }
+    val scrollState = rememberSettingsScrollState()
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                if (existing == null) uiResources.getString(R.string.memoh_ui_add_provider)
-                else uiResources.getString(R.string.memoh_ui_edit_provider),
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(uiResources.getString(R.string.memoh_ui_name)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = clientType,
-                    onValueChange = { clientType = it },
-                    label = { Text(uiResources.getString(R.string.memoh_ui_client_type)) },
-                    singleLine = true,
-                    enabled = existing == null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = baseUrl,
-                    onValueChange = { baseUrl = it },
-                    label = { Text(uiResources.getString(R.string.memoh_ui_base_url)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = {
-                        Text(
-                            if (existing?.hasApiKey == true) uiResources.getString(R.string.memoh_ui_api_key_keep)
-                            else uiResources.getString(R.string.memoh_ui_api_key),
+    CollapsingSettingsScaffold(title = title, onBack = onBack, scrollState = scrollState) {
+        SettingsGroupColumn {
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_identity),
+                items = listOf(
+                    {
+                        FieldRow(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = uiResources.getString(R.string.memoh_ui_name),
                         )
                     },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                    {
+                        FieldRow(
+                            value = clientType,
+                            onValueChange = { clientType = it },
+                            label = uiResources.getString(R.string.memoh_ui_client_type),
+                            enabled = existing == null,
+                        )
+                    },
+                ),
+            )
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_credentials),
+                items = listOf(
+                    {
+                        FieldRow(
+                            value = baseUrl,
+                            onValueChange = { baseUrl = it },
+                            label = uiResources.getString(R.string.memoh_ui_base_url),
+                        )
+                    },
+                    {
+                        FieldRow(
+                            value = apiKey,
+                            onValueChange = { apiKey = it },
+                            label = if (existing?.hasApiKey == true) {
+                                uiResources.getString(R.string.memoh_ui_api_key_keep)
+                            } else {
+                                uiResources.getString(R.string.memoh_ui_api_key)
+                            },
+                            secret = true,
+                        )
+                    },
+                ),
+            )
+            if (error.isNotBlank()) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_status),
+                    items = listOf({
+                        SettingsItem(
+                            headlineContent = {
+                                Text(error, color = MaterialTheme.colorScheme.error)
+                            }
+                        )
+                    }),
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = enabled, onCheckedChange = { enabled = it })
-                    Spacer(Modifier.width(8.dp))
-                    Text(uiResources.getString(R.string.memoh_ui_enabled))
-                }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onSave(name, clientType, baseUrl, apiKey, enabled) },
-                enabled = name.isNotBlank() && (existing != null || clientType.isNotBlank()),
-            ) { Text(uiResources.getString(R.string.memoh_ui_save)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
-    )
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_actions),
+                items = listOf({
+                    SettingsItem(
+                        headlineContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (saving) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(uiResources.getString(R.string.memoh_ui_save))
+                            }
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 56.dp)
+                            .clickable(enabled = !saving && name.isNotBlank() &&
+                                (existing != null || clientType.isNotBlank())) {
+                                onSave(name, clientType, baseUrl, apiKey)
+                            },
+                    )
+                }),
+            )
+        }
+    }
+}
+
+/** A settings row that is a text field, keeping the row's own padding instead of a bare dialog. */
+@Composable
+private fun FieldRow(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    enabled: Boolean = true,
+    secret: Boolean = false,
+) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            singleLine = true,
+            enabled = enabled,
+            visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 /** Token usage: the web shows a per-day stack; a phone shows the same numbers as rows. */
@@ -381,10 +718,10 @@ private fun MemohProviderEditor(
 internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
     val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
-    val admin = remember(viewModel.api) { MemohAdminApi(viewModel.api) }
     var days by remember { mutableStateOf<List<MemohTokenUsageDay>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf("") }
+    val scrollState = rememberSettingsScrollState()
 
     suspend fun reload() {
         loading = true
@@ -408,13 +745,19 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
 
     LaunchedEffect(viewModel.bot?.id) { reload() }
 
-    CollapsingSettingsScaffold(title = uiResources.getString(R.string.memoh_ui_usage), onBack = onBack) {
+    CollapsingSettingsScaffold(
+        title = uiResources.getString(R.string.memoh_ui_usage),
+        onBack = onBack,
+        scrollState = scrollState,
+    ) {
         SettingsGroupColumn {
             SettingsGroup(
                 title = uiResources.getString(R.string.memoh_ui_bot_usage),
                 items = listOf({
                     SettingsItem(
-                        headlineContent = { Text(viewModel.bot?.title ?: uiResources.getString(R.string.memoh_settings_no_bots)) },
+                        headlineContent = {
+                            Text(viewModel.bot?.title ?: uiResources.getString(R.string.memoh_settings_no_bots))
+                        },
                         supportingContent = {
                             Text(
                                 if (loading) uiResources.getString(R.string.memoh_ui_loading)

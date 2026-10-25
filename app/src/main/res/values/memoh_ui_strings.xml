@@ -611,4 +611,15 @@
     <string name="memoh_ui_confirm_password">Confirm new password</string>
     <string name="memoh_ui_password_too_short">At least 8 characters</string>
     <string name="memoh_ui_password_mismatch">Passwords do not match</string>
+    <string name="memoh_ui_not_configured">Not configured</string>
+    <string name="memoh_ui_connection">Connection</string>
+    <string name="memoh_ui_key_configured">API key saved</string>
+    <string name="memoh_ui_test_connection">Test connection</string>
+    <string name="memoh_ui_test_connection_desc">Send a test request to this provider</string>
+    <string name="memoh_ui_provider_actions">Provider actions</string>
+    <string name="memoh_ui_remove_provider_desc">Models under it stop working</string>
+    <string name="memoh_ui_actions">Actions</string>
+    <string name="memoh_ui_enable">Enable</string>
+    <string name="memoh_ui_disable">Disable</string>
+    <string name="memoh_ui_options">Options</string>
 </resources>
