@@ -1,24 +1,11 @@
 package com.newoether.agora.memoh
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,107 +13,108 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import com.newoether.agora.ui.settings.GuardedAnimatedContent
+import com.newoether.agora.ui.settings.LocalSettingsScrollRetention
 import com.newoether.agora.ui.settings.SettingsAppearancePage
-import com.newoether.agora.ui.settings.SettingsGroup
-import com.newoether.agora.ui.settings.SettingsGroupColumn
-import com.newoether.agora.ui.settings.SettingsItem
-import android.widget.Toast.LENGTH_SHORT
+import com.newoether.agora.ui.settings.SettingsCategoryHome
+import com.newoether.agora.ui.settings.SettingsScrollRetention
+import com.newoether.agora.ui.settings.SettingsTwoPaneMinWidth
+import com.newoether.agora.ui.settings.rememberSettingsLazyListState
 
+/**
+ * Memoh's settings, rendered through Agora's own settings shell.
+ *
+ * The category home, collapsing large title, page transitions, scroll retention and the
+ * two-pane split on wide screens are all shared. Only the page bodies that Memoh can actually
+ * back with data are new; `SettingsAppearancePage` is reused verbatim because it reads the same
+ * `SettingsRepository` Memoh already owns.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MemohSettingsHost(
     viewModel: MemohViewModel,
     onDismiss: () -> Unit,
+    onOpenBotSettings: () -> Unit,
 ) {
-    var showAppearance by rememberSaveable { mutableStateOf(false) }
+    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    val scrollRetention = remember { SettingsScrollRetention() }
+    val homeListState = rememberSettingsLazyListState()
+    // Settings pages have no snackbar host of their own; a short toast is what Agora's own
+    // appearance page expects to receive from this callback.
     val context = LocalContext.current
-    val showNotice: (String) -> Unit = remember(context) {
-        { message -> Toast.makeText(context, message, LENGTH_SHORT).show() }
+    val notify: (String) -> Unit = remember(context) {
+        { message -> android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show() }
     }
 
-    if (showAppearance) {
-        BackHandler { showAppearance = false }
-        SettingsAppearancePage(
-            settings = viewModel.settings,
-            onSnackbar = showNotice,
-            onBack = { showAppearance = false },
-        )
-        return
+    BackHandler {
+        if (selected == null) onDismiss() else selected = null
     }
 
-    BackHandler(onBack = onDismiss)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close settings")
+    CompositionLocalProvider(LocalSettingsScrollRetention provides scrollRetention) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            // Exactly Agora's breakpoint: below it a pushed page replaces the home list, above it
+            // the home list stays visible beside the page.
+            val twoPane = maxWidth >= SettingsTwoPaneMinWidth
+            if (twoPane) {
+                MemohSettingsTwoPane(
+                    viewModel = viewModel,
+                    selected = selected ?: MemohSettingsCategory.SERVER,
+                    onSelected = { selected = it },
+                    onBack = onDismiss,
+                    homeListState = homeListState,
+                    onOpenBotSettings = onOpenBotSettings,
+                    onNotice = notify,
+                )
+            } else {
+                GuardedAnimatedContent(
+                    targetState = selected,
+                    forward = selected != null,
+                ) { category ->
+                    if (category == null) {
+                        SettingsCategoryHome(
+                            settingsGroups = memohSettingsGroups,
+                            listState = homeListState,
+                            onBack = onDismiss,
+                            onCategorySelected = { selected = it },
+                        )
+                    } else {
+                        MemohSettingsPage(
+                            category = category,
+                            viewModel = viewModel,
+                            onBack = { selected = null },
+                            onOpenBotSettings = onOpenBotSettings,
+                            onNotice = notify,
+                        )
                     }
-                },
-            )
-        },
-    ) { insets ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(insets)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            SettingsGroupColumn {
-                SettingsGroup(
-                    title = "Personalization",
-                    items = listOf({
-                        SettingsItem(
-                            modifier = Modifier.clickable { showAppearance = true },
-                            headlineContent = { Text("Appearance") },
-                            supportingContent = { Text("Theme, color, fonts and chat display") },
-                            leadingContent = {
-                                Icon(Icons.Default.Palette, contentDescription = null)
-                            },
-                        )
-                    }),
-                )
-                SettingsGroup(
-                    title = "Memoh connection",
-                    items = listOf(
-                        {
-                            SettingsItem(
-                                headlineContent = { Text("Server") },
-                                supportingContent = { Text(viewModel.api.authUrl) },
-                            )
-                        },
-                        {
-                            SettingsItem(
-                                headlineContent = { Text("Team") },
-                                supportingContent = { Text(viewModel.teams.current?.title ?: "—") },
-                            )
-                        },
-                        {
-                            SettingsItem(
-                                headlineContent = { Text("Bot") },
-                                supportingContent = { Text(viewModel.bot?.title ?: "—") },
-                            )
-                        },
-                    ),
-                )
-                SettingsGroup(
-                    title = "Account",
-                    items = listOf({
-                        SettingsItem(
-                            modifier = Modifier.clickable {
-                                viewModel.logout()
-                                onDismiss()
-                            },
-                            headlineContent = {
-                                Text("Sign out", color = MaterialTheme.colorScheme.error)
-                            },
-                        )
-                    }),
-                )
+                }
             }
         }
+    }
+}
+
+@Composable
+internal fun MemohSettingsPage(
+    category: String,
+    viewModel: MemohViewModel,
+    onBack: () -> Unit,
+    onOpenBotSettings: () -> Unit,
+    onNotice: (String) -> Unit = {},
+) {
+    when (category) {
+        MemohSettingsCategory.APPEARANCE -> SettingsAppearancePage(
+            settings = viewModel.settings,
+            onSnackbar = onNotice,
+            onBack = onBack,
+        )
+        MemohSettingsCategory.LANGUAGE -> MemohLanguagePage(
+            settings = viewModel.settings,
+            onBack = onBack,
+            onRestartNeeded = viewModel::requestAppLanguageRestart,
+        )
+        MemohSettingsCategory.ACCOUNT -> MemohAccountSettingsPage(viewModel, onBack)
+        MemohSettingsCategory.CHAT -> MemohChatBehaviorSettingsPage(viewModel, onBack)
+        MemohSettingsCategory.BOT -> MemohBotSettingsPage(viewModel, onBack, onOpenBotSettings)
+        MemohSettingsCategory.DIAGNOSTICS -> MemohDiagnosticsPage(viewModel, onBack, onNotice)
+        else -> MemohServerSettingsPage(viewModel, onBack)
     }
 }

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="memoh_settings_group_connection">连接</string>
+    <string name="memoh_settings_group_appearance">外观与语言</string>
+    <string name="memoh_settings_group_responses">对话</string>
+
+    <string name="memoh_settings_server">服务器与团队</string>
+    <string name="memoh_settings_server_desc">地址、团队、Bot 与实时连接状态</string>
+    <string name="memoh_settings_account">账号</string>
+    <string name="memoh_settings_account_desc">登录身份与会话控制</string>
+    <string name="memoh_settings_chat">对话行为</string>
+    <string name="memoh_settings_chat_desc">发送、历史与滚动偏好</string>
+    <string name="memoh_settings_bot">Bot</string>
+    <string name="memoh_settings_bot_desc">Agent、渠道、工具、运行时与备份</string>
+    <string name="memoh_settings_diagnostics">诊断</string>
+    <string name="memoh_settings_diagnostics_desc">版本、地址与连接健康</string>
+
+    <string name="memoh_settings_endpoint">服务器地址</string>
+    <string name="memoh_settings_endpoint_desc">当前应用连接的基础地址</string>
+    <string name="memoh_settings_connection_state">连接状态</string>
+    <string name="memoh_settings_connection_state_desc">当前会话的实时连接</string>
+    <string name="memoh_settings_team">团队</string>
+    <string name="memoh_settings_team_desc">Bot 与历史记录所属的工作区</string>
+    <string name="memoh_settings_choose_team">选择团队</string>
+    <string name="memoh_settings_refresh_team">刷新团队</string>
+    <string name="memoh_settings_bot_current">当前 Bot</string>
+    <string name="memoh_settings_bot_current_desc">会话、文件与定时任务都属于这个 Bot</string>
+    <string name="memoh_settings_switch_bot">切换 Bot</string>
+    <string name="memoh_settings_no_bots">没有可访问的 Bot</string>
+    <string name="memoh_settings_sign_in_identity">已登录</string>
+    <string name="memoh_settings_sign_in_identity_desc">凭据只保存在这台设备上</string>
+    <string name="memoh_settings_sign_out">退出登录</string>
+    <string name="memoh_settings_sign_out_desc">清除已保存的令牌并返回登录页</string>
+    <string name="memoh_settings_sign_out_confirm_title">退出登录？</string>
+    <string name="memoh_settings_sign_out_confirm_message">这台设备保存的会话会被移除，对话仍保留在 Memoh 服务器上。</string>
+    <string name="memoh_settings_stick_to_bottom_desc">只在你已经位于底部时跟随新输出</string>
+    <string name="memoh_settings_haptics">触感反馈</string>
+    <string name="memoh_settings_haptics_desc">发送、停止与拒绝时的振动</string>
+    <string name="memoh_settings_reduce_motion">减弱动效</string>
+    <string name="memoh_settings_reduce_motion_desc">关闭大幅转场与持续背景动效</string>
+    <string name="memoh_settings_blur_effects">模糊效果</string>
+    <string name="memoh_settings_blur_effects_desc">模糊对话边缘与背景光晕</string>
+    <string name="memoh_settings_version">版本</string>
+    <string name="memoh_settings_package">包名</string>
+    <string name="memoh_settings_endpoint_auth">登录接口</string>
+    <string name="memoh_settings_cookie_session">Cookie 会话</string>
+    <string name="memoh_settings_enabled">已启用</string>
+    <string name="memoh_settings_disabled">已禁用</string>
+    <string name="memoh_settings_history_state">已加载历史</string>
+    <string name="memoh_settings_history_state_desc">服务器上是否还有更早的分页</string>
+    <string name="memoh_settings_older_available">还有更早的分页</string>
+    <string name="memoh_settings_history_complete">历史已全部加载</string>
+    <string name="memoh_settings_copy_diagnostics">复制诊断信息</string>
+    <string name="memoh_settings_copied">诊断信息已复制</string>
+</resources>

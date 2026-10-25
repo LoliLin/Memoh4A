@@ -125,6 +125,15 @@ The 8 unwired operations and why:
 - Two shared drawer source-contract tests still read `ChatDrawerContent.kt` for the selection crossfade and title crossfade that earlier work moved into `AgoraDrawerConversationRow.kt`; the assertions now target the shared row, with no product-code change.
 - No Android device was connected during the environment check; device/IME feel and authenticated server behavior remain unverified.
 
+## Settings shell rewrite (2026-10-25)
+
+- Memoh's settings is no longer a one-off `Scaffold` with three read-only rows. It now renders through Agora's own settings shell: `SettingsCategoryHome` for the grouped home, `CollapsingSettingsLazyScaffold`/`CollapsingSettingsScaffold` for per-page collapsing large titles, `GuardedAnimatedContent` for push/pop between home and page, `SettingsScrollRetention` for scroll memory, and Agora's 840 dp two-pane split above that width (`MemohSettingsTwoPane` mirrors `SettingsTwoPaneScreen` geometry because that function hard-wires `SettingsDestination`/`ChatViewModel`).
+- Categories are limited to pages this build can back with data: Connection (endpoint, live socket state, team picker, bot picker), Account (identity + confirmed sign-out), Appearance (Agora's `SettingsAppearancePage` reused verbatim), Language (same `appLanguage` preference with a real activity recreate), Chat behavior (stick-to-bottom, haptics, reduce motion, blur, tool-call display mode), Bot (hands off to the existing detailed Bot sheet), and Diagnostics (version, package, auth endpoint, cookie session, history paging state, plus a copyable report).
+- The copied diagnostics report is deliberately token-free; a unit test fails if it ever contains `token`, `Bearer`, `cookie=`, `jwt` or `password`.
+- Memoh-specific strings live in `values/memoh_settings_strings.xml` and `values-zh/memoh_settings_strings.xml` only; the shared `settings_strings.xml` and its thirteen translations are untouched. Every new key is referenced (verified by a source scan) and the English/Chinese key sets are identical.
+- `:app:testDebugUnitTest` for all Memoh suites plus the two shared drawer contract suites: **167 tests, 0 failures, 0 errors**; `:app:assembleDebug` succeeded. Debug APK: 70,623,999 bytes, SHA-256 `EA0BFB02792D2F441602AE2BE19D4E9A3944B5C6EB9CBEDCEC2808AC6A6FAE87`, APK Signature Scheme v2 verification passed.
+- Not verified: no device or emulator was connected, so the collapsing title feel, the two-pane split on a real tablet, and the language-recreate flow still need on-device review. Authenticated server behaviour (team switching, bot switching) inside settings was not exercised against a live Memoh server.
+
 ## Gaps before daily use
 
 - Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.
