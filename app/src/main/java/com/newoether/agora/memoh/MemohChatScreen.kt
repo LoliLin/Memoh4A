@@ -5,21 +5,25 @@ import android.net.Uri
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.ui.platform.LocalDensity
@@ -59,6 +63,8 @@ import com.newoether.agora.model.StableMessageList
 import com.newoether.agora.ui.chat.ChatDrawerHost
 import com.newoether.agora.ui.chat.ChatTopBar
 import com.newoether.agora.ui.chat.MessageList
+import com.newoether.agora.ui.chat.rememberChatScrollCoordinator
+import com.newoether.agora.ui.chat.streamingTailAvailability
 import com.newoether.agora.ui.chat.rememberConversationInteractionState
 import com.newoether.agora.ui.chat.bottombar.ChatComposerLayout
 import com.newoether.agora.ui.chat.bottombar.ChatComposerSurface
@@ -97,6 +103,20 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     val haptics = LocalAgoraHaptics.current
     val context = LocalContext.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val density = LocalDensity.current
+    val currentSessionId = vm.session?.id
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val imeBottomPx = with(density) { imeBottom.roundToPx() }
+    val scrollCoordinator = rememberChatScrollCoordinator(currentSessionId, imeBottomPx)
+    scrollCoordinator.BindLayoutObservation(
+        currentConversationId = currentSessionId,
+        loadedMessagesConversationId = vm.loadedHistorySessionId,
+        imeBottomPx = imeBottomPx,
+        density = density,
+    )
+    val listState = scrollCoordinator.listState
+    val messageHeights = scrollCoordinator.messageHeights
+    val viewportHeightPx = scrollCoordinator.viewportHeightPx
 
     var botMenu by remember { mutableStateOf(false) }
     var accountMenu by remember { mutableStateOf(false) }
@@ -127,10 +147,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     }
     var expanded by remember { mutableStateOf(false) }
     var barHeightPx by remember { mutableStateOf(0f) }
-    var viewportHeightPx by remember { mutableStateOf(0) }
     // Shared-list state caches the MessageList writes back into (search geometry, thinking
     // expansion). Both reset per conversation like ChatApp does, keeping scroll anchors stable.
-    val messageHeights = remember(vm.session?.id) { androidx.compose.runtime.snapshots.SnapshotStateMap<String, Int>() }
     val thoughtExpandedStates = remember(vm.session?.id) { androidx.compose.runtime.snapshots.SnapshotStateMap<String, Boolean>() }
     var mediaViewer by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
     var filePreview by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -138,7 +156,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
 
     val field = remember(vm.bot?.id, vm.session?.id) { TextFieldState() }
     val focus = remember { FocusRequester() }
-    val listState = rememberLazyListState()
     var autoScrolledSessionId by remember { mutableStateOf<String?>(null) }
     val backupScope = rememberCoroutineScope()
 
@@ -204,10 +221,23 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     // top bar search UI, scroll-to-match. Memoh history is the message source.
     val messagesState = remember { mutableStateOf(messages) }
     messagesState.value = messages
+    scrollCoordinator.BindImeEffects(
+        currentConversationId = currentSessionId,
+        messages = messagesState,
+        density = density,
+        bottomBarHeight = with(density) { barHeightPx.toDp() },
+        shareSelectionBarSpace = 0.dp,
+        imeBottomPx = imeBottomPx,
+    )
     val conversationInteraction = rememberConversationInteractionState(
-        currentConversationId = vm.session?.id,
+        currentConversationId = currentSessionId,
         messages = messagesState,
         listState = listState,
+    )
+    val streamingFollowAvailability = streamingTailAvailability(
+        generationActive = vm.running,
+        blocked = conversationInteraction.searchActive || !motion.allowProgrammaticScrollMotion,
+        programmaticHandoff = scrollCoordinator.imeBottomAnchorState.active,
     )
 
     LaunchedEffect(vm.session?.id, messages.lastOrNull()?.id, stickToBottom) {
@@ -371,7 +401,9 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     }
                 },
             ) { _ ->
-                Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier.fillMaxSize().onSizeChanged { scrollCoordinator.recordViewportHeight(it.height) },
+                ) {
                     when {
                         vm.bot == null -> MemohNotice("No accessible bots yet")
                         // New-chat welcome: Agora's typewriter headline vertically centered
@@ -384,6 +416,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                         )
                         else -> MessageList(
                             messages = stable,
+                            authoritativeMessages = stable,
+                            allMessages = stable,
                             conversationId = vm.session?.id,
                             state = listState,
                             messageActionsEnabled = !vm.running,
@@ -395,7 +429,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             parseInlineDollarMath = parseInlineDollarMath,
                             autoWrapCodeBlocks = autoWrapCodeBlocks,
                             streamingMessage = streamingMessage,
-                            streamingAutoFollowEnabled = vm.running,
+                            streamingAutoFollowEnabled = streamingFollowAvailability.enabled && stickToBottom,
+                            streamingAutoFollowPaused = streamingFollowAvailability.paused,
+                            streamingTailWithinAttachThreshold = scrollCoordinator.isWithinAbsoluteBottomAttachThreshold,
+                            streamingTailController = scrollCoordinator.streamingTailController,
+                            lifecycleAppearanceRegistry = scrollCoordinator.messageLifecycleAppearanceRegistry,
                             bottomBarHeight = with(LocalDensity.current) { barHeightPx.toDp() },
                             viewportHeight = viewportHeightPx,
                             messageHeights = messageHeights,
@@ -403,14 +441,16 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             onSearchMatchDistance = conversationInteraction::recordSearchMatchDistance,
                             onSearchTurnsChanged = conversationInteraction::recordSearchTurns,
                             modifier = Modifier
-                                .fillMaxSize()
+                                .align(Alignment.Center)
+                                .fillMaxHeight()
+                                .widthIn(max = 840.dp)
+                                .fillMaxWidth()
                                 .gradientBlur(
                                     blurAtTopDp = if (blurEffectsEnabled) 8f else 0f,
                                     blurAtBottomDp = 0f,
                                     fadeHeightDp = 40f,
                                     bottomOverlayHeight = with(LocalDensity.current) { barHeightPx.toDp() } + 12.dp,
-                                )
-                                .onSizeChanged { viewportHeightPx = it.height },
+                                ),
                             onEditMessage = { messageId, newText ->
                                 vm.turns.firstOrNull { memohMessageId(it, 0) == messageId || it.turnId == messageId }
                                     ?.takeIf { it.role == "user" && it.turnId.isNotBlank() }
@@ -466,6 +506,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             }
 
             ChatComposerSurface(
+                contentMaxWidth = 840.dp,
                 isExpanded = expanded,
                 onBarHeightChanged = { barHeightPx = it },
                 modifier = Modifier.align(Alignment.BottomCenter),
@@ -473,7 +514,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                 ChatComposerLayout(
                     textFieldState = field,
                     focusRequester = focus,
-                    onInputFocusChanged = {},
+                    onInputFocusChanged = scrollCoordinator::setComposerInputFocused,
                     isExpanded = expanded,
                     isExpandAnimating = false,
                     onExpand = { expanded = true },
