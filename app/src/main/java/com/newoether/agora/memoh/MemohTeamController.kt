@@ -15,6 +15,15 @@ internal data class MemohTeam(val id: String, val name: String, val slug: String
 
 /** Platform discovery is deliberately unscoped; business and ticket calls require a team. */
 internal suspend fun MemohApi.platformProfile(): JSONObject = authRequest("/users/me")
+
+/** Display identity for the account page lives in platform user_profile (avatar included). */
+internal fun platformDisplayName(profile: JSONObject): String =
+    profile.optJSONObject("user_profile")?.optString("display_name").orEmpty()
+        .ifBlank { profile.optJSONObject("user")?.optString("username").orEmpty() }
+
+internal fun platformAvatarUrl(profile: JSONObject): String =
+    profile.optJSONObject("user_profile")?.optString("avatar_url").orEmpty()
+
 internal fun platformUserId(profile: JSONObject): String {
     val user = profile.optJSONObject("user")
     return profile.optString("id").ifBlank { profile.optString("user_id") }

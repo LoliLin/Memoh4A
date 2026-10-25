@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -74,7 +77,7 @@ import com.newoether.agora.util.verticalEdgeFade
 
 /** Account menu actions that the top bar's overflow surfaces. */
 internal enum class MemohAccountAction {
-    Search, BotSettings, Files, Schedules, Terminal, Queue, RuntimeControls, Compact, Rename, Delete,
+    Search, BotSettings, Files, Schedules, Terminal, Market, Queue, RuntimeControls, Compact, Rename, Delete, ManageBots,
 }
 
 /** Memoh's server-backed drawer using Agora's shared shell and conversation row. */
@@ -143,6 +146,7 @@ internal fun MemohDrawerContent(
                 .imePadding()
                 .padding(horizontal = 16.dp, vertical = 20.dp),
         ) {
+            MemohDrawerBotRow(vm)
             if (vm.teams.enabled) MemohTeamPicker(vm.teams)
             Spacer(Modifier.height(12.dp))
 
@@ -237,9 +241,16 @@ internal fun MemohDrawerContent(
                 modifier = Modifier.fillMaxWidth().height(42.dp),
                 shape = CircleShape,
             ) {
-                Icon(androidx.compose.material.icons.Icons.Default.Settings, null, modifier = Modifier.size(20.dp))
+                if (vm.profileAvatarUrl.isNotBlank()) {
+                    MemohAvatarImage(vm.profileAvatarUrl, null, Modifier.size(22.dp).clip(CircleShape))
+                } else {
+                    Icon(androidx.compose.material.icons.Icons.Default.Settings, null, modifier = Modifier.size(20.dp))
+                }
                 Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.settings), style = ChatType.drawerButton)
+                Text(
+                    vm.profileDisplayName.ifBlank { stringResource(R.string.settings) },
+                    style = ChatType.drawerButton,
+                )
             }
         }
     }
@@ -302,14 +313,20 @@ internal fun MemohAccountMenu(
     val sectionModifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
     val sectionColor = MaterialTheme.colorScheme.onSurfaceVariant
 
-    if (vm.bots.size > 1) {
+    if (vm.bots.isNotEmpty()) {
         Text("BOTS", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
         vm.bots.forEach { option ->
             AgoraDropdownMenuItem(
                 text = { Text(if (option.id == vm.bot?.id) "● ${option.title}" else option.title) },
+                leadingIcon = { MemohBotAvatar(option, size = 22.dp) },
                 onClick = { dismiss(); vm.selectBot(option) },
             )
         }
+        AgoraDropdownMenuItem(
+            text = { Text(uiResources.getString(R.string.memoh_ui_manage_bots)) },
+            leadingIcon = { Icon(Icons.Default.Settings, null) },
+            onClick = { dismiss(); onAction(MemohAccountAction.ManageBots) },
+        )
         androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
     }
 
@@ -329,6 +346,11 @@ internal fun MemohAccountMenu(
             text = { Text(uiResources.getString(R.string.memoh_ui_terminal)) },
             leadingIcon = { Icon(Icons.Default.Code, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Terminal) },
+        )
+        AgoraDropdownMenuItem(
+            text = { Text(uiResources.getString(R.string.memoh_ui_market)) },
+            leadingIcon = { Icon(Icons.Default.ShoppingBag, null) },
+            onClick = { dismiss(); onAction(MemohAccountAction.Market) },
         )
         AgoraDropdownMenuItem(
             text = { Text(uiResources.getString(R.string.memoh_ui_schedules)) },
@@ -484,5 +506,19 @@ internal fun MemohDialogs(
             },
             dismissButton = { TextButton(onClick = onDeleteDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
+    }
+}
+
+/** The drawer's bot identity: same avatar + name pair the web sidebar shows. */
+@Composable
+private fun MemohDrawerBotRow(vm: MemohViewModel) {
+    val bot = vm.bot ?: return
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MemohBotAvatar(bot, size = 26.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(bot.title, style = ChatType.drawerButton, maxLines = 1)
     }
 }

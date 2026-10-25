@@ -3,33 +3,31 @@ package com.newoether.agora.memoh
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Bounds first acknowledgement even while offline; timeout does not prove server rejection. */
+/** Each outstanding invocation has its own deadline; navigation never cancels another chat's send. */
 internal fun MemohViewModel.armAdmissionTimeout(invocation: String, draft: String) {
-    admissionTimeoutJob?.cancel()
-    admissionTimeoutJob = navigationScope.launch {
+    admissionTimeoutJobs.remove(invocation)?.cancel()
+    admissionTimeoutJobs[invocation] = navigationScope.launch {
         delay(ADMISSION_TIMEOUT_MS)
-        if (admissionInvocations.remove(invocation) != null) {
-            // A mutation has no optimistic pending draft to restore; only plain sends do.
-            if (pendingUserText != null && pendingUserText == draft) restorePendingDraft()
-            // An unanswered retry/edit may still have been applied, but showing rows the server
-            // could have deleted is worse than showing them again after the next snapshot.
-            restoreHistoryMutation(invocation)
-            error = if (pendingUserText != null || draft.isEmpty()) {
-                "The server has not acknowledged this message within " +
-                    "${ADMISSION_TIMEOUT_MS / 1000} seconds. The draft was restored. " +
-                    "It may still have been accepted; check the conversation before sending again."
-            } else {
-                "The server has not acknowledged this edit within " +
-                    "${ADMISSION_TIMEOUT_MS / 1000} seconds. " +
+        if (admissionInvocations.containsKey(invocation)) {
+            val mutation = admissionInvocations[invocation]?.optString("type") != "message"
+            val message = if (mutation) {
+                "The server has not acknowledged this edit within ${ADMISSION_TIMEOUT_MS / 1000} seconds. " +
                     "It may still have been applied; check the conversation before retrying."
+            } else {
+                "The server has not acknowledged this message within ${ADMISSION_TIMEOUT_MS / 1000} seconds. " +
+                    "The draft was restored. It may still have been accepted; check the conversation before sending again."
             }
+            failAdmission(invocation, message)
         }
     }
 }
 
-internal fun MemohViewModel.cancelAdmissionTimeout() {
-    admissionTimeoutJob?.cancel()
-    admissionTimeoutJob = null
+internal fun MemohViewModel.cancelAdmissionTimeout(invocation: String? = null) {
+    if (invocation != null) admissionTimeoutJobs.remove(invocation)?.cancel()
+    else {
+        admissionTimeoutJobs.values.toList().forEach { it.cancel() }
+        admissionTimeoutJobs.clear()
+    }
 }
 
 /** Records the server turn_id that confirms the optimistic user turn. */

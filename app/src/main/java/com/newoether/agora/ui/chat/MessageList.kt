@@ -138,6 +138,8 @@ internal fun MessageList(
     segmentAppearanceRegistry: SegmentAppearanceRegistry =
         remember { SegmentAppearanceRegistry() },
     lifecycleEntranceTargetMessageId: String? = null,
+    messageHeader: (@Composable (ChatMessage) -> Unit)? = null,
+    messageFooter: (@Composable (ChatMessage) -> Unit)? = null,
     leadingContentLayer: (@Composable androidx.compose.foundation.layout.BoxScope.() -> Unit)? = null,
 ) {
     val motionPolicy = LocalAgoraMotionPolicy.current
@@ -526,6 +528,8 @@ internal fun MessageList(
         val deleteTargetMessageId = presentation?.deleteTargetMessageId ?: message.id
         MessageItem(
             message = message,
+            messageHeader = messageHeader,
+            messageFooter = messageFooter,
             outerPadding = pageSpacing[messageStub.id]?.let { PaddingValues(bottom = it.dp) } ?: PaddingValues(vertical = 8.dp),
             includeAssistantOuterSpacing = messageStub.displayPageId == null,
             segmentAppearanceRegistry = segmentAppearanceRegistry,

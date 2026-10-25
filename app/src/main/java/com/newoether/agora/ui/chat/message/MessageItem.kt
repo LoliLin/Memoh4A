@@ -150,6 +150,8 @@ internal fun MessageItem(
     onFileContentClick: ((fileName: String, content: String) -> Unit)? = null,
     onPdfPagesClick: ((pages: List<String>, startIndex: Int) -> Unit)? = null,
     onSegmentDetailRequest: (String, List<Int>, Boolean) -> Unit = { _, _, _ -> },
+    messageHeader: (@Composable (ChatMessage) -> Unit)? = null,
+    messageFooter: (@Composable (ChatMessage) -> Unit)? = null,
     onHeightChanged: (Int) -> Unit = {},
     searchQuery: String = "",
     activeSearchMatch: ConversationSearchMatch? = null,
@@ -351,6 +353,7 @@ internal fun MessageItem(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = alignment,
             ) {
+                messageHeader?.invoke(displayMessage)
                 val contextAlphaValue by animateFloatAsState(
                     targetValue = if (visualizeContextRollout && !isInContext) 0.38f else 1f,
                     animationSpec = tween(durationMillis = 240),
@@ -450,6 +453,7 @@ internal fun MessageItem(
                         setThoughtBlockHeight = {},
                     )
                 }
+                messageFooter?.invoke(displayMessage)
             }
             if (selectionMode) {
                 Box(

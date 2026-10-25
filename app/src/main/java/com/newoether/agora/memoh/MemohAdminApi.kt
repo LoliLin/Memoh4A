@@ -191,7 +191,29 @@ internal class MemohAdminApi(parent: MemohTransport? = null) : MemohTransport(pa
 
     // ---- Supermarket (skill apps marketplace) ----
 
-    suspend fun supermarketApps(): JSONObject = request("/supermarket/apps")
+    suspend fun supermarketApps(query: String = "", registry: String = ""): JSONObject {
+        val params = buildList {
+            if (query.isNotBlank()) add("q=${Uri.encode(query)}")
+            if (registry.isNotBlank()) add("registry=${Uri.encode(registry)}")
+        }
+        return request("/supermarket/apps" + if (params.isEmpty()) "" else "?" + params.joinToString("&"))
+    }
+
+    // ---- Apps installed in one bot workspace ----
+
+    suspend fun installedApps(botId: String, refresh: Boolean = false): JSONObject =
+        request("/bots/${Uri.encode(botId)}/apps" + if (refresh) "?refresh=true" else "")
+
+    suspend fun installApp(botId: String, registryId: String, appId: String, revision: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/apps", JSONObject()
+            .put("registry_id", registryId).put("app_id", appId).put("revision", revision))
+
+    suspend fun removeApp(botId: String, installationId: String) {
+        request("/bots/${Uri.encode(botId)}/apps/${Uri.encode(installationId)}", method = "DELETE")
+    }
+
+    suspend fun checkAppUpdates(botId: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/apps/check-updates", JSONObject(), method = "POST")
 
     suspend fun supermarketSkills(): JSONObject = request("/supermarket/skills")
 

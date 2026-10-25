@@ -403,10 +403,10 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
                         ),
                     ) { Text("Ctrl", fontFamily = FontFamily.Monospace, fontSize = 13.sp) }
                     TerminalKeyButton("Tab") { sendTerminalKey(webViewRef.get(), "Tab") }
-                    TerminalKeyButton("←") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_left)) }
-                    TerminalKeyButton("↓") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_down)) }
-                    TerminalKeyButton("↑") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_up)) }
-                    TerminalKeyButton("→") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_right)) }
+                    TerminalKeyButton("←") { sendTerminalKey(webViewRef.get(), "Left") }
+                    TerminalKeyButton("↓") { sendTerminalKey(webViewRef.get(), "Down") }
+                    TerminalKeyButton("↑") { sendTerminalKey(webViewRef.get(), "Up") }
+                    TerminalKeyButton("→") { sendTerminalKey(webViewRef.get(), "Right") }
                     Box {
                         TerminalKeyButton("···") { moreKeysExpanded = true }
                         DropdownMenu(expanded = moreKeysExpanded, onDismissRequest = { moreKeysExpanded = false }) {
@@ -416,9 +416,13 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
                                     onClick = { moreKeysExpanded = false; sendTerminalKey(webViewRef.get(), "F$index") },
                                 )
                             }
-                            listOf("Home", "End", uiResources.getString(R.string.memoh_ui_page_up), uiResources.getString(R.string.memoh_ui_page_down), uiResources.getString(R.string.memoh_ui_delete), "~", "|", "/", "-").forEach { key ->
+                            listOf("Home" to "Home", "End" to "End",
+                                "Page up" to uiResources.getString(R.string.memoh_ui_page_up),
+                                "Page down" to uiResources.getString(R.string.memoh_ui_page_down),
+                                "Delete" to uiResources.getString(R.string.memoh_ui_delete),
+                                "~" to "~", "|" to "|", "/" to "/", "-" to "-").forEach { (key, label) ->
                                 DropdownMenuItem(
-                                    text = { Text(key, fontFamily = FontFamily.Monospace) },
+                                    text = { Text(label, fontFamily = FontFamily.Monospace) },
                                     onClick = { moreKeysExpanded = false; sendTerminalKey(webViewRef.get(), key) },
                                 )
                             }

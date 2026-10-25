@@ -29,6 +29,7 @@ internal open class MemohTransport(private val parent: MemohTransport? = null) {
     }
 
     internal class Identity(val endpoints: MemohEndpoints, var bearer: String) {
+        val mediaCacheKey = java.util.UUID.randomUUID().toString()
         val cookies = MemohCookieJar(cookiePrefs, origin = endpoints.origin.toHttpUrl())
         @Volatile var cookieAuthenticated = false
         lateinit var client: OkHttpClient
