@@ -321,7 +321,10 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     vm.selectSession(session)
                     deleteDialog = true
                 },
-                onOpenSettings = { settingsOpen = true },
+                onOpenSettings = {
+                    settingsOpen = true
+                    scope.launch { closeFromContent() }
+                },
             )
         },
     ) {
