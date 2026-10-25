@@ -873,7 +873,13 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         visible = settingsOpen,
         onDismiss = { settingsOpen = false },
     ) {
-        MemohSettingsHost(vm) { settingsOpen = false }
+        MemohSettingsHost(
+            viewModel = vm,
+            onDismiss = { settingsOpen = false },
+            // The Bot page hands off to the existing detailed sheet, so every field keeps one
+            // implementation instead of a second copy inside settings.
+            onOpenBotSettings = { settingsOpen = false; backupStatus = ""; botSettingsOpen = true },
+        )
     }
 
     MemohDialogs(

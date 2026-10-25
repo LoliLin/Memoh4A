@@ -576,6 +576,33 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     fun dismissError() { error = "" }
 
+    // ---- Settings surface ----------------------------------------------------------------
+    // Settings pages read and change state here rather than reaching into internal fields, so a
+    // page never has to know how a preference is persisted.
+
+    /** True when the interface language changed and the activity must be recreated to apply it. */
+    internal var languageRestartPending by mutableStateOf(false)
+        private set
+
+    fun requestAppLanguageRestart() { languageRestartPending = true }
+
+    fun consumeAppLanguageRestart() { languageRestartPending = false }
+
+    /** Opens the assistant picker from Settings without leaving the drawer's selection path. */
+    fun switchBotFromSettings(value: MemohBot) {
+        if (value.id == bot?.id) return
+        selectBot(value)
+    }
+
+    /** One-line health summary used by both the settings home rows and diagnostics. */
+    internal fun connectionSummary(): String = when (connection.state) {
+        MemohConnectionState.Connected -> "Connected"
+        MemohConnectionState.Connecting -> "Connecting…"
+        MemohConnectionState.Retrying -> "Reconnecting…"
+        MemohConnectionState.Blocked -> "Connection failed"
+        MemohConnectionState.Idle -> "Disconnected"
+    }
+
     /** Surface a rejected attachment in the send-error banner instead of dropping it. */
     fun reportAttachmentError(message: String) {
         if (message.isNotBlank()) error = message

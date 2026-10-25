@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Memoh settings. Kept separate from settings_strings.xml so the shared Agora catalog
+         and its thirteen translations stay untouched. -->
+    <string name="memoh_settings_group_connection">Connection</string>
+    <string name="memoh_settings_group_appearance">Appearance &amp; Language</string>
+    <string name="memoh_settings_group_responses">Responses</string>
+
+    <string name="memoh_settings_server">Server &amp; team</string>
+    <string name="memoh_settings_server_desc">Endpoint, team, bot and live socket state</string>
+    <string name="memoh_settings_account">Account</string>
+    <string name="memoh_settings_account_desc">Signed-in identity and session control</string>
+    <string name="memoh_settings_chat">Chat behavior</string>
+    <string name="memoh_settings_chat_desc">Sending, history and scroll preferences</string>
+    <string name="memoh_settings_bot">Bot</string>
+    <string name="memoh_settings_bot_desc">Agents, channels, tools, runtime and backup</string>
+    <string name="memoh_settings_diagnostics">Diagnostics</string>
+    <string name="memoh_settings_diagnostics_desc">Build, endpoint and connection health</string>
+
+    <string name="memoh_settings_endpoint">Endpoint</string>
+    <string name="memoh_settings_endpoint_desc">Base URL this app talks to</string>
+    <string name="memoh_settings_connection_state">Connection</string>
+    <string name="memoh_settings_connection_state_desc">Live websocket state for the open chat</string>
+    <string name="memoh_settings_team">Team</string>
+    <string name="memoh_settings_team_desc">Workspace scope for bots and history</string>
+    <string name="memoh_settings_choose_team">Choose team</string>
+    <string name="memoh_settings_refresh_team">Refresh teams</string>
+    <string name="memoh_settings_bot_current">Current bot</string>
+    <string name="memoh_settings_bot_current_desc">Conversations, files and schedules belong to this bot</string>
+    <string name="memoh_settings_switch_bot">Switch bot</string>
+    <string name="memoh_settings_no_bots">No accessible bots</string>
+    <string name="memoh_settings_sign_in_identity">Signed in</string>
+    <string name="memoh_settings_sign_in_identity_desc">Credentials stay on this device</string>
+    <string name="memoh_settings_sign_out">Sign out</string>
+    <string name="memoh_settings_sign_out_desc">Clears the saved token and returns to sign-in</string>
+    <string name="memoh_settings_sign_out_confirm_title">Sign out?</string>
+    <string name="memoh_settings_sign_out_confirm_message">The saved session on this device is removed. Conversations stay on the Memoh server.</string>
+    <string name="memoh_settings_stick_to_bottom_desc">Follow new output only while already at the bottom</string>
+    <string name="memoh_settings_haptics">Haptics</string>
+    <string name="memoh_settings_haptics_desc">Vibration for sends, stops and refusals</string>
+    <string name="memoh_settings_reduce_motion">Reduce motion</string>
+    <string name="memoh_settings_reduce_motion_desc">Disable large transitions and continuous background motion</string>
+    <string name="memoh_settings_blur_effects">Blur effects</string>
+    <string name="memoh_settings_blur_effects_desc">Blur transcript edges and the ambient background</string>
+    <string name="memoh_settings_version">Version</string>
+    <string name="memoh_settings_package">Package</string>
+    <string name="memoh_settings_endpoint_auth">Auth endpoint</string>
+    <string name="memoh_settings_cookie_session">Cookie session</string>
+    <string name="memoh_settings_enabled">Enabled</string>
+    <string name="memoh_settings_disabled">Disabled</string>
+    <string name="memoh_settings_history_state">Loaded history</string>
+    <string name="memoh_settings_history_state_desc">Whether older pages remain on the server</string>
+    <string name="memoh_settings_older_available">Older pages available</string>
+    <string name="memoh_settings_history_complete">Complete history loaded</string>
+    <string name="memoh_settings_copy_diagnostics">Copy diagnostics</string>
+    <string name="memoh_settings_copied">Diagnostics copied</string>
+</resources>
