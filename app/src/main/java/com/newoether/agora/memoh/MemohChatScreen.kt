@@ -125,14 +125,12 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var renameDialog by remember { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
     var filesOpen by remember { mutableStateOf(false) }
-    var memoriesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
     var queueOpen by remember { mutableStateOf(false) }
     var runtimeControlsOpen by remember { mutableStateOf(false) }
     var compactConfirm by remember { mutableStateOf(false) }
     var terminalOpen by remember { mutableStateOf(false) }
-    var botDetailsOpen by remember { mutableStateOf(false) }
-    var backupOpen by remember { mutableStateOf(false) }
+    var botSettingsOpen by remember { mutableStateOf(false) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
     var backupStatus by remember { mutableStateOf("") }
     var pendingBackupSections by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -223,6 +221,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     // top bar search UI, scroll-to-match. Memoh history is the message source.
     val messagesState = remember { mutableStateOf(messages) }
     messagesState.value = messages
+    val searchMessagesById = remember(messages) { messages.associateBy { it.id } }
+    val searchMessageLoader: suspend (String, List<String>) -> List<com.newoether.agora.model.ChatMessage> =
+        remember(searchMessagesById) {
+            { _, ids -> ids.mapNotNull(searchMessagesById::get) }
+        }
     scrollCoordinator.BindImeEffects(
         currentConversationId = currentSessionId,
         messages = messagesState,
@@ -235,6 +238,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         currentConversationId = currentSessionId,
         messages = messagesState,
         listState = listState,
+        searchMessages = searchMessageLoader,
     )
     val streamingFollowAvailability = streamingTailAvailability(
         generationActive = vm.running,
@@ -386,10 +390,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                 focusManager.clearFocus()
                                 conversationInteraction.activateSearch()
                             }
-                            MemohAccountAction.BotDetails -> botDetailsOpen = true
-                            MemohAccountAction.Backup -> { backupStatus = ""; backupOpen = true }
+                            MemohAccountAction.BotSettings -> { backupStatus = ""; botSettingsOpen = true }
                             MemohAccountAction.Files -> filesOpen = true
-                            MemohAccountAction.Memory -> memoriesOpen = true
                             MemohAccountAction.Schedules -> schedulesOpen = true
                             MemohAccountAction.Terminal -> terminalOpen = true
                             MemohAccountAction.Queue -> { queueOpen = true; vm.refreshQueue() }
@@ -753,35 +755,30 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         vm = vm, api = api, context = context,
         renameDialog = renameDialog, newTitle = newTitle,
         deleteDialog = deleteDialog,
-        botDetailsOpen = botDetailsOpen, memoriesOpen = memoriesOpen,
+        botSettingsOpen = botSettingsOpen,
         filesOpen = filesOpen, schedulesOpen = schedulesOpen, queueOpen = queueOpen,
         runtimeControlsOpen = runtimeControlsOpen, compactConfirm = compactConfirm,
-        backupOpen = backupOpen, importUri = importUri, backupStatus = backupStatus,
+        importUri = importUri, backupStatus = backupStatus,
         onRenameDismiss = { renameDialog = false },
         onDeleteDismiss = { deleteDialog = false },
-        onBotDetailsDismiss = { botDetailsOpen = false },
-        onMemoriesDismiss = { memoriesOpen = false },
+        onBotSettingsDismiss = { botSettingsOpen = false },
         onFilesDismiss = { filesOpen = false },
         onSchedulesDismiss = { schedulesOpen = false },
         onQueueDismiss = { queueOpen = false },
         onRuntimeControlsDismiss = { runtimeControlsOpen = false },
         onCompactDismiss = { compactConfirm = false },
-        onBackupDismiss = { backupOpen = false },
-        onBackupStatusClear = { backupStatus = "" },
         onImportConsumed = { importUri = null },
-        onExport = { sections, passphrase ->
+        onBackupExport = { sections, passphrase ->
             pendingBackupSections = sections
             pendingBackupPassphrase = passphrase
             createBackupDocument.launch(
                 "${vm.bot?.title?.replace(Regex("[^A-Za-z0-9._-]"), "_") ?: "memoh"}-backup.zip",
             )
         },
-        onChooseImport = {
-            backupOpen = false
+        onBackupImport = {
             openBackupDocument.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
         },
-        onOpenMemoryFromDetails = { memoriesOpen = true; botDetailsOpen = false },
-        onOpenWorkspaceFromDetails = { filesOpen = true; botDetailsOpen = false },
+        onOpenWorkspaceFromSettings = { filesOpen = true; botSettingsOpen = false },
     )
 
     vm.bot?.takeIf { terminalOpen }?.let { selectedBot ->

@@ -59,16 +59,16 @@ private val BOT_TABS = listOf(
     "agents" to "Agents",
     "access" to "Access",
     "container" to "Container",
-    "memory" to "Memory",
     "channels" to "Channels",
     "remote-runtime" to "Runtime",
     "advanced" to "Advanced",
     "mcp" to "MCP",
     "apps" to "Apps",
+    "backup" to "Backup",
 )
 
 /**
- * Native Bot Detail dialog aligned with apps/web/src/pages/bots/detail.vue (11 tabs).
+ * Native Bot Settings dialog with server-backed detail, configuration and backup tabs.
  * Enforces canManageBot permissions strictly: read-only access when "manage" permission is absent.
  */
 @Composable
@@ -79,7 +79,9 @@ internal fun MemohBotDetailDialog(
     onDismiss: () -> Unit,
     onBotUpdated: (MemohBot) -> Unit,
     onBotDeleted: () -> Unit,
-    onOpenMemory: () -> Unit,
+    backupStatus: String,
+    onBackupExport: (List<String>, String) -> Unit,
+    onBackupImport: () -> Unit,
     onOpenWorkspace: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -216,7 +218,14 @@ internal fun MemohBotDetailDialog(
                         )
                         "remote-runtime" -> MemohBotRuntimeTab(api = api, botId = currentBot.id, canManage = canManage)
                         "container" -> BotContainerTab(api = api, botId = currentBot.id, onOpenWorkspace = onOpenWorkspace)
-                        "memory" -> BotMemoryTabShortcut(onOpenMemory = onOpenMemory)
+                        "backup" -> MemohBackupSettingsTab(
+                            api = api,
+                            bot = currentBot,
+                            status = backupStatus,
+                            canManage = canManage,
+                            onExport = onBackupExport,
+                            onChooseImport = onBackupImport,
+                        )
                         "channels" -> MemohBotChannelsTab(api = api, botId = currentBot.id, canManage = canManage)
                         "advanced" -> MemohBotAdvancedTab(api = api, botId = currentBot.id, canManage = canManage)
                         "access" -> BotAccessTab(api = api, botId = currentBot.id, canManage = canManage, onError = { notify(it, isError = true) })
@@ -593,18 +602,6 @@ private fun BotContainerTab(api: MemohApi, botId: String, onOpenWorkspace: () ->
 
         Button(onClick = onOpenWorkspace, modifier = Modifier.fillMaxWidth()) {
             Text("Open Workspace File Explorer")
-        }
-    }
-}
-
-@Composable
-private fun BotMemoryTabShortcut(onOpenMemory: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Bot Memory", style = MaterialTheme.typography.titleMedium)
-        Text("Manage long-term memories, factual graph associations, ingestion runs, and compaction decay.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Button(onClick = onOpenMemory, modifier = Modifier.fillMaxWidth()) {
-            Text("Open Full Memory Manager")
         }
     }
 }

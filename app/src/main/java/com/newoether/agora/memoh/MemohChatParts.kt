@@ -25,9 +25,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -70,7 +72,7 @@ import com.newoether.agora.util.verticalEdgeFade
 
 /** Account menu actions that the top bar's overflow surfaces. */
 internal enum class MemohAccountAction {
-    Search, BotDetails, Backup, Files, Memory, Schedules, Terminal, Queue, RuntimeControls, Compact, Rename, Delete,
+    Search, BotSettings, Files, Schedules, Terminal, Queue, RuntimeControls, Compact, Rename, Delete,
 }
 
 /** Memoh's server-backed drawer using Agora's shared shell and conversation row. */
@@ -293,45 +295,30 @@ internal fun MemohAccountMenu(
     dismiss: () -> Unit,
     onAction: (MemohAccountAction) -> Unit,
 ) {
-    // Bot switcher lives here: the top bar's own capsule stays untouched (＋/⋯), so both
-    // slots match Agora exactly while bot switching stays one tap away.
+    val sectionModifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+    val sectionColor = MaterialTheme.colorScheme.onSurfaceVariant
+
     if (vm.bots.size > 1) {
+        Text("BOTS", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
         vm.bots.forEach { option ->
             AgoraDropdownMenuItem(
                 text = { Text(if (option.id == vm.bot?.id) "● ${option.title}" else option.title) },
                 onClick = { dismiss(); vm.selectBot(option) },
             )
         }
-        androidx.compose.material3.HorizontalDivider(
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
+        androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
     }
+
     if (vm.bot != null) {
+        Text("BOT", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
         AgoraDropdownMenuItem(
-            text = { Text("Reconnect") },
-            onClick = { dismiss(); vm.retryConnection() },
-        )
-        AgoraDropdownMenuItem(
-            text = { Text("Search in conversation") },
-            leadingIcon = { Icon(androidx.compose.material.icons.Icons.Default.Search, null) },
-            onClick = { dismiss(); onAction(MemohAccountAction.Search) },
-        )
-    }
-    AgoraDropdownMenuItem(
-        text = { Text("Refresh bots") },
-        onClick = { dismiss(); vm.refreshBots() },
-    )
-    if (vm.bot != null) {
-        AgoraDropdownMenuItem(
-            text = { Text("Bot Details") },
-            onClick = { dismiss(); onAction(MemohAccountAction.BotDetails) },
-        )
-        AgoraDropdownMenuItem(
-            text = { Text("Bot Backup") },
-            onClick = { dismiss(); onAction(MemohAccountAction.Backup) },
+            text = { Text("Bot Settings") },
+            leadingIcon = { Icon(Icons.Default.Settings, null) },
+            onClick = { dismiss(); onAction(MemohAccountAction.BotSettings) },
         )
         AgoraDropdownMenuItem(
             text = { Text("Workspace Files") },
+            leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Files) },
         )
         AgoraDropdownMenuItem(
@@ -339,23 +326,28 @@ internal fun MemohAccountMenu(
             leadingIcon = { Icon(Icons.Default.Code, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Terminal) },
         )
-
-        AgoraDropdownMenuItem(
-            text = { Text("Memory") },
-            onClick = { dismiss(); onAction(MemohAccountAction.Memory) },
-        )
         AgoraDropdownMenuItem(
             text = { Text("Schedules") },
+            leadingIcon = { Icon(Icons.Default.CalendarMonth, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Schedules) },
         )
     }
+
     if (vm.session != null) {
+        androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+        Text("CONVERSATION", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
+        AgoraDropdownMenuItem(
+            text = { Text("Search in conversation") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            onClick = { dismiss(); onAction(MemohAccountAction.Search) },
+        )
         AgoraDropdownMenuItem(
             text = { Text("Message Queue") },
             onClick = { dismiss(); onAction(MemohAccountAction.Queue) },
         )
         AgoraDropdownMenuItem(
             text = { Text("Runtime Controls") },
+            leadingIcon = { Icon(Icons.Default.Settings, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.RuntimeControls) },
         )
         AgoraDropdownMenuItem(
@@ -364,13 +356,18 @@ internal fun MemohAccountMenu(
         )
         AgoraDropdownMenuItem(
             text = { Text("Rename chat") },
+            leadingIcon = { Icon(Icons.Default.Edit, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Rename) },
         )
         AgoraDropdownMenuItem(
             text = { Text("Delete chat") },
+            leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
             onClick = { dismiss(); onAction(MemohAccountAction.Delete) },
         )
     }
+
+    androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+    Text("ACCOUNT", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
     AgoraDropdownMenuItem(
         text = { Text("Sign out") },
         onClick = { dismiss(); vm.logout() },
@@ -386,40 +383,38 @@ internal fun MemohDialogs(
     renameDialog: Boolean,
     newTitle: String,
     deleteDialog: Boolean,
-    botDetailsOpen: Boolean,
-    memoriesOpen: Boolean,
+    botSettingsOpen: Boolean,
     filesOpen: Boolean,
     schedulesOpen: Boolean,
     queueOpen: Boolean,
     runtimeControlsOpen: Boolean,
     compactConfirm: Boolean,
-    backupOpen: Boolean,
     importUri: Uri?,
     backupStatus: String,
     onRenameDismiss: () -> Unit,
     onDeleteDismiss: () -> Unit,
-    onBotDetailsDismiss: () -> Unit,
-    onMemoriesDismiss: () -> Unit,
+    onBotSettingsDismiss: () -> Unit,
     onFilesDismiss: () -> Unit,
     onSchedulesDismiss: () -> Unit,
     onQueueDismiss: () -> Unit,
     onRuntimeControlsDismiss: () -> Unit,
     onCompactDismiss: () -> Unit,
-    onBackupDismiss: () -> Unit,
-    onBackupStatusClear: () -> Unit,
     onImportConsumed: () -> Unit,
-    onExport: (List<String>, String) -> Unit,
-    onChooseImport: () -> Unit,
-    onOpenMemoryFromDetails: () -> Unit,
-    onOpenWorkspaceFromDetails: () -> Unit,
+    onBackupExport: (List<String>, String) -> Unit,
+    onBackupImport: () -> Unit,
+    onOpenWorkspaceFromSettings: () -> Unit,
 ) {
     val bot = vm.bot
-    if (backupOpen && bot != null) {
-        MemohBackupDialog(
-            api = api, bot = bot, status = backupStatus,
-            onExport = onExport,
-            onChooseImport = onChooseImport,
-            onDismiss = onBackupDismiss,
+    if (botSettingsOpen && bot != null) {
+        MemohBotDetailDialog(
+            api = api, bot = bot, agentController = vm.agentController,
+            onDismiss = onBotSettingsDismiss,
+            onBotUpdated = vm::updateBotMetadata,
+            onBotDeleted = { vm.refreshBots(); onBotSettingsDismiss() },
+            backupStatus = backupStatus,
+            onBackupExport = onBackupExport,
+            onBackupImport = onBackupImport,
+            onOpenWorkspace = onOpenWorkspaceFromSettings,
         )
     }
     importUri?.let { uri ->
@@ -430,27 +425,6 @@ internal fun MemohDialogs(
                 onImported = { vm.refreshBots(); onImportConsumed() },
             )
         }
-    }
-    if (backupStatus.isNotBlank() && !backupOpen && importUri == null) {
-        AlertDialog(
-            onDismissRequest = onBackupStatusClear,
-            title = { Text("Bot backup") },
-            text = { Text(backupStatus) },
-            confirmButton = { TextButton(onClick = onBackupStatusClear) { Text("OK") } },
-        )
-    }
-    if (botDetailsOpen && bot != null) {
-        MemohBotDetailDialog(
-            api = api, bot = bot, agentController = vm.agentController,
-            onDismiss = onBotDetailsDismiss,
-            onBotUpdated = vm::updateBotMetadata,
-            onBotDeleted = { vm.refreshBots(); onBotDetailsDismiss() },
-            onOpenMemory = onOpenMemoryFromDetails,
-            onOpenWorkspace = onOpenWorkspaceFromDetails,
-        )
-    }
-    if (memoriesOpen && bot != null) {
-        MemohMemoryDialog(api, bot.id, onDismiss = onMemoriesDismiss)
     }
     if (filesOpen && bot != null) {
         MemohWorkspaceDialog(api, bot.id, onDismiss = onFilesDismiss)
