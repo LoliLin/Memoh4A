@@ -95,5 +95,5 @@ Google 登录仍未在 Android 实现，也未实际完成 OAuth。测试若干�
 ## Android 端协议对齐结论（2026-10-23 对照）
 
 - 一致：WS URL 组装、ticket 交换、`invocation_id` / `control_id` 去重语义、`session_created` 回填、`runtime_subscribe` / `runtime_unsubscribe`、epoch+seq 游标与快照重同步、活动态集合、审批/用户输入载荷、30s 级首条确认（Android 用 `awaitingAdmission` + 取消恢复草稿实现）。
-- web 独有而 Android 未实现（记录为差距，非回归）：`retry_message` / `edit_message` 消息重发与编辑、`requested_skills` / `workspace_target_id` / `model_id` / `reasoning_effort` 发送参数、`composer_scope` 多视图、`command_result` / `command_error`（web slash 命令）、`model_preference_settled` 处理、delta 的 `user_turn_upserts` / `steer_turn_upserts` / `steer_turn_removals` / `progress_appends` 归并（Android 目前只处理 `message_upserts` / `message_appends` / `run` 补丁）。
+- 仍未对齐：`composer_scope` 多视图、`requested_skills` / `workspace_target_id` 发送参数，以及 slash command 的派发和 `command_result` / `command_error` 结果呈现。Android 已发送 `model_id` / `reasoning_effort`、处理 `model_preference_settled`，并归并 user/steer 轮次增删与 progress delta。
 - 重连退避：web 从 1s ×1.5 到 10s 封顶；Android 固定 2s 重试一次。可作为后续改进项，不是正确性缺陷。

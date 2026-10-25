@@ -1,6 +1,8 @@
 package com.newoether.agora.memoh
 
+import android.content.Intent
 import android.net.Uri
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -32,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import org.json.JSONObject
 import androidx.compose.runtime.getValue
@@ -79,6 +83,14 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun MemohConversationScreen(vm: MemohViewModel) {
     val api = remember { MemohApi(vm.workspaceApi) }
+    val settings = vm.settings
+    val blurEffectsEnabled by settings.blurEffectsEnabled.collectAsState()
+    val toolCallDisplayMode by settings.toolCallDisplayMode.collectAsState()
+    val thinkingSegmentDisplayMode by settings.thinkingSegmentDisplayMode.collectAsState()
+    val autoExpandActiveGroup by settings.autoExpandActiveGroup.collectAsState()
+    val parseInlineDollarMath by settings.parseInlineDollarMath.collectAsState()
+    val autoWrapCodeBlocks by settings.autoWrapCodeBlocks.collectAsState()
+    val stickToBottom by settings.stickToBottom.collectAsState()
     val drawer = rememberChatDrawerState()
     val motion = LocalAgoraMotionPolicy.current
     val scope = rememberCoroutineScope()
@@ -127,6 +139,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     val field = remember(vm.bot?.id, vm.session?.id) { TextFieldState() }
     val focus = remember { FocusRequester() }
     val listState = rememberLazyListState()
+    var autoScrolledSessionId by remember { mutableStateOf<String?>(null) }
     val backupScope = rememberCoroutineScope()
 
     // A rejected send restores the draft instead of losing it.
@@ -197,8 +210,17 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         listState = listState,
     )
 
-    LaunchedEffect(vm.session?.id, messages.lastOrNull()?.id) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    LaunchedEffect(vm.session?.id, messages.lastOrNull()?.id, stickToBottom) {
+        if (messages.isEmpty()) return@LaunchedEffect
+        val sessionId = vm.session?.id ?: return@LaunchedEffect
+        if (autoScrolledSessionId != sessionId || stickToBottom) {
+            if (motion.allowProgrammaticScrollMotion) {
+                listState.animateScrollToItem(messages.lastIndex)
+            } else {
+                listState.scrollToItem(messages.lastIndex)
+            }
+            autoScrolledSessionId = sessionId
+        }
     }
 
     val createBackupDocument = rememberLauncherForActivityResult(
@@ -221,6 +243,24 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     }
     val openBackupDocument =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { importUri = it }
+    val voiceInput = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val recognized = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
+            if (recognized.isNotEmpty()) {
+                field.edit {
+                    if (length > 0) append("\n")
+                    append(recognized)
+                }
+                focus.requestFocus()
+            }
+        }
+    }
 
     ChatDrawerHost(
         state = drawer,
@@ -264,8 +304,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                 quarterAlpha = qa,
                 blurRadius = 40f,
                 dark = dark,
-                blurEnabled = true,
-                motionEnabled = true,
+                blurEnabled = blurEffectsEnabled,
+                motionEnabled = motion.allowContinuousMotion,
             )
             androidx.compose.material3.Scaffold(
                 containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -349,6 +389,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             messageActionsEnabled = !vm.running,
                             readOnlyActions = vm.running,
                             isLoading = vm.running,
+                            toolCallDisplayMode = toolCallDisplayMode,
+                            thinkingSegmentDisplayMode = thinkingSegmentDisplayMode,
+                            autoExpandActiveGroup = autoExpandActiveGroup,
+                            parseInlineDollarMath = parseInlineDollarMath,
+                            autoWrapCodeBlocks = autoWrapCodeBlocks,
                             streamingMessage = streamingMessage,
                             streamingAutoFollowEnabled = vm.running,
                             bottomBarHeight = with(LocalDensity.current) { barHeightPx.toDp() },
@@ -360,7 +405,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .gradientBlur(
-                                    blurAtTopDp = 8f,
+                                    blurAtTopDp = if (blurEffectsEnabled) 8f else 0f,
                                     blurAtBottomDp = 0f,
                                     fadeHeightDp = 40f,
                                     bottomOverlayHeight = with(LocalDensity.current) { barHeightPx.toDp() } + 12.dp,
@@ -465,6 +510,26 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                     onAttachmentsPicked = { selectedAttachments = selectedAttachments + it },
                                     onAttachmentError = { vm.reportAttachmentError(it) },
                                 )
+                                androidx.compose.material3.IconButton(
+                                    enabled = vm.bot != null,
+                                    onClick = {
+                                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                            putExtra(
+                                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                                            )
+                                            putExtra(
+                                                RecognizerIntent.EXTRA_LANGUAGE,
+                                                java.util.Locale.getDefault().toLanguageTag(),
+                                            )
+                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")
+                                        }
+                                        runCatching { voiceInput.launch(intent) }
+                                            .onFailure { vm.error = "Speech recognition is unavailable on this device." }
+                                    },
+                                ) {
+                                    Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                                }
                                 if (vm.running && vm.runId.isNotBlank()) {
                                     Box {
                                         TextButton(onClick = { sendQueueMenu = true },
@@ -621,28 +686,18 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         )
     }
     if (settingsOpen) {
-        androidx.compose.material3.AlertDialog(
+        androidx.compose.ui.window.Dialog(
             onDismissRequest = { settingsOpen = false },
-            title = { Text("Settings") },
-            text = {
-                Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                    Text("Team: ${vm.teams.current?.title ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Bot: ${vm.bot?.title ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Conversations, files and agent runs are owned by the Memoh server. " +
-                            "Theme follows the system. Sign out from the top-right menu.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { settingsOpen = false }) { Text("Done") }
-            },
-            dismissButton = {
-                TextButton(onClick = { settingsOpen = false; vm.logout() }) { Text("Sign out") }
-            },
-        )
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxSize().padding(12.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                MemohSettingsHost(vm) { settingsOpen = false }
+            }
+        }
     }
 
     MemohDialogs(

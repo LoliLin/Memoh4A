@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.newoether.agora.data.SettingsManager
+import com.newoether.agora.data.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
@@ -31,8 +33,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var epoch = ""
     private var seq = -1L
     private var awaitingSnapshot = true
+
     internal val api = MemohApi()
     internal val workspaceApi: MemohApi get() = api
+    internal val settings by lazy { SettingsRepository(SettingsManager(application), viewModelScope) }
     internal var agentController = MemohAgentController(api); private set
     internal val connection = MemohConnection(
         scope = navigationScope,
@@ -85,6 +89,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     var signedIn by mutableStateOf(false)
         internal set
     internal var restoringSession by mutableStateOf(false)
+    internal var sessionRestoreGeneration = 0
     internal var sessionRestoreFailed by mutableStateOf(false)
     var loading by mutableStateOf(false); private set
     internal var error by mutableStateOf("")
@@ -154,6 +159,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun login() = signIn.signInWithPassword(login.username.trim(), login.password)
 
     fun logout() {
+        sessionRestoreGeneration++
         resetNavigation(); teams.reset(); signIn.signOut(); signedIn = false
         restoringSession = false
         sessionRestoreFailed = false

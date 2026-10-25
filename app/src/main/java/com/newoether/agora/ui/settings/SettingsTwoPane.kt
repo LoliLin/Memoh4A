@@ -391,7 +391,11 @@ internal fun SettingsDestination(
         "memory" -> SettingsMemoryPage(viewModel, onBack)
         "skills" -> SettingsSkillsPage(viewModel, onBack)
         "datacontrol" -> SettingsDataControlPage(viewModel, onBack)
-        "appearance" -> SettingsAppearancePage(viewModel, onBack)
+        "appearance" -> SettingsAppearancePage(
+            settings = viewModel.settings,
+            onSnackbar = { viewModel.emitSnackbar(it) },
+            onBack = onBack,
+        )
         "developer" -> SettingsDeveloperPage(viewModel, onBack, onDisabled = onBack)
         "about" -> SettingsAboutPage(viewModel, onBack)
         else -> SettingsProviderPage(viewModel, onBack)

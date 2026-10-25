@@ -20,7 +20,7 @@ Cloud sign-in uses an emailed code, then confirms the platform identity and load
 
 ## Architecture boundaries (2026-10-24)
 
-- `MemohApplication`/`MemohActivity` define the client bootstrap and launcher. Memoh renders through Agora's shared drawer, top bar, message list, composer, theme and attachment components. The upstream settings, Markdown and screenshot source remains reusable.
+- `MemohApplication`/`MemohActivity` define the client bootstrap and launcher. Memoh renders through Agora's shared drawer, top bar, message list, composer, theme and attachment components. The shared Appearance page reads the lightweight settings repository directly, so Memoh can reuse Agora preferences without starting Room or the rest of its local runtime.
 - The app has a single `debug`/`release` variant pair. Play/F-Droid source sets, PRoot implementation/tests, embedded llama ownership/JNI wrappers and the unused talloc sources are removed. Optional sandbox interfaces remain for shared settings. Imported local-provider requests fail explicitly instead of loading missing libraries. The 800-line plugin, baseline and policy are removed.
 - `MemohConnection` owns ticket creation, the current socket, callback generations, cancellation and capped reconnect delay. Ticket failures and socket failures follow the same path. Temporary I/O, 408, 429 and server errors retry; other 4xx errors wait for explicit Reconnect. A 401 ends the session. Old socket callbacks cannot mutate the new bot/team/account. Observation loss never means a server run stopped.
 - `MemohTransport` owns identity/team scopes and cancellable JSON requests. Cookie-authenticated requests and logout declare the server origin. JSON requests are not automatically replayed by application code. Only unacknowledged message invocations retain their existing `invocation_id` for socket recovery.
@@ -44,7 +44,7 @@ Cloud sign-in uses an emailed code, then confirms the platform identity and load
 - Session runtime controls: permission/plan mode switching, runtime-owned goal (pause/clear with usage), runtime commands, and immediate context compaction
 - Chat-time model preference: Agent model catalog picker with reasoning effort, welcome-composer model seed, `model_id`/`reasoning_effort` send parameters, and `model_preference_settled` tracking
 - Server-backed JSON history and session list, Markdown replies, optimistic pending user text
-- Shared Agora chat/settings source retained for reuse; Memoh conversation history remains server-backed.
+- Shared Agora appearance preferences now apply to Memoh: theme, color, font, blur, reduced motion, haptics, message rendering and stick-to-bottom behavior. Native voice input uses Android's speech recognizer and inserts recognized text into the composer.
 
 ## Verification (2026-10-24, Asia/Shanghai)
 
@@ -79,14 +79,22 @@ The 8 unwired operations and why:
 - Node syntax checks passed for xterm.js, the fit addon and the embedded terminal host script.
 - Unit tests, authenticated server terminal connection, keyboard interaction and a device screenshot were not run for this slice; the APK/build checks do not establish those behaviors.
 
+## Shared settings and voice-input verification (2026-10-25)
+
+- `:app:compileDebugKotlin`, the filtered Memoh and settings suite (**155 tests**), and `:app:assembleDebug` succeeded. The six `MemohRecoveryTest` cases also pass, including the team-scope restore-generation regression.
+- Debug APK built at 08:25:23: 67.35 MiB, SHA-256 `4468C0BB44136F28EE3CA461F91E4798534E2CE29FE3311F7B1A2797A92F8B7F`.
+- No Android device was connected. Theme/motion/haptics behavior and the system speech-recognition result still need on-device review; the microphone action currently inserts speech-to-text into the composer.
+
+
 ## Gaps before daily use
 
 - Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.
 - Workspace file browser has no media preview and no folder upload (single file at a time, into the current directory).
 - Backup import uses the server default section set; per-section import selection is not exposed. Backup export supports selecting documented sections and an optional encryption passphrase. Encrypted imports can enter a passphrase when the server preview requests one.
-- Schedule workdir binding and per-schedule agent/ACP runtime selection are not exposed (the fields are plumbed for new-session schedules but there is no bot-workdir picker). Audio and slash commands remain incomplete.
-- The runtime reducer now covers the web delta contract (snapshot replacement, reset, message upserts/appends, progress appends, user/steer turn upserts and removals, run patches), but `retry_message`/`edit_message` composer actions and `command_result`/`command_error` slash-command events are not yet surfaced in the UI.
-- This fork launches into the Memoh workspace through Agora's shared chat shell. The broader upstream settings screens remain in source; not every settings entry is connected to the Memoh navigation.
+- Schedule workdir binding and per-schedule agent/ACP runtime selection are not exposed (the fields are plumbed for new-session schedules but there is no bot-workdir picker). Sending recorded audio and slash commands remain incomplete; the new microphone action is speech-to-text input only.
+- RFB/VNC desktop has no route or WebSocket in the current backend inventory, including the undocumented route list; a native viewer needs a server endpoint before it can connect.
+- Runtime and composer coverage includes snapshot/delta merging, edit/retry actions, model preference settlement, and user/steer/progress updates. Slash-command dispatch and `command_result`/`command_error` events are not surfaced.
+- This fork launches into the Memoh workspace through Agora's shared chat shell. The Appearance page is connected; the broader upstream provider, runtime and data-control settings screens still depend on Agora's full view model/runtime and are not exposed in Memoh.
 - Email-code Cloud sign-in is implemented; Google browser-to-app credential handoff and MFA remain unimplemented.
 - Tool details provide bounded raw input/output/diff text, not syntax-highlighted code/diff editors.
 - Native bitmap capture and visual comparison against the intended Agora worktree remain unverified. Shell render tests cover projected chat rows/top bar and the launcher tests exercise startup/login UI.
