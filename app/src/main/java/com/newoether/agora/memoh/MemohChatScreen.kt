@@ -215,7 +215,9 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                 toDecode.forEach { it.materialize(cacheDir) }
                 toDownload.forEach { att ->
                     runCatching {
-                        vm.api.downloadAttachmentBytes(botId!!, att.path, att.cachedTarget(cacheDir))
+                        // A server row carries content_hash far more often than a container path,
+                        // so resolve whichever source it actually has instead of assuming `path`.
+                        vm.api.downloadAttachment(botId!!, att, att.cachedTarget(cacheDir))
                     }
                 }
             }
