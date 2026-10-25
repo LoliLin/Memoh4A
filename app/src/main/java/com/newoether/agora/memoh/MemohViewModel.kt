@@ -112,6 +112,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var firstHistoryMessageId: String? = null
     var session by mutableStateOf<MemohSession?>(null); private set
     var turns by mutableStateOf<List<MemohTurn>>(emptyList()); private set
+    internal var loadedHistorySessionId by mutableStateOf<String?>(null)
+        private set
     internal var pendingUserText by mutableStateOf<String?>(null)
     internal var pendingUserAttachments by mutableStateOf<List<MemohAttachment>>(emptyList())
     internal var restoreDraft by mutableStateOf<String?>(null)
@@ -176,7 +178,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         consumeRestoredDraft()
         bots = emptyList(); agentController.clear(); agentController = MemohAgentController(MemohApi(api)); bot = null
         sessions = emptyList(); nextSessionCursor = null; olderSessionsAvailable = false
-        session = null; turns = emptyList(); pendingUserText = null; pendingUserAttachments = emptyList()
+        session = null; turns = emptyList(); loadedHistorySessionId = null
+        pendingUserText = null; pendingUserAttachments = emptyList()
         pendingUserTurnId = null
         error = ""
     }
@@ -233,6 +236,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         agentController.select("")
         session = null
         turns = emptyList()
+        loadedHistorySessionId = null
         sessions = emptyList()
         nextSessionCursor = null
         olderSessionsAvailable = false
@@ -278,6 +282,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (value != null) agentController.selectFromSession(value.botAgentId)
         val previous = session?.id
         session = value
+        loadedHistorySessionId = null
         loadingOlderMessages = false
         turns = emptyList()
         queueState = null
@@ -624,6 +629,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     historyRevision++
                     resetCursor()
                     session = created
+                    loadedHistorySessionId = created.id
                     sessions = listOf(created) + sessions.filterNot { it.id == created.id }
                     payload.put("session_id", created.id)
                     if (connected) {
@@ -760,6 +766,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     val older = turns
                     val updatedIds = result.mapTo(HashSet()) { it.id }
                     turns = (older.filterNot { it.id in updatedIds } + result).distinctBy { it.id }
+                    loadedHistorySessionId = sid
                     if (firstHistoryMessageId == null) {
                         firstHistoryMessageId = result.firstOrNull()?.id
                         // A short page is the only proof that this is the start of history.
@@ -805,6 +812,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     val created = MemohSession(sid, "New conversation", agentController.selectedAgentId)
                     sessions = listOf(created) + sessions.filterNot { it.id == sid }
                     session = created
+                    loadedHistorySessionId = sid
                     sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", sid))
                 }
             }

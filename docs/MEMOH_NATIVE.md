@@ -86,6 +86,20 @@ The 8 unwired operations and why:
 - No Android device was connected. Theme/motion/haptics behavior and the system speech-recognition result still need on-device review; the microphone action currently inserts speech-to-text into the composer.
 
 
+## Release build verification (2026-10-25)
+
+- `:app:assembleRelease` completed successfully (exit 0; 14m 22s). `apksigner verify --verbose` also passed using the configured Java 21 runtime; the APK verifies with APK Signature Scheme v2 and has one signer.
+- Release APK: `in.kawaiis.memoh`, version `2.1.0`, 26,034,065 bytes (24.83 MiB), SHA-256 `A8450A0241CBF778536351AA5EA4B58CEDC128A69CE8243F6F2B2C343E17B3A3`.
+- Release Compose mapping emitted a warning while tokenizing the legacy `MainActivity` coroutine stack trace. Packaging and signature verification succeeded; device behavior remains unverified.
+
+## Agora bridge follow-up (2026-10-25)
+
+- The conversation list and composer now share Agora's centered 840 dp width cap. `MessageList` receives the same loaded transcript for its visible, authoritative and `allMessages` projections; stream auto-follow respects the shared stick-to-bottom preference.
+- Memoh now uses Agora's `ChatScrollCoordinator` for viewport measurement and keyboard anchoring. A session becomes eligible only after its history response succeeds (or a new empty session is created); switching sessions, bots or identity clears that marker. Stream following pauses during search, reduced-motion restrictions and IME anchoring.
+- `:app:compileDebugKotlin` and `:app:assembleDebug` both succeeded for this follow-up. `apksigner verify` passed.
+- Current Debug APK built at 09:04:32: `in.kawaiis.memoh.screenshots`, version `2.1.0-screenshots`, 67.35 MiB, SHA-256 `8725EA818383714BB417C3E14B00FFD5C71D16FF83D939AE39F45297E1BF6732`.
+- No Android device was connected, so visual and keyboard behavior still need device review.
+
 ## Gaps before daily use
 
 - Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.
