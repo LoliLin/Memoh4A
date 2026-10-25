@@ -423,6 +423,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             messageActionsEnabled = !vm.running,
                             readOnlyActions = vm.running,
                             isLoading = vm.running,
+                            isCompacting = vm.runtimeControlsBusy,
+                            deleteActionsEnabled = false,
                             toolCallDisplayMode = toolCallDisplayMode,
                             thinkingSegmentDisplayMode = thinkingSegmentDisplayMode,
                             autoExpandActiveGroup = autoExpandActiveGroup,
@@ -440,6 +442,13 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             thoughtExpandedStates = thoughtExpandedStates,
                             onSearchMatchDistance = conversationInteraction::recordSearchMatchDistance,
                             onSearchTurnsChanged = conversationInteraction::recordSearchTurns,
+                            searchQuery = if (conversationInteraction.searchActive) {
+                                conversationInteraction.searchQuery
+                            } else {
+                                ""
+                            },
+                            activeSearchMatch = conversationInteraction.searchMatches
+                                .getOrNull(conversationInteraction.searchMatchIndex),
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .fillMaxHeight()
@@ -479,6 +488,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                     putExtra(android.content.Intent.EXTRA_TEXT, shared)
                                 })
                             },
+                            onRecompact = { _ -> vm.compactSession() },
                             onMediaClick = { urls, index ->
                                 mediaViewer = urls to index
                             },

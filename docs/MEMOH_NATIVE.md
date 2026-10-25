@@ -100,6 +100,12 @@ The 8 unwired operations and why:
 - Current Debug APK built at 09:04:32: `in.kawaiis.memoh.screenshots`, version `2.1.0-screenshots`, 67.35 MiB, SHA-256 `8725EA818383714BB417C3E14B00FFD5C71D16FF83D939AE39F45297E1BF6732`.
 - No Android device was connected, so visual and keyboard behavior still need device review.
 
+## Message action bridge (2026-10-25)
+
+- Memoh search now passes its active query and selected match into Agora's `MessageList`, enabling message highlighting and match navigation.
+- Recompact is connected to Memoh's session compaction request and disabled while runtime controls are busy. Per-message and compaction-record deletion are hidden in Memoh because its API only deletes whole sessions or bot history; Agora's shared component keeps deletion enabled by default for its existing callers.
+- Historical PDF tiles remain non-clickable: Memoh returns the PDF file, while Agora's shared pager expects rendered page images. `:app:compileDebugKotlin` passed after these changes; no tests, packaging or device checks were run for this slice.
+
 ## Gaps before daily use
 
 - Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.

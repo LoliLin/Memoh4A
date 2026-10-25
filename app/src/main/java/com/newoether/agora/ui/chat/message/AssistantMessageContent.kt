@@ -97,6 +97,7 @@ internal fun AssistantMessageContent(
     onMediaClick: (List<String>, Int) -> Unit,
     onShowInfo: () -> Unit,
     onShowDelete: () -> Unit,
+    showDeleteAction: Boolean,
     onSegmentSelected: (List<Int>, Boolean) -> Unit,
     onLayoutMutationStarted: (String) -> Unit,
     onLayoutMutationSettled: (String) -> Unit,
@@ -665,7 +666,7 @@ internal fun AssistantMessageContent(
                                     enabled = actionAvailability.informationEnabled,
                                     leadingIcon = { Icon(Icons.Default.Info, null) },
                                 )
-                                AgoraDropdownMenuItem(
+                                if (showDeleteAction) AgoraDropdownMenuItem(
                                     text = {
                                         Text(
                                             stringResource(R.string.delete),

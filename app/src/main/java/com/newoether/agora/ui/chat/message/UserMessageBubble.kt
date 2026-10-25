@@ -113,6 +113,7 @@ internal fun UserMessageBubble(
     onPdfPagesClick: ((pages: List<String>, startIndex: Int) -> Unit)?,
     onShowInfo: () -> Unit,
     onShowDelete: () -> Unit,
+    showDeleteAction: Boolean,
     searchHighlight: SearchHighlightSpec?,
     allowMutations: Boolean = true,
 ) {
@@ -366,7 +367,7 @@ internal fun UserMessageBubble(
                     },
                     leadingIcon = { Icon(Icons.Default.Info, null) },
                 )
-                if (allowMutations) AgoraDropdownMenuItem(
+                if (allowMutations && showDeleteAction) AgoraDropdownMenuItem(
                     text = {
                         Text(
                             stringResource(R.string.delete),
