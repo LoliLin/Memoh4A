@@ -5,6 +5,7 @@ import com.newoether.agora.SettingsOverlayHost
 import android.content.Intent
 import android.net.Uri
 import android.speech.RecognizerIntent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
@@ -62,7 +63,12 @@ import androidx.compose.foundation.verticalScroll
 import com.newoether.agora.util.gradientBlur
 import com.newoether.agora.model.ChatConversation
 import com.newoether.agora.model.StableMessageList
+import com.newoether.agora.ui.chat.ChatBottomScrollButton
 import com.newoether.agora.ui.chat.ChatDrawerHost
+import com.newoether.agora.ui.chat.ChatNavigationEffects
+import com.newoether.agora.ui.chat.rememberAbsoluteBottomButtonVisible
+import com.newoether.agora.ui.chat.rememberComposerSpacerAnimation
+import com.newoether.agora.ui.components.clearFocusOnTap
 import com.newoether.agora.ui.chat.ChatTopBar
 import com.newoether.agora.ui.chat.MessageList
 import com.newoether.agora.ui.chat.rememberChatScrollCoordinator
@@ -159,6 +165,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         mutableStateOf<List<MemohAttachment>>(emptyList())
     }
     var expanded by remember { mutableStateOf(false) }
+    val composerSpacer = rememberComposerSpacerAnimation(
+        isExpanded = expanded,
+        allowSpatialTransitions = motion.allowSpatialTransitions,
+        expandedHeightPx = with(density) { 44.dp.toPx() },
+    )
     var barHeightPx by remember { mutableStateOf(0f) }
     // Shared-list state caches the MessageList writes back into (search geometry, thinking
     // expansion). Both reset per conversation like ChatApp does, keeping scroll anchors stable.
@@ -169,7 +180,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
 
     val field = remember(vm.bot?.id, vm.session?.id) { TextFieldState() }
     val focus = remember { FocusRequester() }
-    var autoScrolledSessionId by remember { mutableStateOf<String?>(null) }
     val backupScope = rememberCoroutineScope()
 
     // A rejected send restores the draft instead of losing it.
@@ -188,7 +198,9 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     // never touch this list; they only replace the streamingMessage overlay (matched by id).
     // Attachment files are pre-materialized off the main thread; composition only reads cache hits.
     var attachmentCacheRevision by remember { mutableStateOf(0) }
-    val pendingAttachments = vm.pendingUserAttachments + vm.turns.flatMap { it.attachments }
+    val pendingAttachments = remember(vm.turns, vm.pendingUserAttachments) {
+        vm.pendingUserAttachments + vm.turns.flatMap { it.attachments }
+    }
     LaunchedEffect(pendingAttachments) {
         val cacheDir = context.cacheDir
         val botId = vm.bot?.id
@@ -320,18 +332,46 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         programmaticHandoff = scrollCoordinator.imeBottomAnchorState.active,
     )
 
-    LaunchedEffect(vm.session?.id, messages.lastOrNull()?.id, stickToBottom) {
-        if (messages.isEmpty()) return@LaunchedEffect
-        val sessionId = vm.session?.id ?: return@LaunchedEffect
-        if (autoScrolledSessionId != sessionId || stickToBottom) {
-            if (motion.allowProgrammaticScrollMotion) {
-                listState.animateScrollToItem(messages.lastIndex)
-            } else {
-                listState.scrollToItem(messages.lastIndex)
-            }
-            autoScrolledSessionId = sessionId
-        }
+    MemohChatScrollEffects(
+        coordinator = scrollCoordinator,
+        sessionId = currentSessionId,
+        loadedHistorySessionId = vm.loadedHistorySessionId,
+        messages = messagesState,
+        pendingUserText = vm.pendingUserText,
+        running = vm.running,
+        searchActive = conversationInteraction.searchActive,
+        stickToBottom = stickToBottom,
+        density = density,
+        bottomBarHeight = with(density) { barHeightPx.toDp() },
+        motion = motion,
+    )
+    // Match Agora's back ordering: close search/drawer before leaving the chat. Expanded input
+    // also consumes Back so a large draft can return to the transcript without leaving the app.
+    BackHandler(enabled = expanded && !drawer.shouldHandleBack && !conversationInteraction.searchActive) {
+        expanded = false
     }
+    ChatNavigationEffects(
+        drawerState = drawer,
+        focusManager = focusManager,
+        scope = scope,
+        motionPolicy = motion,
+        onNavigateBack = null,
+        conversationInteraction = conversationInteraction,
+        onCollapseComposer = { expanded = false },
+    )
+    val showBottomButton by rememberAbsoluteBottomButtonVisible(
+        conversationId = currentSessionId,
+        loadedMessagesConversationId = vm.loadedHistorySessionId,
+        isNewChatMode = currentSessionId == null,
+        isSwitching = currentSessionId != null && vm.loadedHistorySessionId != currentSessionId,
+        shareSelectionActive = false,
+        isNearAbsoluteBottom = scrollCoordinator.isNearAbsoluteBottom,
+        absoluteBottomScrollPhase = scrollCoordinator.absoluteBottomScrollPhase,
+        listState = listState,
+        streamingTailController = scrollCoordinator.streamingTailController,
+        regenerationScrollActive = conversationInteraction.searchActive,
+        imeBottomAnchorActive = scrollCoordinator.imeBottomAnchorState.active,
+    )
 
     val createBackupDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
@@ -387,7 +427,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     scope.launch { closeFromContent() }
                 },
                 onSelect = { session ->
-                    vm.selectSession(session)
+                    if (session.id != vm.session?.id) vm.selectSession(session)
                     scope.launch { closeFromContent() }
                 },
                 onLoadOlder = vm::loadOlderSessions,
@@ -406,7 +446,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             )
         },
     ) {
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().clearFocusOnTap()) {
             // Agora's ambient background: glowing blobs on dark, flat on light.
             val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
             val (targetCa, targetQa) = if (!dark) 0.00f to 0.00f
@@ -595,12 +635,16 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             Text(if (vm.loadingOlderMessages) "Loading…" else "Load earlier messages")
                         }
                     }
+                    ChatBottomScrollButton(showBottomButton && !expanded, with(density) { barHeightPx.toDp() }) {
+                        scrollCoordinator.requestAbsoluteBottomScroll()
+                    }
                 }
             }
 
             ChatComposerSurface(
                 contentMaxWidth = 840.dp,
                 isExpanded = expanded,
+                outerSpacerHeightPx = composerSpacer.outerHeightPx,
                 onBarHeightChanged = { barHeightPx = it },
                 modifier = Modifier.align(Alignment.BottomCenter),
             ) {
@@ -609,7 +653,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     focusRequester = focus,
                     onInputFocusChanged = scrollCoordinator::setComposerInputFocused,
                     isExpanded = expanded,
-                    isExpandAnimating = false,
+                    isExpandAnimating = composerSpacer.isRunning,
                     onExpand = { expanded = true },
                     onCollapse = { expanded = false },
                     placeholder = "向 ${vm.bot?.title ?: "Memoh"} 提问...",
@@ -788,6 +832,12 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                         if (vm.send(field.text.toString(), selectedAttachments)) {
                                             field.clearText()
                                             selectedAttachments = emptyList()
+                                            expanded = false
+                                            conversationInteraction.dismissSearch()
+                                        } else {
+                                            // A refused send keeps the draft; the refusal must be felt
+                                            // instead of leaving the tap looking ignored.
+                                            haptics.reject()
                                         }
                                     }
                                 },

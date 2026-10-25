@@ -114,6 +114,17 @@ The 8 unwired operations and why:
 - Selecting Settings closes the drawer before opening Agora's `SettingsOverlayHost`, keeping its standard scrim, enter/exit motion and page bounds. The appearance controls continue to read Memoh's lightweight settings repository and Agora's shared settings components.
 - `:app:compileDebugKotlin` passed with the configured Java 21 runtime. Unit tests, APK packaging and device checks were not run for this slice.
 
+## Chat interaction follow-up (2026-10-25)
+
+- Memoh now binds Agora's navigation effects: Back closes search or the drawer, opening the drawer clears composer focus and collapses expanded input, and tapping unused chat space dismisses the keyboard. Back also collapses expanded input before leaving the chat.
+- Expanded input uses Agora's shared spacer animation and its animation-in-progress guard. A successful local send returns to the transcript and dismisses search.
+- Opening history settles against Agora's actual bottom sentinel after the matching history response, with no animated tour through older turns. New tail rows only request automatic following while already attached to the bottom; an explicit send can return from older history. Search and user drags cancel competing scrolling. The original scroll-to-bottom control is connected as well.
+- Selecting the active drawer conversation closes the drawer without clearing and reloading that conversation. Attachment lists are memoized across streaming-only updates.
+- A refused send now raises Agora's reject haptic instead of leaving the tap looking ignored; the draft is still kept.
+- `:app:testDebugUnitTest` for all Memoh suites plus the shared drawer, scroll-visibility, scroll-target and message-bubble suites: **181 tests, 0 failures, 0 errors, 0 skipped**, and `:app:assembleDebug` succeeded. Debug APK: 70,623,999 bytes, SHA-256 `ADD79C3BBF257F50C2D0D7A44E3DC6FE6D25FF2DA7290E4CB376A5AA581D5331`, APK Signature Scheme v2 verification passed.
+- Two shared drawer source-contract tests still read `ChatDrawerContent.kt` for the selection crossfade and title crossfade that earlier work moved into `AgoraDrawerConversationRow.kt`; the assertions now target the shared row, with no product-code change.
+- No Android device was connected during the environment check; device/IME feel and authenticated server behavior remain unverified.
+
 ## Gaps before daily use
 
 - Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.
