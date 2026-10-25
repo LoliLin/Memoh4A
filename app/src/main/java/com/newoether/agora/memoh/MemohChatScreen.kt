@@ -876,10 +876,39 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         MemohSettingsHost(
             viewModel = vm,
             onDismiss = { settingsOpen = false },
-            // The Bot page hands off to the existing detailed sheet, so every field keeps one
-            // implementation instead of a second copy inside settings.
+            // Bot settings is its own full-screen destination, opened from the Bot row.
             onOpenBotSettings = { settingsOpen = false; backupStatus = ""; botSettingsOpen = true },
         )
+    }
+
+    // Bot settings rides the same overlay host as the app's settings so its collapsing title,
+    // page transitions and back handling behave identically.
+    vm.bot?.let { selectedBot ->
+        SettingsOverlayHost(
+            visible = botSettingsOpen,
+            onDismiss = { botSettingsOpen = false },
+        ) {
+            MemohBotSettingsScreen(
+                api = api,
+                bot = selectedBot,
+                agentController = vm.agentController,
+                onBack = { botSettingsOpen = false },
+                onBotUpdated = vm::updateBotMetadata,
+                onBotDeleted = { vm.refreshBots(); botSettingsOpen = false },
+                onOpenWorkspace = { filesOpen = true; botSettingsOpen = false },
+                onBackupExport = { sections, passphrase ->
+                    pendingBackupSections = sections
+                    pendingBackupPassphrase = passphrase
+                    createBackupDocument.launch(
+                        "${selectedBot.title.replace(Regex("[^A-Za-z0-9._-]"), "_")}-backup.zip",
+                    )
+                },
+                onBackupImport = {
+                    openBackupDocument.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                },
+                backupStatus = backupStatus,
+            )
+        }
     }
 
     MemohDialogs(

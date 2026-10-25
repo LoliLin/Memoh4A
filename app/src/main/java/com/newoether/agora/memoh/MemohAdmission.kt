@@ -11,6 +11,9 @@ internal fun MemohViewModel.armAdmissionTimeout(invocation: String, draft: Strin
         if (admissionInvocations.remove(invocation) != null) {
             // A mutation has no optimistic pending draft to restore; only plain sends do.
             if (pendingUserText != null && pendingUserText == draft) restorePendingDraft()
+            // An unanswered retry/edit may still have been applied, but showing rows the server
+            // could have deleted is worse than showing them again after the next snapshot.
+            restoreHistoryMutation(invocation)
             error = if (pendingUserText != null || draft.isEmpty()) {
                 "The server has not acknowledged this message within " +
                     "${ADMISSION_TIMEOUT_MS / 1000} seconds. The draft was restored. " +

@@ -405,18 +405,8 @@ internal fun MemohDialogs(
     onOpenWorkspaceFromSettings: () -> Unit,
 ) {
     val bot = vm.bot
-    if (botSettingsOpen && bot != null) {
-        MemohBotDetailDialog(
-            api = api, bot = bot, agentController = vm.agentController,
-            onDismiss = onBotSettingsDismiss,
-            onBotUpdated = vm::updateBotMetadata,
-            onBotDeleted = { vm.refreshBots(); onBotSettingsDismiss() },
-            backupStatus = backupStatus,
-            onBackupExport = onBackupExport,
-            onBackupImport = onBackupImport,
-            onOpenWorkspace = onOpenWorkspaceFromSettings,
-        )
-    }
+    // Bot settings is a full settings destination now (see MemohBotSettingsScreen), so this host
+    // only keeps the dialogs that genuinely are dialogs.
     importUri?.let { uri ->
         if (bot != null) {
             MemohBackupImportDialog(

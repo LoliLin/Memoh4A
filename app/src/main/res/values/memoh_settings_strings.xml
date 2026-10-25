@@ -54,4 +54,11 @@
     <string name="memoh_settings_history_complete">Complete history loaded</string>
     <string name="memoh_settings_copy_diagnostics">Copy diagnostics</string>
     <string name="memoh_settings_copied">Diagnostics copied</string>
+
+    <!-- Bot settings -->
+    <string name="memoh_bot_read_only">Read-only: your account lacks the manage permission on this bot.</string>
+    <string name="memoh_bot_delete_title">Delete “%1$s”?</string>
+    <string name="memoh_bot_delete_body">This permanently removes the bot, its workspace data and every conversation on the server. Type Delete to confirm.</string>
+    <string name="memoh_bot_delete_confirm">Delete permanently</string>
+    <string name="memoh_bot_delete_button">Delete bot</string>
 </resources>

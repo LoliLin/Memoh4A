@@ -52,4 +52,10 @@
     <string name="memoh_settings_history_complete">历史已全部加载</string>
     <string name="memoh_settings_copy_diagnostics">复制诊断信息</string>
     <string name="memoh_settings_copied">诊断信息已复制</string>
+
+    <string name="memoh_bot_read_only">只读：你的账号在这个 Bot 上没有 manage 权限。</string>
+    <string name="memoh_bot_delete_title">删除“%1$s”？</string>
+    <string name="memoh_bot_delete_body">这会永久删除该 Bot、它的工作区数据以及服务器上的全部对话。请输入 Delete 确认。</string>
+    <string name="memoh_bot_delete_confirm">永久删除</string>
+    <string name="memoh_bot_delete_button">删除 Bot</string>
 </resources>
