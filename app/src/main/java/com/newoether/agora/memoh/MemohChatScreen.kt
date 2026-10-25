@@ -68,6 +68,9 @@ import com.newoether.agora.ui.chat.MessageList
 import com.newoether.agora.ui.chat.rememberChatScrollCoordinator
 import com.newoether.agora.ui.chat.streamingTailAvailability
 import com.newoether.agora.ui.chat.rememberConversationInteractionState
+import com.newoether.agora.ui.chat.ConversationSearchMatch
+import com.newoether.agora.ui.chat.conversationSearchMessageIds
+import com.newoether.agora.ui.chat.scanConversationSearchMatches
 import com.newoether.agora.ui.chat.bottombar.ChatComposerLayout
 import com.newoether.agora.ui.chat.bottombar.ChatComposerSurface
 import com.newoether.agora.ui.chat.bottombar.ComposerControlGroup
@@ -80,6 +83,16 @@ import com.newoether.agora.ui.components.AgoraDropdownMenu
 import com.newoether.agora.ui.components.AgoraDropdownMenuItem
 import com.newoether.agora.ui.motion.LocalAgoraMotionPolicy
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Memoh rendered inside Agora's own chat shell.
@@ -217,8 +230,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         (vm.sessions + listOfNotNull(vm.session)).distinctBy { it.id }
             .map { ChatConversation(id = it.id, title = it.title) }
     }
-    // Agora's own conversation search: matches within the visible transcript, shared
-    // top bar search UI, scroll-to-match. Memoh history is the message source.
+    // Agora's search controls navigate the whole Memoh server history. The cache fetches older
+    // pages on the IO dispatcher, keeps them per session, and streams match counts as pages arrive.
     val messagesState = remember { mutableStateOf(messages) }
     messagesState.value = messages
     val searchMessagesById = remember(messages) { messages.associateBy { it.id } }
@@ -226,6 +239,40 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         remember(searchMessagesById) {
             { _, ids -> ids.mapNotNull(searchMessagesById::get) }
         }
+    val searchBotId = vm.bot?.id
+    val searchSessionId = currentSessionId
+    val searchHistoryTailId = vm.turns.lastOrNull()?.id
+    val searchHistoryCache = remember(searchBotId, searchSessionId, searchHistoryTailId) {
+        MemohConversationSearchCache()
+    }
+    val searchAllMessages: ((String) -> Flow<List<ConversationSearchMatch>>)? = remember(
+        api, searchBotId, searchSessionId, searchHistoryCache,
+    ) {
+        val botId = searchBotId
+        val sessionId = searchSessionId
+        if (botId.isNullOrBlank() || sessionId.isNullOrBlank()) {
+            null
+        } else {
+            { query: String ->
+                flow {
+                    if (query.isBlank()) {
+                        emit(emptyList())
+                        return@flow
+                    }
+                    delay(180L)
+                    try {
+                        searchHistoryCache.collectMatches(api, botId, sessionId, query) { matches ->
+                            emit(matches)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Keep any results already found; a server paging failure must not crash chat.
+                    }
+                }
+            }
+        }
+    }
     scrollCoordinator.BindImeEffects(
         currentConversationId = currentSessionId,
         messages = messagesState,
@@ -239,7 +286,34 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         messages = messagesState,
         listState = listState,
         searchMessages = searchMessageLoader,
+        searchAllMessages = searchAllMessages,
     )
+    val pendingSearchScrollMatchKey = remember(currentSessionId) { mutableStateOf<String?>(null) }
+    val selectedSearchMatch = conversationInteraction.searchMatches
+        .getOrNull(conversationInteraction.searchMatchIndex)
+    LaunchedEffect(
+        currentSessionId,
+        selectedSearchMatch?.key,
+        messages,
+        vm.olderMessagesAvailable,
+        vm.loadingOlderMessages,
+    ) {
+        val match = selectedSearchMatch ?: run {
+            pendingSearchScrollMatchKey.value = null
+            return@LaunchedEffect
+        }
+        if (messages.any { it.id == match.messageId }) {
+            if (pendingSearchScrollMatchKey.value == match.key) {
+                pendingSearchScrollMatchKey.value = null
+                conversationInteraction.retrySearchScroll()
+            } else if (pendingSearchScrollMatchKey.value != null) {
+                pendingSearchScrollMatchKey.value = null
+            }
+        } else {
+            pendingSearchScrollMatchKey.value = match.key
+            if (vm.olderMessagesAvailable && !vm.loadingOlderMessages) vm.loadOlderMessages()
+        }
+    }
     val streamingFollowAvailability = streamingTailAvailability(
         generationActive = vm.running,
         blocked = conversationInteraction.searchActive || !motion.allowProgrammaticScrollMotion,
@@ -457,6 +531,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             },
                             activeSearchMatch = conversationInteraction.searchMatches
                                 .getOrNull(conversationInteraction.searchMatchIndex),
+                            searchScrollRequestKey = conversationInteraction.searchScrollRequestKey,
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .fillMaxHeight()
@@ -839,6 +914,92 @@ private fun MemohWelcome(bottomBarHeight: androidx.compose.ui.unit.Dp, windowHei
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
             }
+        }
+    }
+}
+
+/** Incrementally caches one session's server pages so later queries stay local and responsive. */
+private class MemohConversationSearchCache {
+    private val mutex = Mutex()
+    // API pages arrive newest first; each individual page is already in transcript order.
+    private val pages = mutableListOf<List<com.newoether.agora.model.ChatMessage>>()
+    private var beforeMessageId = ""
+    private var complete = false
+
+    suspend fun collectMatches(
+        api: MemohApi,
+        botId: String,
+        sessionId: String,
+        query: String,
+        publish: suspend (List<ConversationSearchMatch>) -> Unit,
+    ) {
+        if (query.isBlank()) {
+            publish(emptyList())
+            return
+        }
+        mutex.withLock {
+            var matches = emptyList<ConversationSearchMatch>()
+            pages.asReversed().forEach { page ->
+                currentCoroutineContext().ensureActive()
+                matches = findPageMatches(page, query) + matches
+                publish(matches)
+            }
+            while (!complete) {
+                currentCoroutineContext().ensureActive()
+                val page = withContext(Dispatchers.IO) {
+                    api.history(botId, sessionId, beforeMessageId)
+                }
+                if (page.isEmpty()) {
+                    complete = true
+                    break
+                }
+                val cursor = page.firstOrNull()?.id.orEmpty()
+                if (beforeMessageId.isNotBlank() && cursor == beforeMessageId) {
+                    complete = true
+                    break
+                }
+                val (searchablePage, pageMatches) = projectPage(page, query)
+                pages += searchablePage
+                beforeMessageId = cursor
+                if (page.size < HISTORY_PAGE_SIZE || cursor.isBlank()) complete = true
+                matches = pageMatches + matches
+                publish(matches)
+            }
+        }
+    }
+
+    private suspend fun projectPage(
+        turns: List<MemohTurn>,
+        query: String,
+    ): Pair<List<com.newoether.agora.model.ChatMessage>, List<ConversationSearchMatch>> =
+        withContext(Dispatchers.Default) {
+            val messages = memohMessages(
+                turns = turns,
+                pendingText = null,
+                pendingAttachments = emptyList(),
+                liveBlocks = emptyList(),
+                running = false,
+            ).map { message ->
+                com.newoether.agora.model.ChatMessage(
+                    id = message.id,
+                    text = message.text,
+                    participant = message.participant,
+                )
+            }
+            val messagesById = messages.associateBy { it.id }
+            val matches = scanConversationSearchMatches(conversationSearchMessageIds(messages), query) { ids ->
+                ids.mapNotNull(messagesById::get)
+            }
+            messages to matches
+        }
+
+    private suspend fun findPageMatches(
+        messages: List<com.newoether.agora.model.ChatMessage>,
+        query: String,
+    ): List<ConversationSearchMatch> = withContext(Dispatchers.Default) {
+        val messagesById = messages.associateBy { it.id }
+        scanConversationSearchMatches(conversationSearchMessageIds(messages), query) { ids ->
+            ids.mapNotNull(messagesById::get)
         }
     }
 }
