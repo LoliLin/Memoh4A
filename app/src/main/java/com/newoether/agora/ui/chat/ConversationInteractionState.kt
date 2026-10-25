@@ -341,6 +341,7 @@ internal class ConversationInteractionProjection internal constructor(
     fun recordSearchMatchDistance(key: String, distance: Float) =
         state.recordSearchMatchDistance(key, distance)
     fun recordSearchTurns(turns: List<MessageListTurn>) = state.recordSearchTurns(turns)
+    fun retrySearchScroll() = state.requestSearchScroll()
 
 }
 
