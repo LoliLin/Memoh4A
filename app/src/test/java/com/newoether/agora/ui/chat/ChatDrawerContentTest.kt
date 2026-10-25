@@ -246,8 +246,9 @@ class ChatDrawerContentTest {
         val root = generateSequence(File(requireNotNull(System.getProperty("user.dir"))).absoluteFile) {
             it.parentFile
         }.first { File(it, "app/src/main/java").isDirectory }
+        // The shared row owns selection colors and geometry so every caller stays identical.
         val source = File(root,
-            "app/src/main/java/com/newoether/agora/ui/chat/ChatDrawerContent.kt").readText()
+            "app/src/main/java/com/newoether/agora/ui/chat/AgoraDrawerConversationRow.kt").readText()
 
         listOf(
             "drawerConversationSelectionContainer",

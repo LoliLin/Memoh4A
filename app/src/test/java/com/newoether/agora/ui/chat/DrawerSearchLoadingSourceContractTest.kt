@@ -126,16 +126,19 @@ class DrawerSearchLoadingSourceContractTest {
             ),
         )
         assertTrue(drawer.contains("val visibleConversationTitle = replaceCustomProviderIdsForDisplay("))
-        val titleCrossfadeBlock = normalizedDrawer
-            .substringAfter("targetState = visibleConversationTitle")
+        // The row owns the title crossfade so every drawer caller shares one transition.
+        assertTrue(drawer.contains("title = visibleConversationTitle,"))
+        val row = source("ui/chat/AgoraDrawerConversationRow.kt")
+        val titleCrossfadeBlock = row.replace("\r\n", "\n")
+            .substringAfter("targetState = title")
             .substringBefore("label = \"DrawerConversationTitleCrossfade\"")
         assertTrue(titleCrossfadeBlock.contains("durationMillis = 200"))
         assertTrue(titleCrossfadeBlock.contains("easing = FastOutSlowInEasing"))
         assertTrue(titleCrossfadeBlock.contains("modifier = Modifier.weight(1f)"))
-        assertTrue(drawer.split("label = \"DrawerConversationTitleCrossfade\"").size - 1 == 1)
+        assertTrue(row.split("label = \"DrawerConversationTitleCrossfade\"").size - 1 == 1)
         assertTrue(drawer.split(".animateItem(").size - 1 == 1)
         assertFalse(drawer.contains("fadeInSpec = tween(180)"))
-        assertTrue(drawer.contains("overflow = TextOverflow.Ellipsis"))
+        assertTrue(row.contains("overflow = TextOverflow.Ellipsis"))
         assertTrue(searchResultItem.contains("overflow = TextOverflow.Ellipsis"))
         assertTrue(searchState.contains("var isSearching by mutableStateOf(false)"))
         assertTrue(searchState.contains("isSearching = true"))

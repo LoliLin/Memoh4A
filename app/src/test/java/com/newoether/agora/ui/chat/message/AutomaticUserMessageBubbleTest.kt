@@ -94,6 +94,7 @@ class AutomaticUserMessageBubbleTest {
             isLoading = isLoading,
             isEditingAllowed = isEditingAllowed,
             showActions = true,
+            showDeleteAction = true,
             actionCopyText = message.text,
             showBranchSelector = true,
             branchIndex = 1,
