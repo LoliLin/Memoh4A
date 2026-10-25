@@ -150,7 +150,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var filesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
     var queueOpen by remember { mutableStateOf(false) }
-    var runtimeControlsOpen by remember { mutableStateOf(false) }
     var compactConfirm by remember { mutableStateOf(false) }
     var terminalOpen by remember { mutableStateOf(false) }
     var marketOpen by remember { mutableStateOf(false) }
@@ -507,17 +506,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                 focusManager.clearFocus()
                                 conversationInteraction.activateSearch()
                             }
-                            MemohAccountAction.BotSettings -> { backupStatus = ""; botSettingsOpen = true }
                             MemohAccountAction.Files -> filesOpen = true
                             MemohAccountAction.Schedules -> schedulesOpen = true
                             MemohAccountAction.Terminal -> terminalOpen = true
                             MemohAccountAction.Queue -> { queueOpen = true; vm.refreshQueue() }
-                            MemohAccountAction.RuntimeControls -> runtimeControlsOpen = true
                             MemohAccountAction.Compact -> compactConfirm = true
-                            MemohAccountAction.Rename -> {
-                                newTitle = vm.session?.title.orEmpty(); renameDialog = true
-                            }
-                            MemohAccountAction.Delete -> deleteDialog = true
                             MemohAccountAction.Market -> marketOpen = true
                             MemohAccountAction.ManageBots -> settingsOpen = true
                         }
@@ -922,7 +915,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         deleteDialog = deleteDialog,
         botSettingsOpen = botSettingsOpen,
         filesOpen = filesOpen, schedulesOpen = schedulesOpen, queueOpen = queueOpen,
-        runtimeControlsOpen = runtimeControlsOpen, compactConfirm = compactConfirm,
+        compactConfirm = compactConfirm,
         importUri = importUri, backupStatus = backupStatus,
         onRenameDismiss = { renameDialog = false },
         onDeleteDismiss = { deleteDialog = false },
@@ -930,7 +923,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         onFilesDismiss = { filesOpen = false },
         onSchedulesDismiss = { schedulesOpen = false },
         onQueueDismiss = { queueOpen = false },
-        onRuntimeControlsDismiss = { runtimeControlsOpen = false },
         onCompactDismiss = { compactConfirm = false },
         onImportConsumed = { importUri = null },
         onBackupExport = { sections, passphrase ->

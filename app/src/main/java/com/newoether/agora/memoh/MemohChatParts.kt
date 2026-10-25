@@ -77,7 +77,7 @@ import com.newoether.agora.util.verticalEdgeFade
 
 /** Account menu actions that the top bar's overflow surfaces. */
 internal enum class MemohAccountAction {
-    Search, BotSettings, Files, Schedules, Terminal, Market, Queue, RuntimeControls, Compact, Rename, Delete, ManageBots,
+    Search, Files, Schedules, Terminal, Market, Queue, Compact, ManageBots,
 }
 
 /** Memoh's server-backed drawer using Agora's shared shell and conversation row. */
@@ -331,12 +331,8 @@ internal fun MemohAccountMenu(
     }
 
     if (vm.bot != null) {
-        Text("BOT", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
-        AgoraDropdownMenuItem(
-            text = { Text(uiResources.getString(R.string.memoh_ui_bot_settings)) },
-            leadingIcon = { Icon(Icons.Default.Settings, null) },
-            onClick = { dismiss(); onAction(MemohAccountAction.BotSettings) },
-        )
+        // No second title here: the BOTS section above already names this Bot, and repeating it
+        // is exactly what made the menu look like it had two Bot entries.
         AgoraDropdownMenuItem(
             text = { Text(uiResources.getString(R.string.memoh_ui_workspace_files)) },
             leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
@@ -372,23 +368,8 @@ internal fun MemohAccountMenu(
             onClick = { dismiss(); onAction(MemohAccountAction.Queue) },
         )
         AgoraDropdownMenuItem(
-            text = { Text(uiResources.getString(R.string.memoh_ui_runtime_controls)) },
-            leadingIcon = { Icon(Icons.Default.Settings, null) },
-            onClick = { dismiss(); onAction(MemohAccountAction.RuntimeControls) },
-        )
-        AgoraDropdownMenuItem(
             text = { Text(uiResources.getString(R.string.memoh_ui_compact_context)) },
             onClick = { dismiss(); onAction(MemohAccountAction.Compact) },
-        )
-        AgoraDropdownMenuItem(
-            text = { Text(uiResources.getString(R.string.memoh_ui_rename_chat)) },
-            leadingIcon = { Icon(Icons.Default.Edit, null) },
-            onClick = { dismiss(); onAction(MemohAccountAction.Rename) },
-        )
-        AgoraDropdownMenuItem(
-            text = { Text(uiResources.getString(R.string.memoh_ui_delete_chat)) },
-            leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-            onClick = { dismiss(); onAction(MemohAccountAction.Delete) },
         )
     }
 
@@ -409,7 +390,6 @@ internal fun MemohDialogs(
     filesOpen: Boolean,
     schedulesOpen: Boolean,
     queueOpen: Boolean,
-    runtimeControlsOpen: Boolean,
     compactConfirm: Boolean,
     importUri: Uri?,
     backupStatus: String,
@@ -419,7 +399,6 @@ internal fun MemohDialogs(
     onFilesDismiss: () -> Unit,
     onSchedulesDismiss: () -> Unit,
     onQueueDismiss: () -> Unit,
-    onRuntimeControlsDismiss: () -> Unit,
     onCompactDismiss: () -> Unit,
     onImportConsumed: () -> Unit,
     onBackupExport: (List<String>, String) -> Unit,
@@ -455,9 +434,6 @@ internal fun MemohDialogs(
     }
     if (queueOpen && vm.session != null) {
         MemohQueueDialog(vm, onDismiss = onQueueDismiss)
-    }
-    if (runtimeControlsOpen && vm.session != null) {
-        MemohRuntimeControlsDialog(vm, onDismiss = onRuntimeControlsDismiss)
     }
     if (compactConfirm) {
         AlertDialog(

@@ -34,6 +34,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.newoether.agora.ui.settings.rememberSettingsScrollState
+import com.newoether.agora.ui.settings.GuardedAnimatedContent
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.OutlinedTextField
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -177,9 +182,63 @@ internal fun MemohServerSettingsPage(viewModel: MemohViewModel, onBack: () -> Un
 @Composable
 internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     var confirmSignOut by remember { mutableStateOf(false) }
-    var editingProfile by remember { mutableStateOf(false) }
-    var changingPassword by remember { mutableStateOf(false) }
+    // Pushed pages rather than dialogs: Agora's account/provider configuration never edits a
+    // value inside a modal, and a modal loses the title bar and scroll position.
+    var editingProfile by rememberSaveable { mutableStateOf(false) }
+    var changingPassword by rememberSaveable { mutableStateOf(false) }
 
+    Box(Modifier.fillMaxSize()) {
+    GuardedAnimatedContent(
+        targetState = when {
+            editingProfile -> "profile"
+            changingPassword -> "password"
+            else -> "home"
+        },
+        forward = editingProfile || changingPassword,
+    ) { page ->
+        when (page) {
+            "profile" -> MemohProfilePage(viewModel) { editingProfile = false }
+            "password" -> MemohPasswordPage(viewModel) { changingPassword = false }
+            else -> MemohAccountHome(
+                viewModel = viewModel,
+                onBack = onBack,
+                onEditProfile = { editingProfile = true },
+                onChangePassword = { changingPassword = true },
+                onSignOut = { confirmSignOut = true },
+            )
+        }
+    }
+    }
+
+    if (confirmSignOut) {
+        AlertDialog(
+            onDismissRequest = { confirmSignOut = false },
+            title = { Text(stringResource(R.string.memoh_settings_sign_out_confirm_title)) },
+            text = { Text(stringResource(R.string.memoh_settings_sign_out_confirm_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSignOut = false
+                    viewModel.logout()
+                    onBack()
+                }) {
+                    Text(stringResource(R.string.memoh_settings_sign_out), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSignOut = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MemohAccountHome(
+    viewModel: MemohViewModel,
+    onBack: () -> Unit,
+    onEditProfile: () -> Unit,
+    onChangePassword: () -> Unit,
+    onSignOut: () -> Unit,
+) {
     CollapsingSettingsScaffold(title = stringResource(R.string.memoh_settings_account), onBack = onBack) {
         SettingsGroupColumn {
             SettingsGroup(
@@ -212,7 +271,7 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
                             headlineContent = { Text(stringResource(R.string.memoh_ui_edit_profile)) },
                             supportingContent = { Text(stringResource(R.string.memoh_ui_edit_profile_desc)) },
                             leadingContent = { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) },
-                            modifier = Modifier.clickable { editingProfile = true },
+                            modifier = Modifier.clickable { onEditProfile() },
                         )
                     },
                     {
@@ -220,7 +279,7 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
                             headlineContent = { Text(stringResource(R.string.memoh_ui_change_password)) },
                             supportingContent = { Text(stringResource(R.string.memoh_ui_change_password_desc)) },
                             leadingContent = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
-                            modifier = Modifier.clickable { changingPassword = true },
+                            modifier = Modifier.clickable { onChangePassword() },
                         )
                     },
                     {
@@ -229,7 +288,7 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
                                 Text(stringResource(R.string.memoh_settings_sign_out), color = MaterialTheme.colorScheme.error)
                             },
                             supportingContent = { Text(stringResource(R.string.memoh_settings_sign_out_desc)) },
-                            modifier = Modifier.clickable { confirmSignOut = true },
+                            modifier = Modifier.clickable { onSignOut() },
                         )
                     },
                 ),
@@ -237,104 +296,97 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
         }
     }
 
-    if (confirmSignOut) {
-        AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
-            title = { Text(stringResource(R.string.memoh_settings_sign_out_confirm_title)) },
-            text = { Text(stringResource(R.string.memoh_settings_sign_out_confirm_message)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmSignOut = false
-                    viewModel.logout()
-                    onBack()
-                }) {
-                    Text(stringResource(R.string.memoh_settings_sign_out), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmSignOut = false }) { Text(stringResource(R.string.cancel)) }
-            },
-        )
-    }
 
-    if (editingProfile) {
-        MemohProfileEditor(viewModel) { editingProfile = false }
-    }
-    if (changingPassword) {
-        MemohPasswordEditor(viewModel) { changingPassword = false }
-    }
 }
 
-/** 显示名/头像/时区写回平台身份；头像地址为空表示沿用服务端已有的 Google 头像。 */
+/** 显示名/头像写回平台身份；头像留空表示沿用服务端已有的头像。 */
 @Composable
-private fun MemohProfileEditor(viewModel: MemohViewModel, onDismiss: () -> Unit) {
+private fun MemohProfilePage(viewModel: MemohViewModel, onBack: () -> Unit) {
     val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     var displayName by remember { mutableStateOf(viewModel.profileDisplayName) }
     var avatarUrl by remember { mutableStateOf(viewModel.profileAvatarUrl) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    val scrollState = rememberSettingsScrollState()
 
-    AlertDialog(
-        onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(uiResources.getString(R.string.memoh_ui_edit_profile)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = displayName,
-                    onValueChange = { displayName = it },
-                    label = { Text(uiResources.getString(R.string.memoh_ui_display_name)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+    CollapsingSettingsScaffold(
+        title = uiResources.getString(R.string.memoh_ui_edit_profile),
+        onBack = onBack,
+        scrollState = scrollState,
+    ) {
+        SettingsGroupColumn {
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_identity),
+                items = listOf(
+                    {
+                        MemohFieldRow(
+                            value = displayName,
+                            onValueChange = { displayName = it },
+                            label = uiResources.getString(R.string.memoh_ui_display_name),
+                        )
+                    },
+                    {
+                        MemohFieldRow(
+                            value = avatarUrl,
+                            onValueChange = { avatarUrl = it },
+                            label = uiResources.getString(R.string.memoh_ui_avatar_url),
+                        )
+                    },
+                ),
+            )
+            if (error.isNotBlank()) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_status),
+                    items = listOf({
+                        SettingsItem(headlineContent = { Text(error, color = MaterialTheme.colorScheme.error) })
+                    }),
                 )
-                OutlinedTextField(
-                    value = avatarUrl,
-                    onValueChange = { avatarUrl = it },
-                    label = { Text(uiResources.getString(R.string.memoh_ui_avatar_url)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (error.isNotBlank()) {
-                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !saving && displayName.isNotBlank(),
-                onClick = {
-                    saving = true
-                    error = ""
-                    scope.launch {
-                        runCatching {
-                            viewModel.api.updateAccount(
-                                displayName = displayName,
-                                avatarUrl = avatarUrl,
-                                timezone = "",
-                                titleModelId = "",
-                            )
-                        }.onSuccess { updated ->
-                            viewModel.applyPlatformProfile(updated.displayName, updated.avatarUrl)
-                            onDismiss()
-                        }.onFailure {
-                            error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
-                        }
-                        saving = false
-                    }
-                },
-            ) {
-                if (saving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Text(uiResources.getString(R.string.memoh_ui_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !saving) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
-        },
-    )
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_actions),
+                items = listOf({
+                    SettingsItem(
+                        headlineContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (saving) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(uiResources.getString(R.string.memoh_ui_save))
+                            }
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 56.dp)
+                            .clickable(enabled = !saving && displayName.isNotBlank()) {
+                                saving = true
+                                error = ""
+                                scope.launch {
+                                    runCatching {
+                                        viewModel.api.updateAccount(
+                                            displayName = displayName,
+                                            avatarUrl = avatarUrl,
+                                            timezone = "",
+                                            titleModelId = "",
+                                        )
+                                    }.onSuccess { updated ->
+                                        viewModel.applyPlatformProfile(updated.displayName, updated.avatarUrl)
+                                        onBack()
+                                    }.onFailure {
+                                        error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+                                    }
+                                    saving = false
+                                }
+                            },
+                    )
+                }),
+            )
+        }
+    }
 }
 
 @Composable
-private fun MemohPasswordEditor(viewModel: MemohViewModel, onDismiss: () -> Unit) {
+private fun MemohPasswordPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     var current by remember { mutableStateOf("") }
@@ -344,77 +396,97 @@ private fun MemohPasswordEditor(viewModel: MemohViewModel, onDismiss: () -> Unit
     var error by remember { mutableStateOf("") }
     val mismatch = confirm.isNotEmpty() && next != confirm
     val tooShort = next.isNotEmpty() && next.length < 8
+    val scrollState = rememberSettingsScrollState()
 
-    AlertDialog(
-        onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text(uiResources.getString(R.string.memoh_ui_change_password)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    uiResources.getString(R.string.memoh_ui_current_password) to current,
-                    uiResources.getString(R.string.memoh_ui_new_password) to next,
-                    uiResources.getString(R.string.memoh_ui_confirm_password) to confirm,
-                ).forEachIndexed { index, (label, value) ->
-                    OutlinedTextField(
-                        value = value,
-                        onValueChange = {
-                            when (index) {
-                                0 -> current = it
-                                1 -> next = it
-                                else -> confirm = it
+    CollapsingSettingsScaffold(
+        title = uiResources.getString(R.string.memoh_ui_change_password),
+        onBack = onBack,
+        scrollState = scrollState,
+    ) {
+        SettingsGroupColumn {
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_credentials),
+                items = listOf(
+                    {
+                        MemohFieldRow(
+                            value = current,
+                            onValueChange = { current = it },
+                            label = uiResources.getString(R.string.memoh_ui_current_password),
+                            secret = true,
+                        )
+                    },
+                    {
+                        MemohFieldRow(
+                            value = next,
+                            onValueChange = { next = it },
+                            label = uiResources.getString(R.string.memoh_ui_new_password),
+                            secret = true,
+                        )
+                    },
+                    {
+                        MemohFieldRow(
+                            value = confirm,
+                            onValueChange = { confirm = it },
+                            label = uiResources.getString(R.string.memoh_ui_confirm_password),
+                            secret = true,
+                        )
+                    },
+                ),
+            )
+            if (tooShort || mismatch || error.isNotBlank()) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_status),
+                    items = listOf({
+                        SettingsItem(
+                            headlineContent = {
+                                Text(
+                                    when {
+                                        tooShort -> uiResources.getString(R.string.memoh_ui_password_too_short)
+                                        mismatch -> uiResources.getString(R.string.memoh_ui_password_mismatch)
+                                        else -> error
+                                    },
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        )
+                    }),
+                )
+            }
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_actions),
+                items = listOf({
+                    SettingsItem(
+                        headlineContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (saving) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(uiResources.getString(R.string.memoh_ui_save))
                             }
                         },
-                        label = { Text(label) },
-                        singleLine = true,
-                        visualTransformation =
-                            androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .heightIn(min = 56.dp)
+                            .clickable(
+                                enabled = !saving && current.isNotBlank() &&
+                                    next.length >= 8 && next == confirm,
+                            ) {
+                                saving = true
+                                error = ""
+                                scope.launch {
+                                    runCatching { viewModel.api.changePassword(current, next) }
+                                        .onSuccess { onBack() }
+                                        .onFailure {
+                                            error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+                                        }
+                                    saving = false
+                                }
+                            },
                     )
-                }
-                if (tooShort) {
-                    Text(
-                        uiResources.getString(R.string.memoh_ui_password_too_short),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                if (mismatch) {
-                    Text(
-                        uiResources.getString(R.string.memoh_ui_password_mismatch),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                if (error.isNotBlank()) {
-                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !saving && current.isNotBlank() && next.length >= 8 && next == confirm,
-                onClick = {
-                    saving = true
-                    error = ""
-                    scope.launch {
-                        runCatching { viewModel.api.changePassword(current, next) }
-                            .onSuccess { onDismiss() }
-                            .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error) }
-                        saving = false
-                    }
-                },
-            ) {
-                if (saving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Text(uiResources.getString(R.string.memoh_ui_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !saving) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
-        },
-    )
+                }),
+            )
+        }
+    }
 }
 
 /** Preferences that change how the transcript behaves while you read it. */
@@ -743,5 +815,38 @@ internal fun MemohLanguagePage(
                 },
             )
         }
+    }
+}
+
+/** A settings row that hosts a text field and keeps the row paddings of the shared contract. */
+@Composable
+private fun MemohFieldRow(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    secret: Boolean = false,
+    enabled: Boolean = true,
+) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            singleLine = true,
+            enabled = enabled,
+            visualTransformation = if (secret) {
+                androidx.compose.ui.text.input.PasswordVisualTransformation()
+            } else {
+                androidx.compose.ui.text.input.VisualTransformation.None
+            },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = if (secret) {
+                    androidx.compose.ui.text.input.KeyboardType.Password
+                } else {
+                    androidx.compose.ui.text.input.KeyboardType.Text
+                },
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

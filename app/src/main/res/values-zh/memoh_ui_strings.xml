@@ -611,4 +611,15 @@
     <string name="memoh_ui_confirm_password">确认新密码</string>
     <string name="memoh_ui_password_too_short">至少 8 个字符</string>
     <string name="memoh_ui_password_mismatch">两次输入不一致</string>
+    <string name="memoh_ui_not_configured">未配置</string>
+    <string name="memoh_ui_connection">连接</string>
+    <string name="memoh_ui_key_configured">已保存密钥</string>
+    <string name="memoh_ui_test_connection">测试连接</string>
+    <string name="memoh_ui_test_connection_desc">向该供应商发送一次测试请求</string>
+    <string name="memoh_ui_provider_actions">供应商操作</string>
+    <string name="memoh_ui_remove_provider_desc">它下面的模型会停止工作</string>
+    <string name="memoh_ui_actions">操作</string>
+    <string name="memoh_ui_enable">启用</string>
+    <string name="memoh_ui_disable">停用</string>
+    <string name="memoh_ui_options">更多</string>
 </resources>

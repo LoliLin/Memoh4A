@@ -636,7 +636,10 @@ internal fun AssistantMessageContent(
                                 tint = terminalActionTint,
                             )
                         }
-                        Box {
+                        // A transport that keeps neither per-message metadata nor a local delete
+                        // leaves this menu with zero items; rendering the overflow dot then is a
+                        // live-looking button that opens an empty popup.
+                        if (showInfoAction || showDeleteAction) Box {
                             IconButton(
                                 onClick = {
                                     showMenu = true
