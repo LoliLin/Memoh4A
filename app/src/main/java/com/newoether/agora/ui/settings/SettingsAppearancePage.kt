@@ -46,7 +46,7 @@ import com.newoether.agora.ui.theme.ColorSchemePreset
 import com.newoether.agora.ui.theme.SchemeStyle
 import com.newoether.agora.ui.theme.colorSchemeForPreset
 import com.newoether.agora.util.readFontName
-import com.newoether.agora.viewmodel.ChatViewModel
+import com.newoether.agora.data.repository.SettingsRepository
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,26 +56,30 @@ import com.newoether.agora.ui.components.AgoraDropdownMenuItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
-    val themeMode by viewModel.settings.themeMode.collectAsState()
-    val amoledEnabled by viewModel.settings.amoledEnabled.collectAsState()
-    val colorSchemeName by viewModel.settings.colorScheme.collectAsState()
-    val schemeStyleName by viewModel.settings.schemeStyle.collectAsState()
-    val dynamicColor by viewModel.settings.dynamicColor.collectAsState()
-    val blurEffectsEnabled by viewModel.settings.blurEffectsEnabled.collectAsState()
-    val reduceMotion by viewModel.settings.reduceMotion.collectAsState()
-    val stickToBottom by viewModel.settings.stickToBottom.collectAsState()
-    val parseInlineDollarMath by viewModel.settings.parseInlineDollarMath.collectAsState()
-    val autoWrapCodeBlocks by viewModel.settings.autoWrapCodeBlocks.collectAsState()
-    val hapticsEnabled by viewModel.settings.hapticsEnabled.collectAsState()
+fun SettingsAppearancePage(
+    settings: SettingsRepository,
+    onSnackbar: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val themeMode by settings.themeMode.collectAsState()
+    val amoledEnabled by settings.amoledEnabled.collectAsState()
+    val colorSchemeName by settings.colorScheme.collectAsState()
+    val schemeStyleName by settings.schemeStyle.collectAsState()
+    val dynamicColor by settings.dynamicColor.collectAsState()
+    val blurEffectsEnabled by settings.blurEffectsEnabled.collectAsState()
+    val reduceMotion by settings.reduceMotion.collectAsState()
+    val stickToBottom by settings.stickToBottom.collectAsState()
+    val parseInlineDollarMath by settings.parseInlineDollarMath.collectAsState()
+    val autoWrapCodeBlocks by settings.autoWrapCodeBlocks.collectAsState()
+    val hapticsEnabled by settings.hapticsEnabled.collectAsState()
 
-    val toolCallDisplayMode by viewModel.settings.toolCallDisplayMode.collectAsState()
-    val thinkingSegmentDisplayMode by viewModel.settings.thinkingSegmentDisplayMode.collectAsState()
-    val autoExpandActiveGroup by viewModel.settings.autoExpandActiveGroup.collectAsState()
-    val fontPreference by viewModel.settings.fontPreference.collectAsState()
-    val customFontPath by viewModel.settings.customFontPath.collectAsState()
-    val customFontName by viewModel.settings.customFontName.collectAsState()
-    val showDocFab by viewModel.settings.showDocumentationFab.collectAsState()
+    val toolCallDisplayMode by settings.toolCallDisplayMode.collectAsState()
+    val thinkingSegmentDisplayMode by settings.thinkingSegmentDisplayMode.collectAsState()
+    val autoExpandActiveGroup by settings.autoExpandActiveGroup.collectAsState()
+    val fontPreference by settings.fontPreference.collectAsState()
+    val customFontPath by settings.customFontPath.collectAsState()
+    val customFontName by settings.customFontName.collectAsState()
+    val showDocFab by settings.showDocumentationFab.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val invalidFontMessage = stringResource(R.string.font_invalid_file)
@@ -87,8 +91,8 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
     LaunchedEffect(fontPreference) {
         if (fontPreference != "custom" && customFontPath.isNotBlank()) {
             withContext(Dispatchers.IO) { File(customFontPath).delete() }
-            viewModel.settings.setCustomFontPath("")
-            viewModel.settings.setCustomFontName("")
+            settings.setCustomFontPath("")
+            settings.setCustomFontName("")
         }
     }
 
@@ -115,14 +119,14 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                     if (!validFont) {
                         dest.delete()
                         withContext(Dispatchers.Main) {
-                            viewModel.emitSnackbar(invalidFontMessage)
+                            onSnackbar(invalidFontMessage)
                         }
                         return@launch
                     }
                     val fontName = readFontName(dest)
                     withContext(Dispatchers.Main) {
-                        viewModel.settings.setCustomFontPath(dest.absolutePath)
-                        viewModel.settings.setCustomFontName(fontName)
+                        settings.setCustomFontPath(dest.absolutePath)
+                        settings.setCustomFontName(fontName)
                     }
                 } catch (_: Exception) {}
             }
@@ -202,7 +206,7 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                                         if (isSelected) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
                                                     },
                                                     trailingIcon = { Icon(icon, null) },
-                                                    onClick = { viewModel.settings.setThemeMode(mode); expanded = false }
+                                                    onClick = { settings.setThemeMode(mode); expanded = false }
                                                 )
                                             }
                                         }
@@ -227,7 +231,7 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                             modifier = Modifier.toggleable(
                                 value = amoledEnabled,
                                 role = Role.Switch,
-                                onValueChange = viewModel.settings::setAmoledEnabled,
+                                onValueChange = settings::setAmoledEnabled,
                             ),
                         )
                     }
@@ -247,11 +251,11 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                 trailingContent = {
                                     Switch(
                                         checked = dynamicColor,
-                                        onCheckedChange = { viewModel.settings.setDynamicColor(it) },
+                                        onCheckedChange = { settings.setDynamicColor(it) },
                                     )
                                 },
                                 modifier = Modifier.clickable {
-                                    viewModel.settings.setDynamicColor(!dynamicColor)
+                                    settings.setDynamicColor(!dynamicColor)
                                 },
                             )
                         }
@@ -302,7 +306,7 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                                 trailingIcon = {
                                                     Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(presetPrimary))
                                                 },
-                                                onClick = { viewModel.settings.setColorScheme(preset.name); expanded = false }
+                                                onClick = { settings.setColorScheme(preset.name); expanded = false }
                                             )
                                         }
                                     }
@@ -348,7 +352,7 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                                 leadingIcon = {
                                                     if (style == currentStyle) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
                                                 },
-                                                onClick = { viewModel.settings.setSchemeStyle(style.name); expanded = false }
+                                                onClick = { settings.setSchemeStyle(style.name); expanded = false }
                                             )
                                         }
                                     }
@@ -379,10 +383,10 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                 trailingContent = {
                                     Switch(
                                         checked = blurEffectsEnabled,
-                                        onCheckedChange = { viewModel.settings.setBlurEffectsEnabled(it) }
+                                        onCheckedChange = { settings.setBlurEffectsEnabled(it) }
                                     )
                                 },
-                                modifier = Modifier.clickable { viewModel.settings.setBlurEffectsEnabled(!blurEffectsEnabled) }
+                                modifier = Modifier.clickable { settings.setBlurEffectsEnabled(!blurEffectsEnabled) }
                             )
                         }
                         add {
@@ -400,11 +404,11 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                 trailingContent = {
                                     Switch(
                                         checked = reduceMotion,
-                                        onCheckedChange = { viewModel.settings.setReduceMotion(it) }
+                                        onCheckedChange = { settings.setReduceMotion(it) }
                                     )
                                 },
                                 modifier = Modifier.clickable {
-                                    viewModel.settings.setReduceMotion(!reduceMotion)
+                                    settings.setReduceMotion(!reduceMotion)
                                 }
                             )
                         }
@@ -423,11 +427,11 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                 trailingContent = {
                                     Switch(
                                         checked = hapticsEnabled,
-                                        onCheckedChange = { viewModel.settings.setHapticsEnabled(it) }
+                                        onCheckedChange = { settings.setHapticsEnabled(it) }
                                     )
                                 },
                                 modifier = Modifier.clickable {
-                                    viewModel.settings.setHapticsEnabled(!hapticsEnabled)
+                                    settings.setHapticsEnabled(!hapticsEnabled)
                                 }
                             )
                         }
@@ -453,11 +457,11 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                 trailingContent = {
                                     Switch(
                                         checked = stickToBottom,
-                                        onCheckedChange = viewModel.settings::setStickToBottom,
+                                        onCheckedChange = settings::setStickToBottom,
                                     )
                                 },
                                 modifier = Modifier.clickable {
-                                    viewModel.settings.setStickToBottom(!stickToBottom)
+                                    settings.setStickToBottom(!stickToBottom)
                                 },
                             )
                         }
@@ -476,11 +480,11 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                 trailingContent = {
                                     Switch(
                                         checked = parseInlineDollarMath,
-                                        onCheckedChange = viewModel.settings::setParseInlineDollarMath,
+                                        onCheckedChange = settings::setParseInlineDollarMath,
                                     )
                                 },
                                 modifier = Modifier.clickable {
-                                    viewModel.settings.setParseInlineDollarMath(!parseInlineDollarMath)
+                                    settings.setParseInlineDollarMath(!parseInlineDollarMath)
                                 },
                             )
                         }
@@ -490,9 +494,9 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                 supportingContent = { Text(stringResource(R.string.auto_wrap_code_blocks_desc)) },
                                 leadingContent = { Icon(Icons.AutoMirrored.Filled.WrapText, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp)) },
                                 trailingContent = {
-                                    Switch(checked = autoWrapCodeBlocks, onCheckedChange = viewModel.settings::setAutoWrapCodeBlocks)
+                                    Switch(checked = autoWrapCodeBlocks, onCheckedChange = settings::setAutoWrapCodeBlocks)
                                 },
-                                modifier = Modifier.clickable { viewModel.settings.setAutoWrapCodeBlocks(!autoWrapCodeBlocks) },
+                                modifier = Modifier.clickable { settings.setAutoWrapCodeBlocks(!autoWrapCodeBlocks) },
                             )
                         }
                         add {
@@ -549,7 +553,7 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                                         }
                                                     },
                                                     onClick = {
-                                                        viewModel.settings.setToolCallDisplayMode(mode)
+                                                        settings.setToolCallDisplayMode(mode)
                                                         expanded = false
                                                     }
                                                 )
@@ -622,7 +626,7 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                                             }
                                                         },
                                                         onClick = {
-                                                            viewModel.settings
+                                                            settings
                                                                 .setThinkingSegmentDisplayMode(mode)
                                                             expanded = false
                                                         },
@@ -667,12 +671,12 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                         Switch(
                                             checked = autoExpandActiveGroup,
                                             onCheckedChange = {
-                                                viewModel.settings.setAutoExpandActiveGroup(it)
+                                                settings.setAutoExpandActiveGroup(it)
                                             },
                                         )
                                     },
                                     modifier = Modifier.clickable {
-                                        viewModel.settings.setAutoExpandActiveGroup(
+                                        settings.setAutoExpandActiveGroup(
                                             !autoExpandActiveGroup
                                         )
                                     },
@@ -732,7 +736,7 @@ fun SettingsAppearancePage(viewModel: ChatViewModel, onBack: () -> Unit) {
                                                     leadingIcon = {
                                                         if (fontPreference == value) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
                                                     },
-                                                    onClick = { viewModel.settings.setFontPreference(value); expanded = false }
+                                                    onClick = { settings.setFontPreference(value); expanded = false }
                                                 )
                                             }
                                         }

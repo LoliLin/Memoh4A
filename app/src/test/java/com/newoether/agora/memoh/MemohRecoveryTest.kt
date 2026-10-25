@@ -3,6 +3,7 @@ package com.newoether.agora.memoh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -162,5 +163,40 @@ class MemohRecoveryTest {
         assertEquals(attachments, vm.restoreAttachments)
         assertNull(vm.pendingUserText)
         assertTrue(vm.admissionInvocations.isEmpty())
+    }
+
+    @Test
+    fun `a team rebind during restore still clears the restoring flag`() = withCloud { vm, server ->
+        awaitState { vm.login.method == MemohLoginMethod.EmailCode }
+        val url = vm.workspaceApi.authUrl.toHttpUrl()
+        vm.workspaceApi.scope.identity.cookies.saveFromResponse(
+            url,
+            listOf(Cookie.Builder().name("sid").value("restored-user").hostOnlyDomain(url.host).path("/").build()),
+        )
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        server.handler = { exchange, request ->
+            if (request.path == "/api/v1/users/me") {
+                entered.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                server.reply(exchange, """{"user":{"id":"restored-user"}}""")
+                true
+            } else false
+        }
+
+        val restore = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            runCatching { vm.resumeCookieSession() }
+        }
+        try {
+            assertTrue("identity verification did not start", entered.await(5, TimeUnit.SECONDS))
+            assertTrue(vm.restoringSession)
+            vm.workspaceApi.selectTeam("team-after-rebind")
+            release.countDown()
+            withTimeout(5_000) { restore.join() }
+            assertFalse(vm.restoringSession)
+            assertFalse(vm.signedIn)
+        } finally {
+            release.countDown()
+        }
     }
 }

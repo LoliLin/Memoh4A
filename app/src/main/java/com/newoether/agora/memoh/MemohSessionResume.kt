@@ -11,6 +11,7 @@ internal suspend fun MemohViewModel.resumeCookieSession() {
         probeLoginMethod()
         return
     }
+    val restoreGeneration = ++sessionRestoreGeneration
     restoringSession = true
     sessionRestoreFailed = false
     try {
@@ -34,6 +35,7 @@ internal suspend fun MemohViewModel.resumeCookieSession() {
             probeLoginMethod()
         }
     } finally {
-        if (api.scope === captured) restoringSession = false
+        // Team selection can rebind the API scope during a valid restore; only a newer attempt or logout owns this flag now.
+        if (restoreGeneration == sessionRestoreGeneration) restoringSession = false
     }
 }

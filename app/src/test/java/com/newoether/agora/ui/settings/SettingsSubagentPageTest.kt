@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import com.newoether.agora.R
 import com.newoether.agora.data.CustomProviderConfig
 import com.newoether.agora.data.repository.SettingsRepository
-import com.newoether.agora.viewmodel.ChatViewModel
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,7 +81,7 @@ class SettingsSubagentPageTest {
     private var expectedPrimary = Color.Unspecified
     private var backs = 0
     private var appearanceReference by mutableStateOf(false)
-    private var appearanceViewModel: ChatViewModel? = null
+    private var appearanceSettings: SettingsRepository? = null
 
     @Composable
     private fun Host(content: @Composable () -> Unit) {
@@ -245,8 +244,6 @@ class SettingsSubagentPageTest {
     fun capsuleDisplayPopupMatchesTheProductionAppearanceTrailingAnchor() {
         enabled = false
         val settings = mockk<SettingsRepository>(relaxed = true)
-        val viewModel = mockk<ChatViewModel>(relaxed = true)
-        every { viewModel.settings } returns settings
         every { settings.themeMode } returns MutableStateFlow("LIGHT")
         every { settings.amoledEnabled } returns MutableStateFlow(false)
         every { settings.colorScheme } returns MutableStateFlow("FOREST")
@@ -265,7 +262,7 @@ class SettingsSubagentPageTest {
         every { settings.customFontPath } returns MutableStateFlow("")
         every { settings.customFontName } returns MutableStateFlow("")
         every { settings.showDocumentationFab } returns MutableStateFlow(false)
-        appearanceViewModel = viewModel
+        appearanceSettings = settings
         show()
         compose.onNodeWithTag("subagent-capsule-display").performScrollTo().performClick()
         val choice = compose.onNode(
@@ -326,8 +323,13 @@ class SettingsSubagentPageTest {
 
     private fun show() = compose.setContent {
         Host {
-            if (appearanceReference) SettingsAppearancePage(checkNotNull(appearanceViewModel), {})
-            else Content()
+            if (appearanceReference) {
+                SettingsAppearancePage(
+                    settings = checkNotNull(appearanceSettings),
+                    onSnackbar = {},
+                    onBack = {},
+                )
+            } else Content()
         }
     }
     private fun text(id: Int) = strings.getValue(id)
