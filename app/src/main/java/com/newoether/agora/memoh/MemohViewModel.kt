@@ -118,6 +118,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     var profileAvatarUrl by mutableStateOf("")
         private set
 
+    /** Applying an edited profile keeps the drawer and account page in sync without a reload. */
+    internal fun applyPlatformProfile(displayName: String, avatarUrl: String) {
+        if (displayName.isNotBlank()) profileDisplayName = displayName
+        profileAvatarUrl = avatarUrl
+    }
+
     private fun loadPlatformProfile() {
         navigationScope.launch {
             runCatching { api.platformProfile() }.onSuccess { profile ->

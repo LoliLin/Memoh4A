@@ -114,6 +114,8 @@ internal fun MemohSettingsPage(
         MemohSettingsCategory.ACCOUNT -> MemohAccountSettingsPage(viewModel, onBack)
         MemohSettingsCategory.CHAT -> MemohChatBehaviorSettingsPage(viewModel, onBack)
         MemohSettingsCategory.BOT -> MemohBotSettingsPage(viewModel, onBack, onOpenBotSettings)
+        MemohSettingsCategory.MODELS -> MemohProvidersPage(viewModel, onBack)
+        MemohSettingsCategory.USAGE -> MemohUsagePage(viewModel, onBack)
         MemohSettingsCategory.DIAGNOSTICS -> MemohDiagnosticsPage(viewModel, onBack, onNotice)
         else -> MemohServerSettingsPage(viewModel, onBack)
     }

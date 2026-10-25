@@ -34,6 +34,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.OutlinedTextField
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -170,6 +177,8 @@ internal fun MemohServerSettingsPage(viewModel: MemohViewModel, onBack: () -> Un
 @Composable
 internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     var confirmSignOut by remember { mutableStateOf(false) }
+    var editingProfile by remember { mutableStateOf(false) }
+    var changingPassword by remember { mutableStateOf(false) }
 
     CollapsingSettingsScaffold(title = stringResource(R.string.memoh_settings_account), onBack = onBack) {
         SettingsGroupColumn {
@@ -196,6 +205,22 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
                                     Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
                                 }
                             },
+                        )
+                    },
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(stringResource(R.string.memoh_ui_edit_profile)) },
+                            supportingContent = { Text(stringResource(R.string.memoh_ui_edit_profile_desc)) },
+                            leadingContent = { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) },
+                            modifier = Modifier.clickable { editingProfile = true },
+                        )
+                    },
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(stringResource(R.string.memoh_ui_change_password)) },
+                            supportingContent = { Text(stringResource(R.string.memoh_ui_change_password_desc)) },
+                            leadingContent = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
+                            modifier = Modifier.clickable { changingPassword = true },
                         )
                     },
                     {
@@ -231,6 +256,165 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
             },
         )
     }
+
+    if (editingProfile) {
+        MemohProfileEditor(viewModel) { editingProfile = false }
+    }
+    if (changingPassword) {
+        MemohPasswordEditor(viewModel) { changingPassword = false }
+    }
+}
+
+/** 显示名/头像/时区写回平台身份；头像地址为空表示沿用服务端已有的 Google 头像。 */
+@Composable
+private fun MemohProfileEditor(viewModel: MemohViewModel, onDismiss: () -> Unit) {
+    val uiResources = LocalContext.current.resources
+    val scope = rememberCoroutineScope()
+    var displayName by remember { mutableStateOf(viewModel.profileDisplayName) }
+    var avatarUrl by remember { mutableStateOf(viewModel.profileAvatarUrl) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text(uiResources.getString(R.string.memoh_ui_edit_profile)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_display_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = avatarUrl,
+                    onValueChange = { avatarUrl = it },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_avatar_url)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !saving && displayName.isNotBlank(),
+                onClick = {
+                    saving = true
+                    error = ""
+                    scope.launch {
+                        runCatching {
+                            viewModel.api.updateAccount(
+                                displayName = displayName,
+                                avatarUrl = avatarUrl,
+                                timezone = "",
+                                titleModelId = "",
+                            )
+                        }.onSuccess { updated ->
+                            viewModel.applyPlatformProfile(updated.displayName, updated.avatarUrl)
+                            onDismiss()
+                        }.onFailure {
+                            error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+                        }
+                        saving = false
+                    }
+                },
+            ) {
+                if (saving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Text(uiResources.getString(R.string.memoh_ui_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun MemohPasswordEditor(viewModel: MemohViewModel, onDismiss: () -> Unit) {
+    val uiResources = LocalContext.current.resources
+    val scope = rememberCoroutineScope()
+    var current by remember { mutableStateOf("") }
+    var next by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    val mismatch = confirm.isNotEmpty() && next != confirm
+    val tooShort = next.isNotEmpty() && next.length < 8
+
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text(uiResources.getString(R.string.memoh_ui_change_password)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    uiResources.getString(R.string.memoh_ui_current_password) to current,
+                    uiResources.getString(R.string.memoh_ui_new_password) to next,
+                    uiResources.getString(R.string.memoh_ui_confirm_password) to confirm,
+                ).forEachIndexed { index, (label, value) ->
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = {
+                            when (index) {
+                                0 -> current = it
+                                1 -> next = it
+                                else -> confirm = it
+                            }
+                        },
+                        label = { Text(label) },
+                        singleLine = true,
+                        visualTransformation =
+                            androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (tooShort) {
+                    Text(
+                        uiResources.getString(R.string.memoh_ui_password_too_short),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (mismatch) {
+                    Text(
+                        uiResources.getString(R.string.memoh_ui_password_mismatch),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !saving && current.isNotBlank() && next.length >= 8 && next == confirm,
+                onClick = {
+                    saving = true
+                    error = ""
+                    scope.launch {
+                        runCatching { viewModel.api.changePassword(current, next) }
+                            .onSuccess { onDismiss() }
+                            .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error) }
+                        saving = false
+                    }
+                },
+            ) {
+                if (saving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Text(uiResources.getString(R.string.memoh_ui_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
+        },
+    )
 }
 
 /** Preferences that change how the transcript behaves while you read it. */

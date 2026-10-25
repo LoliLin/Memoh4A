@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Tune
 import com.newoether.agora.R
 import com.newoether.agora.ui.settings.SettingsCategory
 import com.newoether.agora.ui.settings.SettingsGroupData
@@ -19,6 +20,8 @@ internal object MemohSettingsCategory {
     const val LANGUAGE = "memoh:language"
     const val CHAT = "memoh:chat"
     const val BOT = "memoh:bot"
+    const val MODELS = "memoh:models"
+    const val USAGE = "memoh:usage"
     const val DIAGNOSTICS = "memoh:diagnostics"
 }
 
@@ -79,6 +82,18 @@ internal val memohSettingsGroups: List<SettingsGroupData> = listOf(
                 R.string.memoh_settings_bot,
                 R.string.memoh_settings_bot_desc,
                 Icons.Default.SmartToy,
+            ),
+            SettingsCategory(
+                MemohSettingsCategory.MODELS,
+                R.string.memoh_ui_providers_models,
+                R.string.memoh_ui_providers_models_desc,
+                Icons.Default.Tune,
+            ),
+            SettingsCategory(
+                MemohSettingsCategory.USAGE,
+                R.string.memoh_ui_usage,
+                R.string.memoh_ui_usage_desc,
+                Icons.Default.Info,
             ),
         ),
     ),
