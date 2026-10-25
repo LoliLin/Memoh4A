@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -53,7 +56,7 @@ internal fun MemohWorkspaceDialog(
     var opened by remember(botId) { mutableStateOf<MemohFile?>(null) }
     var fileContent by remember(botId) { mutableStateOf("") }
     var revision by remember(botId) { mutableStateOf("") }
-    var loading by remember(botId) { mutableStateOf(false) }
+    var loading by remember(botId) { mutableStateOf(true) }
     var saving by remember(botId) { mutableStateOf(false) }
     var message by remember(botId) { mutableStateOf("") }
     var messageIsError by remember(botId) { mutableStateOf(true) }
@@ -171,19 +174,30 @@ internal fun MemohWorkspaceDialog(
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.9f), shape = MaterialTheme.shapes.large) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Workspace Files", style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }
-                Text(opened?.path ?: directory, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    opened?.path ?: directory,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 if (message.isNotBlank()) Text(message,
                     color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall)
                 HorizontalDivider()
                 if (opened == null) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         TextButton(onClick = { if (directory != "/data") directory = parent(directory) },
                             enabled = directory != "/data") { Text("Up") }
                         TextButton(onClick = { reloadKey++ }) { Text("Refresh") }
@@ -199,6 +213,15 @@ internal fun MemohWorkspaceDialog(
                     }
                     if (loading) CircularProgressIndicator()
                     LazyColumn(modifier = Modifier.weight(1f)) {
+                        if (entries.isEmpty() && !loading && message.isBlank()) {
+                            item {
+                                Text(
+                                    "This folder is empty.",
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                         items(entries, key = { it.path }) { file ->
                             androidx.compose.material3.Surface(
                                 color = androidx.compose.ui.graphics.Color.Transparent,

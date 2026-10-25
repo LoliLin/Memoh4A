@@ -909,12 +909,17 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
             addQueryParameter("cols", cols.coerceIn(1, 500).toString())
             addQueryParameter("rows", rows.coerceIn(1, 500).toString())
         }.build()
-        if (captured.identity.bearer.isEmpty()) {
-            val ticket = teamPlatformRequest("/ws-tickets", JSONObject(), method = "POST")
+        val websocketToken = if (captured.identity.bearer.isNotEmpty()) {
+            captured.identity.bearer
+        } else {
+            teamPlatformRequest("/ws-tickets", JSONObject(), method = "POST")
                 .optString("ticket")
-            if (ticket.isBlank()) throw IOException("Memoh did not return a WebSocket ticket")
-            url = url.newBuilder().addQueryParameter("ticket", ticket).build()
+                .also { require(it.isNotBlank()) { "Memoh did not return a WebSocket ticket" } }
         }
+        // The terminal endpoint documents `token` as its WebSocket query parameter. The runtime
+        // socket uses `ticket`; using that name here completes the handshake but is ignored by the
+        // terminal handler.
+        url = url.newBuilder().addQueryParameter("token", websocketToken).build()
         requireCurrent(captured)
         return captured.identity.client.newWebSocket(builder.url(url).build(), listener)
     }

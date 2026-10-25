@@ -5,7 +5,11 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -35,13 +39,13 @@ internal enum class MemohBackupSection(val key: String) {
 }
 
 @Composable
-internal fun MemohBackupDialog(
+internal fun MemohBackupSettingsTab(
     api: MemohApi,
     bot: MemohBot,
     status: String,
+    canManage: Boolean,
     onExport: (sections: List<String>, passphrase: String) -> Unit,
     onChooseImport: () -> Unit,
-    onDismiss: () -> Unit,
 ) {
     var summary by remember(bot.id) { mutableStateOf<JSONObject?>(null) }
     var error by remember(bot.id) { mutableStateOf("") }
@@ -53,44 +57,56 @@ internal fun MemohBackupDialog(
         catch (t: Exception) { error = t.message ?: "Could not load backup summary" }
         finally { loading = false }
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Bot backup · ${bot.title}") },
-        text = {
-            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Export sections", style = MaterialTheme.typography.titleSmall)
-                MemohBackupSection.entries.forEach { section ->
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = section in selectedSections,
-                            onCheckedChange = { checked ->
-                                selectedSections = if (checked) selectedSections + section else selectedSections - section
-                            },
-                        )
-                        Text(section.key.replaceFirstChar { it.uppercase() })
-                    }
+
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Export or restore this bot's server data.", style = MaterialTheme.typography.bodySmall)
+        if (!canManage) {
+            Text("Import is available only to bot managers.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.primary)
+        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            item { Text("Export sections", style = MaterialTheme.typography.titleSmall) }
+            items(MemohBackupSection.entries, key = { it.key }) { section ->
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = section in selectedSections,
+                        onCheckedChange = { checked ->
+                            selectedSections = if (checked) selectedSections + section else selectedSections - section
+                        },
+                    )
+                    Text(section.key.replaceFirstChar { it.uppercase() })
                 }
+            }
+            item {
                 OutlinedTextField(
                     value = passphrase,
                     onValueChange = { passphrase = it },
                     label = { Text("Optional encryption passphrase") },
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
-                if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.primary)
+            }
+            item {
                 if (loading) CircularProgressIndicator()
-                summary?.let { BackupSummary(it) }
-                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+                else summary?.let { BackupSummary(it) }
             }
-        },
-        confirmButton = {
-            Row {
-                TextButton(onClick = onChooseImport) { Text("Import…") }
-                Button(onClick = { onExport(selectedSections.map { it.key }, passphrase) }, enabled = !loading && summary != null && selectedSections.isNotEmpty()) { Text("Export…") }
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onChooseImport, enabled = canManage) { Text("Import…") }
+            Button(
+                onClick = { onExport(selectedSections.map { it.key }, passphrase) },
+                enabled = !loading && summary != null && selectedSections.isNotEmpty(),
+            ) { Text("Export…") }
+        }
+    }
 }
 
 @Composable

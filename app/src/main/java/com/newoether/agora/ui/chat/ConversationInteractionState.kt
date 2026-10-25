@@ -17,11 +17,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import com.newoether.agora.model.ChatMessage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Stable
@@ -186,13 +188,17 @@ internal class ConversationInteractionState internal constructor(
             if (searchActive && currentConversationId != null && searchQuery.isNotBlank()) {
                 if (searchAllMessages != null) {
                     searchAllMessages(searchQuery).collect { value = it }
-                } else value = scanConversationSearchMatches(
-                    selectedPathMessageIds = selectedPathSearchMessageIds,
-                    query = searchQuery,
-                    loadMessages = { messageIds ->
-                        searchMessages(currentConversationId, messageIds)
-                    },
-                )
+                } else {
+                    // Search can parse markdown in many messages. Debounce typing and move that
+                    // work off the UI thread so the transcript stays responsive.
+                    delay(140L)
+                    value = withContext(Dispatchers.Default) {
+                        scanConversationSearchMatches(
+                            selectedPathSearchMessageIds,
+                            searchQuery,
+                        ) { messageIds -> searchMessages(currentConversationId, messageIds) }
+                    }
+                }
             }
         }
         val messagesForSelection = if (shareSelectionActive) messages.value else emptyList()
