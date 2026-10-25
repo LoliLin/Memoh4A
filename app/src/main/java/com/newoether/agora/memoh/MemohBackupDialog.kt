@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +24,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.newoether.agora.ui.components.rememberSecretVisible
+import com.newoether.agora.ui.components.secretVisualTransformation
+import com.newoether.agora.ui.components.SecretVisibilityToggle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,21 +54,23 @@ internal fun MemohBackupSettingsTab(
     onExport: (sections: List<String>, passphrase: String) -> Unit,
     onChooseImport: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     var summary by remember(bot.id) { mutableStateOf<JSONObject?>(null) }
     var error by remember(bot.id) { mutableStateOf("") }
     var loading by remember(bot.id) { mutableStateOf(true) }
     var selectedSections by remember(bot.id) { mutableStateOf(MemohBackupSection.entries.toSet()) }
+    var passphraseVisible by rememberSecretVisible()
     var passphrase by remember(bot.id) { mutableStateOf("") }
     LaunchedEffect(bot.id) {
         try { summary = api.botBackupSummary(bot.id) }
-        catch (t: Exception) { error = t.message ?: "Could not load backup summary" }
+        catch (t: Exception) { error = t.message ?: uiResources.getString(R.string.memoh_ui_could_not_load_backup_summary) }
         finally { loading = false }
     }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Export or restore this bot's server data.", style = MaterialTheme.typography.bodySmall)
+        Text(uiResources.getString(R.string.memoh_ui_export_or_restore_this_bot_s_server_data), style = MaterialTheme.typography.bodySmall)
         if (!canManage) {
-            Text("Import is available only to bot managers.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(uiResources.getString(R.string.memoh_ui_import_is_available_only_to_bot_managers), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (status.isNotBlank()) Text(status, color = MaterialTheme.colorScheme.primary)
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
@@ -69,7 +78,7 @@ internal fun MemohBackupSettingsTab(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            item { Text("Export sections", style = MaterialTheme.typography.titleSmall) }
+            item { Text(uiResources.getString(R.string.memoh_ui_export_sections), style = MaterialTheme.typography.titleSmall) }
             items(MemohBackupSection.entries, key = { it.key }) { section ->
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Checkbox(
@@ -78,14 +87,17 @@ internal fun MemohBackupSettingsTab(
                             selectedSections = if (checked) selectedSections + section else selectedSections - section
                         },
                     )
-                    Text(section.key.replaceFirstChar { it.uppercase() })
+                    Text(backupSectionLabel(section.key))
                 }
             }
             item {
                 OutlinedTextField(
                     value = passphrase,
                     onValueChange = { passphrase = it },
-                    label = { Text("Optional encryption passphrase") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_optional_encryption_passphrase)) },
+                    visualTransformation = secretVisualTransformation(passphraseVisible),
+                    trailingIcon = { SecretVisibilityToggle(passphraseVisible) { passphraseVisible = !passphraseVisible } },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
@@ -100,36 +112,37 @@ internal fun MemohBackupSettingsTab(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onChooseImport, enabled = canManage) { Text("Import…") }
+            TextButton(onClick = onChooseImport, enabled = canManage) { Text(uiResources.getString(R.string.memoh_ui_import)) }
             Button(
                 onClick = { onExport(selectedSections.map { it.key }, passphrase) },
                 enabled = !loading && summary != null && selectedSections.isNotEmpty(),
-            ) { Text("Export…") }
+            ) { Text(uiResources.getString(R.string.memoh_ui_export)) }
         }
     }
 }
 
 @Composable
 private fun BackupSummary(data: JSONObject) {
+    val uiResources = LocalContext.current.resources
     val profile = data.optJSONObject("profile")
     if (profile != null) {
-        Text(profile.optString("display_name").ifBlank { "Bot profile" }, style = MaterialTheme.typography.titleMedium)
-        if (profile.optString("timezone").isNotBlank()) Text("Timezone: ${profile.optString("timezone")}")
-        if (profile.has("is_active")) Text(if (profile.optBoolean("is_active")) "Active" else "Inactive")
+        Text(profile.optString("display_name").ifBlank { uiResources.getString(R.string.memoh_ui_bot_profile) }, style = MaterialTheme.typography.titleMedium)
+        if (profile.optString("timezone").isNotBlank()) Text(uiResources.getString(R.string.memoh_ui_timezone_1_s, profile.optString("timezone")))
+        if (profile.has("is_active")) Text(if (profile.optBoolean("is_active")) uiResources.getString(R.string.memoh_ui_active) else uiResources.getString(R.string.memoh_ui_inactive))
     }
     val sections = data.optJSONArray("sections") ?: JSONArray()
-    if (sections.length() == 0) Text("No export sections were reported.")
+    if (sections.length() == 0) Text(uiResources.getString(R.string.memoh_ui_no_export_sections_were_reported))
     for (i in 0 until sections.length()) {
         val section = sections.optJSONObject(i) ?: continue
-        val key = section.optString("key").ifBlank { "Section" }
+        val key = section.optString("key").ifBlank { uiResources.getString(R.string.memoh_ui_section) }
         val count = section.optInt("count")
         val targetCount = section.optInt("target_count", -1)
-        Text("${key.replaceFirstChar { it.uppercase() }}: $count item${if (count == 1) "" else "s"}" +
-            if (targetCount >= 0) " · target has $targetCount" else "")
+        Text("${backupSectionLabel(key)} · $count" +
+            if (targetCount >= 0) uiResources.getString(R.string.memoh_ui_target_has_1_s, targetCount) else "")
         val items = section.optJSONArray("items")
         if (items != null) for (j in 0 until minOf(items.length(), 8))
             Text("  • ${items.optString(j)}", style = MaterialTheme.typography.bodySmall)
-        if (section.optBoolean("sensitive")) Text("Contains sensitive data", color = MaterialTheme.colorScheme.error,
+        if (section.optBoolean("sensitive")) Text(uiResources.getString(R.string.memoh_ui_contains_sensitive_data), color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.labelSmall)
     }
 }
@@ -143,6 +156,8 @@ internal fun MemohBackupImportDialog(
     onDismiss: () -> Unit,
     onImported: (JSONObject) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
+    var passphraseVisible by rememberSecretVisible()
     val scope = rememberCoroutineScope()
     var mode by remember(uri) { mutableStateOf("create") }
     var targetId by remember(uri) { mutableStateOf(bot.id) }
@@ -159,7 +174,7 @@ internal fun MemohBackupImportDialog(
             try {
                 preview = api.previewBotBackup(uri, context.contentResolver, mode,
                     if (mode == "overwrite") targetId else "", emptyList(), passphrase)
-            } catch (t: Exception) { error = t.message ?: "Backup preview failed" }
+            } catch (t: Exception) { error = t.message ?: uiResources.getString(R.string.memoh_ui_backup_preview_failed) }
             finally { busy = false }
         }
     }
@@ -170,69 +185,79 @@ internal fun MemohBackupImportDialog(
                 result = api.importBotBackup(uri, context.contentResolver, mode,
                     if (mode == "overwrite") targetId else "", emptyList(), passphrase)
                 onImported(result ?: JSONObject())
-            } catch (t: Exception) { error = t.message ?: "Backup import failed" }
+            } catch (t: Exception) { error = t.message ?: uiResources.getString(R.string.memoh_ui_backup_import_failed) }
             finally { busy = false }
         }
     }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(if (result == null) "Import bot backup" else "Import complete") },
+        title = { Text(if (result == null) uiResources.getString(R.string.memoh_ui_import_bot_backup) else uiResources.getString(R.string.memoh_ui_import_complete)) },
         text = {
             Column(Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (result != null) {
-                    Text("Bot ID: ${result!!.optString("bot_id")}")
-                    Text(if (result!!.optBoolean("created")) "A bot was created." else "Backup applied to an existing bot.")
+                    Text(uiResources.getString(R.string.memoh_ui_bot_id_1_s, result!!.optString("bot_id")))
+                    Text(if (result!!.optBoolean("created")) uiResources.getString(R.string.memoh_ui_a_bot_was_created) else uiResources.getString(R.string.memoh_ui_backup_applied_to_an_existing_bot))
                     result!!.optJSONObject("imported")?.let { imported ->
-                        for (key in imported.keys()) Text("${key.replaceFirstChar { it.uppercase() }}: ${imported.optInt(key)} imported")
+                        for (key in imported.keys()) Text(uiResources.getString(R.string.memoh_ui_1_s_2_s_imported, backupSectionLabel(key), imported.optInt(key)))
                     }
-                    JsonStringList(result!!.optJSONArray("warnings"), "Warnings")
+                    JsonStringList(result!!.optJSONArray("warnings"), uiResources.getString(R.string.memoh_ui_warnings))
                 } else {
-                    Text("The server will inspect the selected file before any changes are made.")
+                    Text(uiResources.getString(R.string.memoh_ui_the_server_will_inspect_the_selected_file_before_any_changes_are_made))
                     if (preview == null) {
-                        Text("Import mode: create a new bot or overwrite an existing bot.")
+                        Text(uiResources.getString(R.string.memoh_ui_import_mode_create_a_new_bot_or_overwrite_an_existing_bot))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { mode = "create" }) { Text(if (mode == "create") "✓ Create" else "Create") }
-                            TextButton(onClick = { mode = "overwrite" }) { Text(if (mode == "overwrite") "✓ Overwrite" else "Overwrite") }
+                            TextButton(onClick = { mode = "create" }) { Text(if (mode == "create") uiResources.getString(R.string.memoh_ui_create_11fedf) else uiResources.getString(R.string.memoh_ui_create)) }
+                            TextButton(onClick = { mode = "overwrite" }) { Text(if (mode == "overwrite") uiResources.getString(R.string.memoh_ui_overwrite_8f21f4) else uiResources.getString(R.string.memoh_ui_overwrite)) }
                         }
-                        if (mode == "overwrite") OutlinedTextField(targetId, { targetId = it },
-                            label = { Text("Target bot ID") }, singleLine = true)
+                        if (mode == "overwrite") MemohResourceField(
+                            api, "/bots", uiResources.getString(R.string.memoh_ui_target_bot), targetId, { targetId = it },
+                            enabled = !busy, currentLabel = if (targetId == bot.id) bot.title else "",
+                        )
                         if (encrypted || requiresPassphrase) OutlinedTextField(passphrase, { passphrase = it },
-                            label = { Text("Backup passphrase") }, singleLine = true)
+                            label = { Text(uiResources.getString(R.string.memoh_ui_backup_passphrase)) }, singleLine = true,
+                            enabled = !busy,
+                            visualTransformation = secretVisualTransformation(passphraseVisible),
+                            trailingIcon = { SecretVisibilityToggle(passphraseVisible) { passphraseVisible = !passphraseVisible } },
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password))
                     } else {
                         if (encrypted) OutlinedTextField(passphrase, { passphrase = it },
-                            label = { Text("Backup passphrase") }, singleLine = true)
+                            label = { Text(uiResources.getString(R.string.memoh_ui_backup_passphrase)) }, singleLine = true,
+                            enabled = !busy,
+                            visualTransformation = secretVisualTransformation(passphraseVisible),
+                            trailingIcon = { SecretVisibilityToggle(passphraseVisible) { passphraseVisible = !passphraseVisible } },
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password))
                         val manifest = preview!!.optJSONObject("manifest")
-                        Text("Source: ${manifest?.optString("source_bot_name").orEmpty().ifBlank { "Unknown bot" }}")
-                        if (manifest != null) Text("Exported: ${manifest.optString("exported_at")} · schema ${manifest.optInt("schema_version")}")
+                        Text(uiResources.getString(R.string.memoh_ui_source_1_s, manifest?.optString("source_bot_name").orEmpty().ifBlank { uiResources.getString(R.string.memoh_ui_unknown_bot) }))
+                        if (manifest != null) Text(uiResources.getString(R.string.memoh_ui_exported_1_s_schema_2_s, manifest.optString("exported_at"), manifest.optInt("schema_version")))
                         val profile = preview!!.optJSONObject("profile")
                         if (profile != null) {
-                            Text("Profile: ${profile.optString("display_name").ifBlank { "Unnamed bot" }}")
-                            if (profile.optString("timezone").isNotBlank()) Text("Timezone: ${profile.optString("timezone")}")
-                            if (profile.has("is_active")) Text(if (profile.optBoolean("is_active")) "Profile active" else "Profile inactive")
+                            Text(uiResources.getString(R.string.memoh_ui_profile_1_s, profile.optString("display_name").ifBlank { uiResources.getString(R.string.memoh_ui_unnamed_bot) }))
+                            if (profile.optString("timezone").isNotBlank()) Text(uiResources.getString(R.string.memoh_ui_timezone_1_s, profile.optString("timezone")))
+                            if (profile.has("is_active")) Text(if (profile.optBoolean("is_active")) uiResources.getString(R.string.memoh_ui_profile_active) else uiResources.getString(R.string.memoh_ui_profile_inactive))
                         }
                         val plan = preview!!.optJSONObject("restore_plan")
                         if (plan != null) {
-                            Text("Mode: ${plan.optString("mode").ifBlank { mode }}")
-                            if (plan.optString("target_bot_id").isNotBlank()) Text("Target bot: ${plan.optString("target_bot_id")}")
-                            if (plan.optBoolean("will_create_bot")) Text("A new bot will be created.")
-                            if (plan.optBoolean("will_restore_workspace")) Text("Workspace data will be restored.")
+                            Text(uiResources.getString(R.string.memoh_ui_mode_1_s, plan.optString("mode").ifBlank { mode }))
+                            if (plan.optString("target_bot_id").isNotBlank()) Text(uiResources.getString(R.string.memoh_ui_target_bot_1_s, plan.optString("target_bot_id")))
+                            if (plan.optBoolean("will_create_bot")) Text(uiResources.getString(R.string.memoh_ui_a_new_bot_will_be_created))
+                            if (plan.optBoolean("will_restore_workspace")) Text(uiResources.getString(R.string.memoh_ui_workspace_data_will_be_restored))
                             val matches = plan.optJSONObject("dependency_matches")
-                            matches?.let { Text("Dependency matches: ${it.toString()}") }
+                            matches?.let { Text(uiResources.getString(R.string.memoh_ui_dependency_matches_1_s, it.toString())) }
                         }
                         val sections = preview!!.optJSONArray("sections") ?: JSONArray()
-                        Text("Sections to import", style = MaterialTheme.typography.titleSmall)
+                        Text(uiResources.getString(R.string.memoh_ui_sections_to_import), style = MaterialTheme.typography.titleSmall)
                         for (i in 0 until sections.length()) {
                             val item = sections.optJSONObject(i) ?: continue
-                            Text("${item.optString("key")}: ${item.optInt("count")} items" +
-                                if (item.optBoolean("conflict")) " · conflict" else "")
+                            Text(uiResources.getString(R.string.memoh_ui_1_s_2_s_items, item.optString("key"), item.optInt("count")) +
+                                if (item.optBoolean("conflict")) uiResources.getString(R.string.memoh_ui_conflict) else "")
                         }
-                        JsonStringList(preview!!.optJSONArray("conflicts"), "Conflicts")
-                        JsonStringList(preview!!.optJSONArray("missing"), "Missing")
-                        JsonStringList(preview!!.optJSONArray("warnings"), "Warnings")
+                        JsonStringList(preview!!.optJSONArray("conflicts"), uiResources.getString(R.string.memoh_ui_conflicts))
+                        JsonStringList(preview!!.optJSONArray("missing"), uiResources.getString(R.string.memoh_ui_missing))
+                        JsonStringList(preview!!.optJSONArray("warnings"), uiResources.getString(R.string.memoh_ui_warnings))
                         if (encrypted && manifest == null) Text(
-                            if (requiresPassphrase) "Enter the passphrase to inspect this encrypted backup."
-                            else "The passphrase was not accepted. Check it and preview again.",
+                            if (requiresPassphrase) uiResources.getString(R.string.memoh_ui_enter_the_passphrase_to_inspect_this_encrypted_backup)
+                            else uiResources.getString(R.string.memoh_ui_the_passphrase_was_not_accepted_check_it_and_preview_again),
                             color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -243,15 +268,15 @@ internal fun MemohBackupImportDialog(
         confirmButton = {
             when {
                 busy -> Unit
-                result != null -> TextButton(onClick = onDismiss) { Text("Done") }
+                result != null -> TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_done)) }
                 preview == null || (encrypted && preview?.optJSONObject("manifest") == null) -> Button(
-                    onClick = { previewBackup() }, enabled = mode != "overwrite" || targetId.isNotBlank()) { Text("Preview") }
-                else -> Button(onClick = { importBackup() }) { Text("Confirm import") }
+                    onClick = { previewBackup() }, enabled = mode != "overwrite" || targetId.isNotBlank()) { Text(uiResources.getString(R.string.memoh_ui_preview)) }
+                else -> Button(onClick = { importBackup() }) { Text(uiResources.getString(R.string.memoh_ui_confirm_import)) }
             }
         },
         dismissButton = {
-            if (result == null && preview != null) TextButton(onClick = { preview = null; error = "" }, enabled = !busy) { Text("Change options") }
-            else TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") }
+            if (result == null && preview != null) TextButton(onClick = { preview = null; error = "" }, enabled = !busy) { Text(uiResources.getString(R.string.memoh_ui_change_options)) }
+            else TextButton(onClick = onDismiss, enabled = !busy) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
         },
     )
 }
@@ -261,4 +286,22 @@ private fun JsonStringList(values: JSONArray?, title: String) {
     if (values == null || values.length() == 0) return
     Text(title, style = MaterialTheme.typography.titleSmall)
     for (i in 0 until values.length()) Text("• ${values.optString(i)}")
+}
+
+@Composable
+private fun backupSectionLabel(key: String): String {
+    val uiResources = LocalContext.current.resources
+    return when (key) {
+        "profile" -> uiResources.getString(R.string.memoh_ui_bot_profile)
+        "settings" -> uiResources.getString(R.string.memoh_ui_settings)
+        "models" -> uiResources.getString(R.string.memoh_ui_models)
+        "acl" -> uiResources.getString(R.string.memoh_ui_access)
+        "channels" -> uiResources.getString(R.string.memoh_ui_channels)
+        "mcp" -> uiResources.getString(R.string.memoh_ui_mcp)
+        "schedules" -> uiResources.getString(R.string.memoh_ui_schedules)
+        "history" -> uiResources.getString(R.string.memoh_ui_chat_history)
+        "assets" -> uiResources.getString(R.string.memoh_ui_attachments)
+        "workspace" -> uiResources.getString(R.string.memoh_ui_workspace_files_7e0294)
+        else -> key
+    }
 }

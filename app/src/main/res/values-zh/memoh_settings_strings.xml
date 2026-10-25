@@ -58,4 +58,42 @@
     <string name="memoh_bot_delete_body">这会永久删除该 Bot、它的工作区数据以及服务器上的全部对话。请输入 Delete 确认。</string>
     <string name="memoh_bot_delete_confirm">永久删除</string>
     <string name="memoh_bot_delete_button">删除 Bot</string>
+
+    <string name="memoh_model_default">Bot 默认模型</string>
+    <string name="memoh_model_select">选择模型</string>
+
+    <string name="memoh_close">关闭</string>
+    <string name="memoh_refresh">刷新</string>
+    <string name="memoh_search">搜索</string>
+    <string name="memoh_show_all">全部显示</string>
+    <string name="memoh_delete_all">全部删除</string>
+    <string name="memoh_delete_selected">删除所选</string>
+    <string name="memoh_no_items">暂无内容。</string>
+
+    <string name="memoh_memory_title">记忆</string>
+    <string name="memoh_memory_search_hint">搜索记忆</string>
+    <string name="memoh_memory_add_hint">添加一条记忆</string>
+    <string name="memoh_memory_graph">关系图</string>
+    <string name="memoh_memory_ingest">导入文件</string>
+    <string name="memoh_memory_rebuild">重建索引</string>
+    <string name="memoh_memory_compact">压缩</string>
+    <string name="memoh_memory_team_config">团队记忆配置</string>
+    <string name="memoh_memory_health">记忆状态</string>
+    <string name="memoh_memory_delete_title">删除所选记忆？</string>
+
+    <string name="memoh_schedules_title">定时任务</string>
+    <string name="memoh_schedule_new">新建定时任务</string>
+    <string name="memoh_schedule_all_runs">全部运行记录</string>
+    <string name="memoh_schedule_runs">运行记录</string>
+    <string name="memoh_schedule_delete_title">删除定时任务？</string>
+    <string name="memoh_schedule_name">名称</string>
+    <string name="memoh_schedule_cron">Cron 表达式</string>
+    <string name="memoh_schedule_cron_hint">分 时 日 月 周</string>
+    <string name="memoh_schedule_instruction">给 Agent 的指令</string>
+    <string name="memoh_schedule_description">描述（可选）</string>
+    <string name="memoh_schedule_run_in">运行方式</string>
+    <string name="memoh_schedule_choose_session">选择会话</string>
+    <string name="memoh_schedule_model_override">模型覆盖 ID（可选）</string>
+    <string name="memoh_schedule_budget">运行预算（秒，可选）</string>
+    <string name="memoh_schedule_enabled">启用</string>
 </resources>

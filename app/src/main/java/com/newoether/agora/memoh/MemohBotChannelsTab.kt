@@ -1,5 +1,15 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
+import androidx.compose.foundation.rememberScrollState
+
+import androidx.compose.foundation.verticalScroll
+
+import androidx.compose.foundation.layout.heightIn
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +46,9 @@ import androidx.compose.material3.Text
 import com.newoether.agora.ui.components.AgoraDropdownMenu
 import com.newoether.agora.ui.components.AgoraDropdownMenuItem
 import androidx.compose.material3.TextButton
+import com.newoether.agora.ui.components.rememberSecretVisible
+import com.newoether.agora.ui.components.secretVisualTransformation
+import com.newoether.agora.ui.components.SecretVisibilityToggle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +88,7 @@ internal fun MemohBotChannelsTab(
     canManage: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val uiResources = LocalContext.current.resources
     val haptics = LocalAgoraHaptics.current
     val scope = rememberCoroutineScope()
     var channels by remember { mutableStateOf<List<BotChannelItem>>(emptyList()) }
@@ -101,7 +115,7 @@ internal fun MemohBotChannelsTab(
                         )
                     }
                 }
-                .onFailure { error = it.message ?: "Failed to load channel configurations" }
+                .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_load_channel_configurations) }
             loading = false
         }
     }
@@ -117,8 +131,8 @@ internal fun MemohBotChannelsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("Channels & Integrations", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("Connect this bot to messaging platforms", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(uiResources.getString(R.string.memoh_ui_channels_integrations), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(uiResources.getString(R.string.memoh_ui_connect_this_bot_to_messaging_platforms), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (canManage) {
                 Box {
@@ -130,7 +144,7 @@ internal fun MemohBotChannelsTab(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Add")
+                        Text(uiResources.getString(R.string.memoh_ui_add))
                     }
                     AgoraDropdownMenu(expanded = showAddMenu, onDismissRequest = { showAddMenu = false }) {
                         val configuredPlatforms = channels.map { it.platform }.toSet()
@@ -171,9 +185,9 @@ internal fun MemohBotChannelsTab(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    Text("No channels configured yet", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(uiResources.getString(R.string.memoh_ui_no_channels_configured_yet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (canManage) {
-                        Text("Tap '+ Add' above to integrate Telegram, Discord, or webhooks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(uiResources.getString(R.string.memoh_ui_tap_add_above_to_integrate_telegram_discord_or_webhooks), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -188,7 +202,7 @@ internal fun MemohBotChannelsTab(
                             scope.launch {
                                 runCatching { api.updateBotChannelStatus(botId, item.platform, isChecked) }
                                     .onSuccess { refresh() }
-                                    .onFailure { error = it.message ?: "Failed to update channel status" }
+                                    .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_update_channel_status) }
                             }
                         },
                         onConfigure = { configurePlatform = item.platform },
@@ -200,6 +214,7 @@ internal fun MemohBotChannelsTab(
     }
 
     configurePlatform?.let { platform ->
+        var tokenVisible by rememberSecretVisible()
         val existing = channels.find { it.platform == platform }
         var tokenInput by remember { mutableStateOf("") }
         var webhookInput by remember { mutableStateOf(existing?.webhookUrl.orEmpty()) }
@@ -209,21 +224,25 @@ internal fun MemohBotChannelsTab(
 
         AlertDialog(
             onDismissRequest = { if (!saving) configurePlatform = null },
-            title = { Text("Configure $label") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_configure_1_s, label)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
                         value = tokenInput,
                         onValueChange = { tokenInput = it },
-                        label = { Text("Bot Token / API Key") },
-                        placeholder = { Text("Leave blank to keep existing") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_bot_token_api_key)) },
+                        visualTransformation = secretVisualTransformation(tokenVisible),
+                        trailingIcon = { SecretVisibilityToggle(tokenVisible) { tokenVisible = !tokenVisible } },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password),
+                        placeholder = { Text(uiResources.getString(R.string.memoh_ui_leave_blank_to_keep_existing)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false, keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri),
                         value = webhookInput,
                         onValueChange = { webhookInput = it },
-                        label = { Text("Webhook Endpoint URL (Optional)") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_webhook_endpoint_url_optional)) },
                         placeholder = { Text("https://...") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -247,18 +266,18 @@ internal fun MemohBotChannelsTab(
                                     configurePlatform = null
                                     refresh()
                                 }
-                                .onFailure { error = it.message ?: "Failed to save channel" }
+                                .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_save_channel) }
                             saving = false
                         }
                     },
                     enabled = !saving
                 ) {
-                    Text(if (saving) "Saving…" else "Save")
+                    Text(if (saving) uiResources.getString(R.string.memoh_ui_saving) else uiResources.getString(R.string.memoh_ui_save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { configurePlatform = null }, enabled = !saving) {
-                    Text("Cancel")
+                    Text(uiResources.getString(R.string.memoh_ui_cancel))
                 }
             }
         )
@@ -268,8 +287,8 @@ internal fun MemohBotChannelsTab(
         val label = SUPPORTED_PLATFORMS.find { it.first == platform }?.second ?: platform
         AlertDialog(
             onDismissRequest = { deleteCandidate = null },
-            title = { Text("Disconnect $label?") },
-            text = { Text("This bot will no longer receive or respond to messages from $label.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_disconnect_1_s, label)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_this_bot_will_no_longer_receive_or_respond_to_messages_from_1_s, label)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -279,13 +298,13 @@ internal fun MemohBotChannelsTab(
                         scope.launch {
                             runCatching { api.deleteBotChannel(botId, target) }
                                 .onSuccess { refresh() }
-                                .onFailure { error = it.message ?: "Failed to remove channel" }
+                                .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_remove_channel) }
                         }
                     }
-                ) { Text("Disconnect") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_disconnect)) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteCandidate = null }) { Text("Cancel") }
+                TextButton(onClick = { deleteCandidate = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }
@@ -299,6 +318,7 @@ private fun ChannelCard(
     onConfigure: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val platformName = SUPPORTED_PLATFORMS.find { it.first == channel.platform }?.second ?: channel.platform
 
     Card(
@@ -315,17 +335,17 @@ private fun ChannelCard(
             Column(Modifier.weight(1f)) {
                 Text(platformName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (channel.enabled) "Connected · Active" else "Connected · Paused",
+                    if (channel.enabled) uiResources.getString(R.string.memoh_ui_connected_active) else uiResources.getString(R.string.memoh_ui_connected_paused),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (channel.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (canManage) {
                 IconButton(onClick = onConfigure) {
-                    Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Settings, contentDescription = uiResources.getString(R.string.memoh_ui_settings), modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Delete, contentDescription = uiResources.getString(R.string.memoh_ui_delete), tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 }
                 Switch(checked = channel.enabled, onCheckedChange = onToggle)
             }

@@ -61,4 +61,46 @@
     <string name="memoh_bot_delete_body">This permanently removes the bot, its workspace data and every conversation on the server. Type Delete to confirm.</string>
     <string name="memoh_bot_delete_confirm">Delete permanently</string>
     <string name="memoh_bot_delete_button">Delete bot</string>
+
+    <!-- Composer model chip -->
+    <string name="memoh_model_default">Bot default</string>
+    <string name="memoh_model_select">Choose model</string>
+
+    <!-- Shared dialog actions and labels -->
+    <string name="memoh_close">Close</string>
+    <string name="memoh_refresh">Refresh</string>
+    <string name="memoh_search">Search</string>
+    <string name="memoh_show_all">Show all</string>
+    <string name="memoh_delete_all">Delete all</string>
+    <string name="memoh_delete_selected">Delete selected</string>
+    <string name="memoh_no_items">Nothing here yet.</string>
+
+    <!-- Memory -->
+    <string name="memoh_memory_title">Memory</string>
+    <string name="memoh_memory_search_hint">Search memories</string>
+    <string name="memoh_memory_add_hint">Add a memory</string>
+    <string name="memoh_memory_graph">Graph</string>
+    <string name="memoh_memory_ingest">Ingest files</string>
+    <string name="memoh_memory_rebuild">Rebuild</string>
+    <string name="memoh_memory_compact">Compact</string>
+    <string name="memoh_memory_team_config">Team memory configuration</string>
+    <string name="memoh_memory_health">Memory health</string>
+    <string name="memoh_memory_delete_title">Delete selected memories?</string>
+
+    <!-- Schedules -->
+    <string name="memoh_schedules_title">Schedules</string>
+    <string name="memoh_schedule_new">New schedule</string>
+    <string name="memoh_schedule_all_runs">All runs</string>
+    <string name="memoh_schedule_runs">Runs</string>
+    <string name="memoh_schedule_delete_title">Delete schedule?</string>
+    <string name="memoh_schedule_name">Name</string>
+    <string name="memoh_schedule_cron">Cron pattern</string>
+    <string name="memoh_schedule_cron_hint">minute hour day month weekday</string>
+    <string name="memoh_schedule_instruction">Agent instruction</string>
+    <string name="memoh_schedule_description">Description (optional)</string>
+    <string name="memoh_schedule_run_in">Run in</string>
+    <string name="memoh_schedule_choose_session">Choose session</string>
+    <string name="memoh_schedule_model_override">Model override ID (optional)</string>
+    <string name="memoh_schedule_budget">Run budget in seconds (optional)</string>
+    <string name="memoh_schedule_enabled">Enabled</string>
 </resources>

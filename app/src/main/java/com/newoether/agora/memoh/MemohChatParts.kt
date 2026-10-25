@@ -1,5 +1,7 @@
 package com.newoether.agora.memoh
 
+import androidx.compose.ui.platform.LocalContext
+
 import android.content.Context
 import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
@@ -89,6 +91,7 @@ internal fun MemohDrawerContent(
     onDelete: (MemohSession) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val drawerSessions = (vm.sessions + listOfNotNull(vm.session)).distinctBy { it.id }
     val showInitialListLoading = vm.loadingSessions && drawerSessions.isEmpty()
     val motionPolicy = LocalAgoraMotionPolicy.current
@@ -210,7 +213,7 @@ internal fun MemohDrawerContent(
                                     enabled = !vm.loadingSessions,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Text(if (vm.loadingSessions) "Loading…" else "Load older chats")
+                                    Text(if (vm.loadingSessions) uiResources.getString(R.string.memoh_ui_loading) else uiResources.getString(R.string.memoh_ui_load_older_chats))
                                 }
                             }
                         }
@@ -295,6 +298,7 @@ internal fun MemohAccountMenu(
     dismiss: () -> Unit,
     onAction: (MemohAccountAction) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val sectionModifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
     val sectionColor = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -312,22 +316,22 @@ internal fun MemohAccountMenu(
     if (vm.bot != null) {
         Text("BOT", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
         AgoraDropdownMenuItem(
-            text = { Text("Bot Settings") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_bot_settings)) },
             leadingIcon = { Icon(Icons.Default.Settings, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.BotSettings) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Workspace Files") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_workspace_files)) },
             leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Files) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Terminal") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_terminal)) },
             leadingIcon = { Icon(Icons.Default.Code, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Terminal) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Schedules") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_schedules)) },
             leadingIcon = { Icon(Icons.Default.CalendarMonth, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Schedules) },
         )
@@ -337,41 +341,37 @@ internal fun MemohAccountMenu(
         androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
         Text("CONVERSATION", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
         AgoraDropdownMenuItem(
-            text = { Text("Search in conversation") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_search_in_conversation)) },
             leadingIcon = { Icon(Icons.Default.Search, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Search) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Message Queue") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_message_queue)) },
             onClick = { dismiss(); onAction(MemohAccountAction.Queue) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Runtime Controls") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_runtime_controls)) },
             leadingIcon = { Icon(Icons.Default.Settings, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.RuntimeControls) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Compact Context") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_compact_context)) },
             onClick = { dismiss(); onAction(MemohAccountAction.Compact) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Rename chat") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_rename_chat)) },
             leadingIcon = { Icon(Icons.Default.Edit, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Rename) },
         )
         AgoraDropdownMenuItem(
-            text = { Text("Delete chat") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_delete_chat)) },
             leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
             onClick = { dismiss(); onAction(MemohAccountAction.Delete) },
         )
     }
 
-    androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-    Text("ACCOUNT", modifier = sectionModifier, style = MaterialTheme.typography.labelSmall, color = sectionColor)
-    AgoraDropdownMenuItem(
-        text = { Text("Sign out") },
-        onClick = { dismiss(); vm.logout() },
-    )
+    // Signing out lives in Settings → Account. Duplicating it in the one-tap overflow menu made an
+    // irreversible session action far too easy to hit while reaching for a chat action.
 }
 
 /** Every Memoh dialog the chat screen can raise, kept out of the screen body. */
@@ -404,6 +404,7 @@ internal fun MemohDialogs(
     onBackupImport: () -> Unit,
     onOpenWorkspaceFromSettings: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val bot = vm.bot
     // Bot settings is a full settings destination now (see MemohBotSettingsScreen), so this host
     // only keeps the dialogs that genuinely are dialogs.
@@ -439,26 +440,26 @@ internal fun MemohDialogs(
     if (compactConfirm) {
         AlertDialog(
             onDismissRequest = onCompactDismiss,
-            title = { Text("Compact Context") },
-            text = { Text("Ask the server to compact this conversation's context now? " +
-                "The conversation stays on the server; compaction summarizes older turns.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_compact_context)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_ask_the_server_to_compact_this_conversation_s_context_now) +
+                uiResources.getString(R.string.memoh_ui_the_conversation_stays_on_the_server_compaction_summarizes_older_turns)) },
             confirmButton = {
                 TextButton(onClick = { vm.compactSession(); onCompactDismiss() },
-                    enabled = !vm.runtimeControlsBusy) { Text("Compact") }
+                    enabled = !vm.runtimeControlsBusy) { Text(uiResources.getString(R.string.memoh_ui_compact)) }
             },
-            dismissButton = { TextButton(onClick = onCompactDismiss) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = onCompactDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
     if (renameDialog) {
         var draft = newTitle
         AlertDialog(
             onDismissRequest = onRenameDismiss,
-            title = { Text("Rename Conversation") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_rename_conversation)) },
             text = {
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { draft = it },
-                    label = { Text("Name") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_name)) },
                     singleLine = true,
                 )
             },
@@ -466,22 +467,22 @@ internal fun MemohDialogs(
                 TextButton(
                     onClick = { vm.renameSelectedSession(draft); onRenameDismiss() },
                     enabled = draft.isNotBlank(),
-                ) { Text("Save") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_save)) }
             },
-            dismissButton = { TextButton(onClick = onRenameDismiss) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = onRenameDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
     if (deleteDialog) {
         AlertDialog(
             onDismissRequest = onDeleteDismiss,
-            title = { Text("Delete Conversation?") },
-            text = { Text("This permanently deletes the conversation on the Memoh server.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_delete_conversation)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_this_permanently_deletes_the_conversation_on_the_memoh_server)) },
             confirmButton = {
                 TextButton(onClick = { vm.deleteSelectedSession(); onDeleteDismiss() }) {
-                    Text("Delete")
+                    Text(uiResources.getString(R.string.memoh_ui_delete))
                 }
             },
-            dismissButton = { TextButton(onClick = onDeleteDismiss) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = onDeleteDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
 }

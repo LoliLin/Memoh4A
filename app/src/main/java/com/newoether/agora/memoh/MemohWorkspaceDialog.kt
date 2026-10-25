@@ -1,5 +1,7 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
 import android.database.Cursor
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -49,6 +51,7 @@ internal fun MemohWorkspaceDialog(
     botId: String,
     onDismiss: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val resolver = LocalContext.current.contentResolver
     val scope = rememberCoroutineScope()
     var directory by remember(botId) { mutableStateOf("/data") }
@@ -81,7 +84,7 @@ internal fun MemohWorkspaceDialog(
             val result = api.listFiles(botId, directory)
             if (currentFolder == directory) entries = result
         } catch (e: Exception) {
-            if (currentFolder == directory) message = e.message ?: "Unable to list files"
+            if (currentFolder == directory) message = e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_list_files)
         } finally {
             if (currentFolder == directory) loading = false
         }
@@ -100,9 +103,9 @@ internal fun MemohWorkspaceDialog(
         }.getOrNull().orEmpty()
         val name = rawName.substringAfterLast('/').substringAfterLast('\\').trim()
         if (name.isBlank() || name == "." || name == ".." || '/' in name || '\\' in name) {
-            message = "Invalid file name"
+            message = uiResources.getString(R.string.memoh_ui_invalid_file_name)
         } else if (entries.any { it.name == name }) {
-            message = "A file with this name already exists. Rename it before uploading."
+            message = uiResources.getString(R.string.memoh_ui_a_file_with_this_name_already_exists_rename_it_before_uploading)
         } else {
             val path = folder.trimEnd('/') + "/" + name
             scope.launch {
@@ -110,11 +113,11 @@ internal fun MemohWorkspaceDialog(
                 try {
                     api.uploadFile(botId, path, uri, resolver, name)
                     if (directory == folder) {
-                        message = "Uploaded $name"
+                        message = uiResources.getString(R.string.memoh_ui_uploaded_1_s, name)
                         reloadKey++
                     }
                 } catch (e: Exception) {
-                    if (directory == folder) message = e.message ?: "Upload failed"
+                    if (directory == folder) message = e.message ?: uiResources.getString(R.string.memoh_ui_upload_failed)
                 } finally {
                     saving = false
                 }
@@ -136,12 +139,12 @@ internal fun MemohWorkspaceDialog(
                 try {
                     api.downloadArchive(botId, listOf(target), uri, resolver)
                     if (directory == folder) {
-                        message = "Folder archive saved."
+                        message = uiResources.getString(R.string.memoh_ui_folder_archive_saved)
                         messageIsError = false
                     }
                 } catch (e: Exception) {
                     if (directory == folder) {
-                        message = e.message ?: "Archive download failed"
+                        message = e.message ?: uiResources.getString(R.string.memoh_ui_archive_download_failed)
                         messageIsError = true
                     }
                 } finally { saving = false }
@@ -158,10 +161,10 @@ internal fun MemohWorkspaceDialog(
                     saving = true
                     try {
                         api.downloadFile(botId, entry.path, uri, resolver)
-                        message = "${entry.name} saved."
+                        message = uiResources.getString(R.string.memoh_ui_1_s_saved, entry.name)
                         messageIsError = false
                     } catch (e: Exception) {
-                        message = e.message ?: "Download failed"
+                        message = e.message ?: uiResources.getString(R.string.memoh_ui_download_failed)
                         messageIsError = true
                     } finally {
                         saving = false
@@ -179,9 +182,9 @@ internal fun MemohWorkspaceDialog(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Workspace Files", style = MaterialTheme.typography.titleLarge,
+                    Text(uiResources.getString(R.string.memoh_ui_workspace_files), style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Close") }
+                    TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_close)) }
                 }
                 Text(
                     opened?.path ?: directory,
@@ -199,24 +202,24 @@ internal fun MemohWorkspaceDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         TextButton(onClick = { if (directory != "/data") directory = parent(directory) },
-                            enabled = directory != "/data") { Text("Up") }
-                        TextButton(onClick = { reloadKey++ }) { Text("Refresh") }
-                        TextButton(onClick = { picker.launch("*/*") }, enabled = !saving) { Text("Upload") }
+                            enabled = directory != "/data") { Text(uiResources.getString(R.string.memoh_ui_up)) }
+                        TextButton(onClick = { reloadKey++ }) { Text(uiResources.getString(R.string.memoh_ui_refresh)) }
+                        TextButton(onClick = { picker.launch("*/*") }, enabled = !saving) { Text(uiResources.getString(R.string.memoh_ui_upload)) }
                         TextButton(onClick = { folderDraft = ""; newFolder = true },
-                            enabled = !saving) { Text("New Folder") }
+                            enabled = !saving) { Text(uiResources.getString(R.string.memoh_ui_new_folder)) }
                         TextButton(onClick = {
                             archiveTarget = directory
                             saveArchive.launch(
                                 "${directory.trimEnd('/').substringAfterLast('/').ifBlank { "workspace" }}.tar.gz"
                             )
-                        }, enabled = !saving && entries.isNotEmpty()) { Text("Download folder") }
+                        }, enabled = !saving && entries.isNotEmpty()) { Text(uiResources.getString(R.string.memoh_ui_download_folder)) }
                     }
                     if (loading) CircularProgressIndicator()
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         if (entries.isEmpty() && !loading && message.isBlank()) {
                             item {
                                 Text(
-                                    "This folder is empty.",
+                                    uiResources.getString(R.string.memoh_ui_this_folder_is_empty),
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -243,7 +246,7 @@ internal fun MemohWorkspaceDialog(
                                                         }
                                                     } catch (e: Exception) {
                                                         if (opened?.path == file.path) {
-                                                            message = e.message ?: "Unable to read file"
+                                                            message = e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_read_file)
                                                             messageIsError = true
                                                         }
                                                     } finally { loading = false }
@@ -259,12 +262,13 @@ internal fun MemohWorkspaceDialog(
                         }
                     }
                 } else {
-                    TextButton(onClick = { opened = null; message = "" }) { Text("Back to Files") }
+                    TextButton(onClick = { opened = null; message = "" }) { Text(uiResources.getString(R.string.memoh_ui_back_to_files)) }
                     if (loading) CircularProgressIndicator()
                     OutlinedTextField(
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false, keyboardType = androidx.compose.ui.text.input.KeyboardType.Text),
                         value = fileContent,
                         onValueChange = { fileContent = it },
-                        label = { Text("File Contents") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_file_contents)) },
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                     Button(
@@ -279,15 +283,15 @@ internal fun MemohWorkspaceDialog(
                                     val newRevision = api.writeFile(botId, file.path, text, previous)
                                     if (opened?.path == file.path) {
                                         revision = newRevision
-                                        message = "Saved"
+                                        message = uiResources.getString(R.string.memoh_ui_saved)
                                     }
                                 } catch (e: Exception) {
                                     if (opened?.path == file.path) message =
-                                        e.message ?: "Save failed — reload to resolve the conflict"
+                                        e.message ?: uiResources.getString(R.string.memoh_ui_save_failed_reload_to_resolve_the_conflict)
                                 } finally { saving = false }
                             }
                         },
-                    ) { Text(if (saving) "Saving…" else "Save with Revision Check") }
+                    ) { Text(if (saving) uiResources.getString(R.string.memoh_ui_saving) else uiResources.getString(R.string.memoh_ui_save_with_revision_check)) }
                 }
             }
         }
@@ -300,13 +304,13 @@ internal fun MemohWorkspaceDialog(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { entryMenu = null },
             title = { Text(menuEntry.name) },
-            text = { Text("Choose an action for this ${if (menuEntry.isDirectory) "folder" else "file"}.") },
+            text = { Text(uiResources.getString(R.string.memoh_ui_choose_an_action_for_this_1_s, if (menuEntry.isDirectory) uiResources.getString(R.string.memoh_ui_folder) else uiResources.getString(R.string.memoh_ui_file))) },
             confirmButton = {
                 TextButton(onClick = {
                     entryMenu = null
                     renameTarget = menuEntry
                     renameDraft = menuEntry.name
-                }) { Text("Rename") }
+                }) { Text(uiResources.getString(R.string.memoh_ui_rename)) }
             },
             dismissButton = {
                 Row {
@@ -319,17 +323,17 @@ internal fun MemohWorkspaceDialog(
                             downloadTarget = menuEntry
                             saveFile.launch(menuEntry.name)
                         }
-                    }) { Text("Download") }
+                    }) { Text(uiResources.getString(R.string.memoh_ui_download)) }
                     // Only offer extraction for something that looks like an archive.
                     if (!menuEntry.isDirectory && isArchiveName(menuEntry.name)) {
                         TextButton(onClick = {
                             entryMenu = null
                             extracting = menuEntry
                             extractError = ""
-                        }) { Text("Extract") }
+                        }) { Text(uiResources.getString(R.string.memoh_ui_extract)) }
                     }
                     TextButton(onClick = { entryMenu = null; deleteTarget = menuEntry }) {
-                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                        Text(uiResources.getString(R.string.memoh_ui_delete), color = MaterialTheme.colorScheme.error)
                     }
                 }
             },
@@ -340,10 +344,10 @@ internal fun MemohWorkspaceDialog(
     if (renaming != null) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Rename") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_rename)) },
             text = {
                 OutlinedTextField(value = renameDraft, onValueChange = { renameDraft = it },
-                    label = { Text("New name") }, singleLine = true)
+                    label = { Text(uiResources.getString(R.string.memoh_ui_new_name)) }, singleLine = true)
             },
             confirmButton = {
                 TextButton(
@@ -357,17 +361,17 @@ internal fun MemohWorkspaceDialog(
                             try {
                                 api.renameEntry(botId, renaming.path, target)
                                 renameTarget = null
-                                message = "Renamed to ${renameDraft.trim()}"
+                                message = uiResources.getString(R.string.memoh_ui_renamed_to_1_s, renameDraft.trim())
                                 messageIsError = false
                                 reloadKey++
                             } catch (e: Exception) {
-                                message = e.message ?: "Rename failed"
+                                message = e.message ?: uiResources.getString(R.string.memoh_ui_rename_failed)
                                 messageIsError = true
                             } finally { saving = false }
                         }
-                    }) { Text("Rename") }
+                    }) { Text(uiResources.getString(R.string.memoh_ui_rename)) }
             },
-            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
 
@@ -375,11 +379,11 @@ internal fun MemohWorkspaceDialog(
     if (deleting != null) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("Delete ${if (deleting.isDirectory) "folder" else "file"}?") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_delete_1_s, if (deleting.isDirectory) uiResources.getString(R.string.memoh_ui_folder) else uiResources.getString(R.string.memoh_ui_file))) },
             text = {
                 Text(
-                    "Permanently deletes ${deleting.name} from the bot workspace" +
-                        if (deleting.isDirectory) ", including everything inside it." else "."
+                    uiResources.getString(R.string.memoh_ui_permanently_deletes_1_s_from_the_bot_workspace, deleting.name) +
+                        if (deleting.isDirectory) uiResources.getString(R.string.memoh_ui_including_everything_inside_it) else "."
                 )
             },
             confirmButton = {
@@ -389,17 +393,17 @@ internal fun MemohWorkspaceDialog(
                         try {
                             api.deleteEntry(botId, deleting.path, recursive = deleting.isDirectory)
                             deleteTarget = null
-                            message = "${deleting.name} deleted."
+                            message = uiResources.getString(R.string.memoh_ui_1_s_deleted, deleting.name)
                             messageIsError = false
                             reloadKey++
                         } catch (e: Exception) {
-                            message = e.message ?: "Delete failed"
+                            message = e.message ?: uiResources.getString(R.string.memoh_ui_delete_failed)
                             messageIsError = true
                         } finally { saving = false }
                     }
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }) { Text(uiResources.getString(R.string.memoh_ui_delete), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
 
@@ -407,10 +411,10 @@ internal fun MemohWorkspaceDialog(
     if (archive != null) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { if (!saving) extracting = null },
-            title = { Text("Extract ${archive.name}") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_extract_1_s, archive.name)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Memoh extracts this archive into a sibling folder named after it. An existing destination is never overwritten.")
+                    Text(uiResources.getString(R.string.memoh_ui_memoh_extracts_this_archive_into_a_sibling_folder_named_after_it_an_exis))
                     if (extractError.isNotBlank()) Text(extractError, color = MaterialTheme.colorScheme.error)
                 }
             },
@@ -421,28 +425,28 @@ internal fun MemohWorkspaceDialog(
                         try {
                             val destination = api.extractArchive(botId, archive.path)
                             extracting = null
-                            message = "Extracted to $destination"
+                            message = uiResources.getString(R.string.memoh_ui_extracted_to_1_s, destination)
                             messageIsError = false
                             reloadKey++
                         } catch (e: Exception) {
-                            extractError = e.message ?: "Extract failed"
+                            extractError = e.message ?: uiResources.getString(R.string.memoh_ui_extract_failed)
                             message = extractError
                             messageIsError = true
                         } finally { saving = false }
                     }
-                }) { Text("Extract") }
+                }) { Text(uiResources.getString(R.string.memoh_ui_extract)) }
             },
-            dismissButton = { TextButton(enabled = !saving, onClick = { extracting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(enabled = !saving, onClick = { extracting = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
 
     if (newFolder) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { newFolder = false },
-            title = { Text("New Folder") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_new_folder)) },
             text = {
                 OutlinedTextField(value = folderDraft, onValueChange = { folderDraft = it },
-                    label = { Text("Folder name") }, singleLine = true)
+                    label = { Text(uiResources.getString(R.string.memoh_ui_folder_name)) }, singleLine = true)
             },
             confirmButton = {
                 TextButton(
@@ -456,17 +460,17 @@ internal fun MemohWorkspaceDialog(
                             try {
                                 api.makeDirectory(botId, target)
                                 newFolder = false
-                                message = "Created ${folderDraft.trim()}"
+                                message = uiResources.getString(R.string.memoh_ui_created_1_s, folderDraft.trim())
                                 messageIsError = false
                                 if (directory == folder) reloadKey++
                             } catch (e: Exception) {
-                                message = e.message ?: "Could not create folder"
+                                message = e.message ?: uiResources.getString(R.string.memoh_ui_could_not_create_folder)
                                 messageIsError = true
                             } finally { saving = false }
                         }
-                    }) { Text("Create") }
+                    }) { Text(uiResources.getString(R.string.memoh_ui_create)) }
             },
-            dismissButton = { TextButton(onClick = { newFolder = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { newFolder = false }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
 }

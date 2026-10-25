@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +66,7 @@ internal fun MemohBotAppsTab(
     canManage: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val uiResources = LocalContext.current.resources
     val haptics = LocalAgoraHaptics.current
     val scope = rememberCoroutineScope()
     var selectedSection by remember { mutableStateOf(0) } // 0 = Installed Apps, 1 = Workspace Skills
@@ -84,7 +89,7 @@ internal fun MemohBotAppsTab(
             skills = skillsResult.getOrDefault(emptyList())
 
             if (appsResult.isFailure && skillsResult.isFailure) {
-                error = appsResult.exceptionOrNull()?.message ?: "Failed to load apps and skills"
+                error = appsResult.exceptionOrNull()?.message ?: uiResources.getString(R.string.memoh_ui_failed_to_load_apps_and_skills)
             }
             loading = false
         }
@@ -108,7 +113,7 @@ internal fun MemohBotAppsTab(
                         haptics.selection()
                         selectedSection = 0
                     },
-                    label = { Text("Apps (${apps.size})") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_apps_1_s, apps.size)) },
                     leadingIcon = {
                         Icon(Icons.Default.Apps, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -119,7 +124,7 @@ internal fun MemohBotAppsTab(
                         haptics.selection()
                         selectedSection = 1
                     },
-                    label = { Text("Skills (${skills.size})") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_skills_1_s, skills.size)) },
                     leadingIcon = {
                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -138,10 +143,10 @@ internal fun MemohBotAppsTab(
                                 runCatching { api.checkAppUpdates(botId) }
                                     .onSuccess {
                                         apps = it
-                                        message = "Checked for app updates"
+                                        message = uiResources.getString(R.string.memoh_ui_checked_for_app_updates)
                                     }
                                     .onFailure {
-                                        error = it.message ?: "Failed to check updates"
+                                        error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_check_updates)
                                     }
                                 checkingUpdates = false
                             }
@@ -151,7 +156,7 @@ internal fun MemohBotAppsTab(
                         if (checkingUpdates) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(Icons.Default.SystemUpdate, contentDescription = "Check Updates")
+                            Icon(Icons.Default.SystemUpdate, contentDescription = uiResources.getString(R.string.memoh_ui_check_updates))
                         }
                     }
                 }
@@ -159,7 +164,7 @@ internal fun MemohBotAppsTab(
                     haptics.selection()
                     refresh()
                 }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    Icon(Icons.Default.Refresh, contentDescription = uiResources.getString(R.string.memoh_ui_refresh))
                 }
             }
         }
@@ -201,8 +206,8 @@ internal fun MemohBotAppsTab(
             if (apps.isEmpty()) {
                 EmptyStateCard(
                     icon = Icons.Default.Apps,
-                    title = "No Installed Apps",
-                    description = "Apps package specialized skill workflows, connectors, and tools for your bot. Installed packages from the Supermarket will be managed here."
+                    title = uiResources.getString(R.string.memoh_ui_no_installed_apps),
+                    description = uiResources.getString(R.string.memoh_ui_apps_package_specialized_skill_workflows_connectors_and_tools_for_your_b)
                 )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -220,8 +225,8 @@ internal fun MemohBotAppsTab(
             if (skills.isEmpty()) {
                 EmptyStateCard(
                     icon = Icons.Default.AutoAwesome,
-                    title = "No Workspace Skills",
-                    description = "Skills are reusable agent instructions (SKILL.md) located in your bot's workspace directory. Custom skills will be listed here automatically."
+                    title = uiResources.getString(R.string.memoh_ui_no_workspace_skills),
+                    description = uiResources.getString(R.string.memoh_ui_skills_are_reusable_agent_instructions_skill_md_located_in_your_bot_s_wo)
                 )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -237,8 +242,8 @@ internal fun MemohBotAppsTab(
     uninstallCandidate?.let { app ->
         AlertDialog(
             onDismissRequest = { uninstallCandidate = null },
-            title = { Text("Uninstall App") },
-            text = { Text("Are you sure you want to remove '${app.name}'? Its packaged skills and associated resources will be removed from this workspace.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_uninstall_app)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_are_you_sure_you_want_to_remove_1_s_its_packaged_skills_and_associated_r, app.name)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -248,20 +253,20 @@ internal fun MemohBotAppsTab(
                             runCatching { api.deleteApp(botId, toRemove.installationId) }
                                 .onSuccess {
                                     haptics.confirm()
-                                    message = "App '${toRemove.name}' uninstalled"
+                                    message = uiResources.getString(R.string.memoh_ui_app_1_s_uninstalled, toRemove.name)
                                     refresh()
                                 }
                                 .onFailure {
                                     haptics.reject()
-                                    error = it.message ?: "Failed to uninstall app"
+                                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_uninstall_app)
                                 }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Uninstall") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_uninstall)) }
             },
             dismissButton = {
-                OutlinedButton(onClick = { uninstallCandidate = null }) { Text("Cancel") }
+                OutlinedButton(onClick = { uninstallCandidate = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }
@@ -274,6 +279,7 @@ private fun AppItemCard(
     canManage: Boolean,
     onUninstall: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -322,7 +328,7 @@ private fun AppItemCard(
                     IconButton(onClick = onUninstall) {
                         Icon(
                             Icons.Default.Delete,
-                            contentDescription = "Uninstall",
+                            contentDescription = uiResources.getString(R.string.memoh_ui_uninstall),
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -357,14 +363,14 @@ private fun AppItemCard(
 
                 if (app.skillsCount > 0) {
                     Text(
-                        text = "${app.skillsCount} skills",
+                        text = uiResources.getString(R.string.memoh_ui_1_s_skills, app.skillsCount),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (app.dependenciesCount > 0) {
                     Text(
-                        text = "• ${app.dependenciesCount} deps",
+                        text = uiResources.getString(R.string.memoh_ui_1_s_deps, app.dependenciesCount),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

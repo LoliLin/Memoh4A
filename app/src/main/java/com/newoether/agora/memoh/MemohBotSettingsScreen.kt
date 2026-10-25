@@ -1,5 +1,8 @@
 package com.newoether.agora.memoh
 
+import androidx.compose.ui.platform.LocalContext
+
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -46,11 +49,11 @@ import com.newoether.agora.ui.settings.SettingsGroup
 import com.newoether.agora.ui.settings.SettingsItem
 import kotlinx.coroutines.launch
 
-/** One Bot settings page. Labels are literal because these pages exist only in this build. */
+/** One Bot settings page. Section labels resolve from the active app language. */
 internal data class MemohBotSection(
     val key: String,
-    val title: String,
-    val description: String,
+    @androidx.annotation.StringRes val title: Int,
+    @androidx.annotation.StringRes val description: Int,
 )
 
 internal object MemohBotSectionKey {
@@ -67,22 +70,22 @@ internal object MemohBotSectionKey {
 }
 
 private val botIdentitySections = listOf(
-    MemohBotSection(MemohBotSectionKey.GENERAL, "General", "Title, display name, timezone and avatar"),
-    MemohBotSection(MemohBotSectionKey.ADVANCED, "Advanced", "Model defaults, prompt and runtime limits"),
+    MemohBotSection(MemohBotSectionKey.GENERAL, R.string.memoh_ui_general, R.string.memoh_ui_title_display_name_timezone_and_avatar),
+    MemohBotSection(MemohBotSectionKey.ADVANCED, R.string.memoh_ui_advanced, R.string.memoh_ui_access_defaults_health_checks_and_maintenance),
 )
 
 private val botCapabilitySections = listOf(
-    MemohBotSection(MemohBotSectionKey.AGENTS, "Agents", "Sub-agents this bot can delegate to"),
-    MemohBotSection(MemohBotSectionKey.CHANNELS, "Channels", "Telegram, Discord and other linked chats"),
-    MemohBotSection(MemohBotSectionKey.RUNTIME, "Runtime", "Remote runtime endpoint and container image"),
-    MemohBotSection(MemohBotSectionKey.CONTAINER, "Container", "Workspace files and shell access"),
-    MemohBotSection(MemohBotSectionKey.MCP, "MCP", "Connected MCP servers and their tools"),
-    MemohBotSection(MemohBotSectionKey.APPS, "Apps", "Mini apps published by this bot"),
+    MemohBotSection(MemohBotSectionKey.AGENTS, R.string.memoh_ui_agents, R.string.memoh_ui_sub_agents_this_bot_can_delegate_to),
+    MemohBotSection(MemohBotSectionKey.CHANNELS, R.string.memoh_ui_channels, R.string.memoh_ui_telegram_discord_and_other_linked_chats),
+    MemohBotSection(MemohBotSectionKey.RUNTIME, R.string.memoh_ui_runtime, R.string.memoh_ui_register_and_manage_remote_worker_nodes),
+    MemohBotSection(MemohBotSectionKey.CONTAINER, R.string.memoh_ui_container, R.string.memoh_ui_workspace_files_and_shell_access),
+    MemohBotSection(MemohBotSectionKey.MCP, R.string.memoh_ui_mcp, R.string.memoh_ui_connected_mcp_servers_and_their_tools),
+    MemohBotSection(MemohBotSectionKey.APPS, R.string.memoh_ui_apps, R.string.memoh_ui_installed_apps_and_workspace_skills),
 )
 
 private val botAdministrationSections = listOf(
-    MemohBotSection(MemohBotSectionKey.ACCESS, "Access", "Who may use or manage this bot"),
-    MemohBotSection(MemohBotSectionKey.BACKUP, "Backup", "Export or restore the bot's data"),
+    MemohBotSection(MemohBotSectionKey.ACCESS, R.string.memoh_ui_access, R.string.memoh_ui_who_may_use_or_manage_this_bot),
+    MemohBotSection(MemohBotSectionKey.BACKUP, R.string.memoh_ui_backup, R.string.memoh_ui_export_or_restore_the_bot_s_data),
 )
 
 /**
@@ -105,6 +108,7 @@ internal fun MemohBotSettingsScreen(
     onBackupImport: () -> Unit,
     backupStatus: String,
 ) {
+    val uiResources = LocalContext.current.resources
     var section by remember(bot.id) { mutableStateOf<String?>(null) }
     var currentBot by remember(bot.id) { mutableStateOf(bot) }
     var deleting by remember { mutableStateOf(false) }
@@ -127,6 +131,7 @@ internal fun MemohBotSettingsScreen(
     }
 
     val canManage = currentBot.canManage
+    BackHandler(enabled = section != null) { section = null }
     val open = section
     if (open == null) {
         CollapsingSettingsLazyScaffold(
@@ -135,11 +140,11 @@ internal fun MemohBotSettingsScreen(
         ) {
             item { BotStatusCard(currentBot, canManage, message, messageIsError) }
             item { Spacer(Modifier.height(8.dp)) }
-            item { BotSectionGroup("Identity", botIdentitySections, canManage) { section = it } }
+            item { BotSectionGroup(uiResources.getString(R.string.memoh_ui_identity), botIdentitySections, canManage) { section = it } }
             item { Spacer(Modifier.height(16.dp)) }
-            item { BotSectionGroup("Capabilities", botCapabilitySections, canManage) { section = it } }
+            item { BotSectionGroup(uiResources.getString(R.string.memoh_ui_capabilities), botCapabilitySections, canManage) { section = it } }
             item { Spacer(Modifier.height(16.dp)) }
-            item { BotSectionGroup("Administration", botAdministrationSections, canManage) { section = it } }
+            item { BotSectionGroup(uiResources.getString(R.string.memoh_ui_administration), botAdministrationSections, canManage) { section = it } }
             item {
                 Spacer(Modifier.height(24.dp))
                 DestructiveBotAction(
@@ -165,7 +170,6 @@ internal fun MemohBotSettingsScreen(
             onOpenWorkspace = onOpenWorkspace,
             onBackupExport = onBackupExport,
             onBackupImport = onBackupImport,
-            onDeleteRequested = { deleting = true },
             onNotice = { text, isError ->
                 message = text
                 messageIsError = isError
@@ -186,7 +190,7 @@ internal fun MemohBotSettingsScreen(
                             onBack()
                         }
                         .onFailure {
-                            message = it.message ?: "Delete failed"
+                            message = it.message ?: uiResources.getString(R.string.memoh_ui_delete_failed)
                             messageIsError = true
                         }
                 }
@@ -202,18 +206,19 @@ private fun BotSectionGroup(
     canManage: Boolean,
     onOpen: (String) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     SettingsGroup(
         title = title,
         items = sections.map { section ->
             {
                 SettingsItem(
-                    headlineContent = { Text(section.title) },
-                    supportingContent = { Text(section.description) },
+                    headlineContent = { Text(stringResource(section.title)) },
+                    supportingContent = { Text(stringResource(section.description)) },
                     leadingContent = {
                         Icon(botSectionIcon(section.key), null, tint = MaterialTheme.colorScheme.primary)
                     },
                     trailingContent = if (!canManage) {
-                        { Text("Read only", style = MaterialTheme.typography.labelSmall) }
+                        { Text(uiResources.getString(R.string.memoh_ui_read_only), style = MaterialTheme.typography.labelSmall) }
                     } else {
                         null
                     },
@@ -242,17 +247,18 @@ private fun BotStatusCard(
     message: String,
     messageIsError: Boolean,
 ) {
+    val uiResources = LocalContext.current.resources
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(bot.title, style = MaterialTheme.typography.headlineSmall)
         Text(
-            "ID: ${bot.id}",
+            uiResources.getString(R.string.memoh_ui_id_1_s, bot.id),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LabeledFact("Status", bot.status.ifBlank { if (bot.isActive) "Active" else "Inactive" })
-            LabeledFact("Timezone", bot.timezone.ifBlank { "System" })
+            LabeledFact(uiResources.getString(R.string.memoh_ui_status), bot.status.ifBlank { if (bot.isActive) uiResources.getString(R.string.memoh_ui_active) else uiResources.getString(R.string.memoh_ui_inactive) })
+            LabeledFact(uiResources.getString(R.string.memoh_ui_timezone), bot.timezone.ifBlank { uiResources.getString(R.string.memoh_ui_system) })
         }
         if (!canManage) {
             Spacer(Modifier.height(8.dp))
@@ -283,15 +289,16 @@ private fun LabeledFact(label: String, value: String) {
 
 @Composable
 private fun DestructiveBotAction(canManage: Boolean, botTitle: String, onDelete: () -> Unit) {
+    val uiResources = LocalContext.current.resources
     if (!canManage) return
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Delete bot", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge)
+            Text(uiResources.getString(R.string.memoh_ui_delete_bot), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Removes “$botTitle” and everything the server keeps for it.",
+                uiResources.getString(R.string.memoh_ui_removes_1_s_and_everything_the_server_keeps_for_it, botTitle),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -303,7 +310,7 @@ private fun DestructiveBotAction(canManage: Boolean, botTitle: String, onDelete:
         ) {
             Icon(Icons.Default.Delete, null)
             Spacer(Modifier.width(6.dp))
-            Text("Delete")
+            Text(uiResources.getString(R.string.memoh_ui_delete))
         }
     }
 }
@@ -319,7 +326,7 @@ internal fun DeleteBotConfirmDialog(
     onConfirm: () -> Unit,
 ) {
     var typed by remember(bot.id) { mutableStateOf("") }
-    val matches = typed.trim() == DELETION_CONFIRM_WORD
+    val matches = typed == DELETION_CONFIRM_WORD
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -337,6 +344,7 @@ internal fun DeleteBotConfirmDialog(
                     isError = typed.isNotEmpty() && !matches,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         imeAction = ImeAction.Done,
+                        autoCorrectEnabled = false,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )

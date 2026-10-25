@@ -82,6 +82,8 @@ class AutomaticUserMessageBubbleTest {
         onSwitchBranch: (Int) -> Unit = {},
         onShowInfo: () -> Unit = {},
         onShowDelete: () -> Unit = {},
+        showBranchSelector: Boolean = true,
+        showInfoAction: Boolean = true,
     ) {
         UserMessageBubble(
             message = message,
@@ -96,7 +98,8 @@ class AutomaticUserMessageBubbleTest {
             showActions = true,
             showDeleteAction = true,
             actionCopyText = message.text,
-            showBranchSelector = true,
+            showBranchSelector = showBranchSelector,
+            showInfoAction = showInfoAction,
             branchIndex = 1,
             totalBranches = 3,
             onEdit = { _, _ -> },
@@ -123,6 +126,16 @@ class AutomaticUserMessageBubbleTest {
         compose.onNodeWithText(text, useUnmergedTree = true)
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         return layouts.single().layoutInput.style.color
+    }
+
+    @Test
+    fun memohCanHideBranchCounterAndMessageInfoWithoutLosingEditOrCopy() {
+        content { bubble(message(null), showBranchSelector = false, showInfoAction = false) }
+        compose.onNodeWithText("2 / 3").assertDoesNotExist()
+        openMenu()
+        compose.onNodeWithText(label(R.string.info)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.copy)).assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText(label(R.string.edit)).assertIsDisplayed().assertIsEnabled()
     }
 
     @Test

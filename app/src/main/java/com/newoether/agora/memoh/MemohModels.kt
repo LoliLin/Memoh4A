@@ -45,6 +45,10 @@ internal data class MemohSession(
     val botAgentId: String = "",
     val runtimeType: String = "",
     val type: String = "chat",
+    val preferredChatModelId: String = "",
+    val preferredExternalModelId: String = "",
+    val preferredReasoningEffort: String = "",
+    val modelPreferenceRevision: String = "",
 )
 internal data class MemohAccount(
     val id: String, val username: String, val email: String, val role: String,
@@ -247,6 +251,10 @@ internal fun decodeSession(obj: JSONObject): MemohSession = MemohSession(
     id = obj.optString("id"), title = obj.optString("title").ifBlank { "Untitled" },
     botAgentId = obj.optString("bot_agent_id"), runtimeType = obj.optString("runtime_type"),
     type = obj.optString("type").ifBlank { "chat" },
+    preferredChatModelId = obj.optString("preferred_chat_model_id"),
+    preferredExternalModelId = obj.optString("preferred_external_model_id"),
+    preferredReasoningEffort = obj.optString("preferred_reasoning_effort"),
+    modelPreferenceRevision = obj.optString("model_preference_revision"),
 )
 
 internal fun decodeAttachments(array: JSONArray?): List<MemohAttachment> {

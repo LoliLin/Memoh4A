@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,22 +28,23 @@ import androidx.compose.ui.unit.dp
 /** Remote queue content is never mirrored to Agora's local conversation store. */
 @Composable
 internal fun MemohQueueDialog(vm: MemohViewModel, onDismiss: () -> Unit) {
+    val uiResources = LocalContext.current.resources
     var cancelTarget by remember { mutableStateOf<MemohQueueItem?>(null) }
     var editTarget by remember { mutableStateOf<MemohQueueItem?>(null) }
     val snapshot = vm.queueState
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Message Queue") },
+        title = { Text(uiResources.getString(R.string.memoh_ui_message_queue)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row {
-                    Text(if (snapshot?.steerSupported == true) "Steering Available"
-                        else "Follow-Up Queue", modifier = Modifier.weight(1f),
+                    Text(if (snapshot?.steerSupported == true) uiResources.getString(R.string.memoh_ui_steering_available)
+                        else uiResources.getString(R.string.memoh_ui_follow_up_queue), modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelMedium)
-                    TextButton(onClick = vm::refreshQueue) { Text("Refresh") }
+                    TextButton(onClick = vm::refreshQueue) { Text(uiResources.getString(R.string.memoh_ui_refresh)) }
                 }
-                if (snapshot == null) Text("Loading queue…")
-                else if (snapshot.items.isEmpty()) Text("No pending messages")
+                if (snapshot == null) Text(uiResources.getString(R.string.memoh_ui_loading_queue))
+                else if (snapshot.items.isEmpty()) Text(uiResources.getString(R.string.memoh_ui_no_pending_messages))
                 else {
                     LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
                         items(snapshot.items, key = { it.type + ":" + it.id }) { item ->
@@ -62,19 +67,19 @@ internal fun MemohQueueDialog(vm: MemohViewModel, onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_done)) } },
     )
 
     val target = cancelTarget
     if (target != null) AlertDialog(
         onDismissRequest = { cancelTarget = null },
-        title = { Text("Remove Queued Message?") },
+        title = { Text(uiResources.getString(R.string.memoh_ui_remove_queued_message)) },
         text = { Text(target.text) },
         confirmButton = {
             TextButton(onClick = { vm.cancelQueued(target); cancelTarget = null },
-                enabled = !vm.queueBusy) { Text("Remove") }
+                enabled = !vm.queueBusy) { Text(uiResources.getString(R.string.memoh_ui_remove)) }
         },
-        dismissButton = { TextButton(onClick = { cancelTarget = null }) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = { cancelTarget = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
     )
 
     val editing = editTarget
@@ -82,7 +87,7 @@ internal fun MemohQueueDialog(vm: MemohViewModel, onDismiss: () -> Unit) {
         var draft by remember(editing.id) { mutableStateOf(editing.text) }
         AlertDialog(
             onDismissRequest = { editTarget = null },
-            title = { Text("Edit Queued Message") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_edit_queued_message)) },
             text = {
                 OutlinedTextField(value = draft, onValueChange = { draft = it },
                     modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 6)
@@ -91,9 +96,9 @@ internal fun MemohQueueDialog(vm: MemohViewModel, onDismiss: () -> Unit) {
                 TextButton(
                     onClick = { vm.editQueued(editing, draft); editTarget = null },
                     enabled = !vm.queueBusy && draft.isNotBlank() && draft.trim() != editing.text,
-                ) { Text("Save") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_save)) }
             },
-            dismissButton = { TextButton(onClick = { editTarget = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { editTarget = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
 }
@@ -110,28 +115,29 @@ private fun QueueRow(
     onReorder: (String?) -> Unit,
     onPromote: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val editable = item.status == "queued" || item.status == "pending"
     Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
-        Text(if (item.type == "steer") "Steer · ${item.status}"
-             else "Follow-Up · ${item.status}",
+        Text(if (item.type == "steer") uiResources.getString(R.string.memoh_ui_steer_1_s, item.status)
+             else uiResources.getString(R.string.memoh_ui_follow_up_1_s, item.status),
             style = MaterialTheme.typography.labelSmall)
         Text(item.text, style = MaterialTheme.typography.bodyMedium)
         if (editable) {
             Row {
-                TextButton(onClick = onEdit, enabled = !busy) { Text("Edit") }
+                TextButton(onClick = onEdit, enabled = !busy) { Text(uiResources.getString(R.string.memoh_ui_edit)) }
                 if (aboveId != null) TextButton(
                     onClick = { onReorder(aboveId) },
                     enabled = !busy,
-                ) { Text("Move Up") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_move_up)) }
                 if (belowId != null) TextButton(
                     onClick = { onReorder(null) },
                     enabled = !busy,
-                ) { Text("Move Down") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_move_down)) }
                 if (item.type == "follow_up") TextButton(
                     onClick = onPromote,
                     enabled = !busy,
-                ) { Text("Steer Now") }
-                TextButton(onClick = onCancel, enabled = !busy) { Text("Remove") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_steer_now)) }
+                TextButton(onClick = onCancel, enabled = !busy) { Text(uiResources.getString(R.string.memoh_ui_remove)) }
             }
         }
     }

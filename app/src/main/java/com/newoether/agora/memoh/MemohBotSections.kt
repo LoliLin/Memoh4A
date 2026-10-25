@@ -1,5 +1,14 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
+import androidx.compose.foundation.verticalScroll
+
+import androidx.compose.foundation.layout.heightIn
+
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -53,6 +62,7 @@ internal fun BotGeneralSection(
     onBotUpdated: (MemohBot) -> Unit,
     onError: (String) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     var displayName by remember(bot.id) { mutableStateOf(bot.displayName) }
     var name by remember(bot.id) { mutableStateOf(bot.name) }
@@ -66,7 +76,7 @@ internal fun BotGeneralSection(
             OutlinedTextField(
                 value = displayName,
                 onValueChange = { displayName = it },
-                label = { Text("Display name") },
+                label = { Text(uiResources.getString(R.string.memoh_ui_display_name)) },
                 enabled = canManage && !saving,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -76,7 +86,7 @@ internal fun BotGeneralSection(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("System name (slug)") },
+                label = { Text(uiResources.getString(R.string.memoh_ui_system_name_slug)) },
                 enabled = canManage && !saving,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -84,27 +94,21 @@ internal fun BotGeneralSection(
         }
         item {
             OutlinedTextField(
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false, keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri),
                 value = avatarUrl,
                 onValueChange = { avatarUrl = it },
-                label = { Text("Avatar URL") },
+                label = { Text(uiResources.getString(R.string.memoh_ui_avatar_url)) },
                 enabled = canManage && !saving,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
         }
         item {
-            OutlinedTextField(
-                value = timezone,
-                onValueChange = { timezone = it },
-                label = { Text("Timezone (e.g. Asia/Shanghai, UTC)") },
-                enabled = canManage && !saving,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
+            MemohTimeZoneField(timezone, { timezone = it }, enabled = canManage && !saving)
         }
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Bot is active", modifier = Modifier.weight(1f))
+                Text(uiResources.getString(R.string.memoh_ui_bot_is_active), modifier = Modifier.weight(1f))
                 Switch(checked = isActive, onCheckedChange = { isActive = it }, enabled = canManage && !saving)
             }
         }
@@ -127,7 +131,7 @@ internal fun BotGeneralSection(
                                     ),
                                 )
                             } catch (e: Exception) {
-                                onError(e.message ?: "Failed to update bot settings")
+                                onError(e.message ?: uiResources.getString(R.string.memoh_ui_failed_to_update_bot_settings))
                             } finally {
                                 saving = false
                             }
@@ -135,7 +139,7 @@ internal fun BotGeneralSection(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (saving) "Saving…" else "Save settings")
+                    Text(if (saving) uiResources.getString(R.string.memoh_ui_saving) else uiResources.getString(R.string.memoh_ui_save_settings))
                 }
             }
         }
@@ -149,6 +153,7 @@ internal fun BotAccessSection(
     canManage: Boolean,
     onError: (String) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     var grants by remember { mutableStateOf<List<MemohUserGrant>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
@@ -163,7 +168,7 @@ internal fun BotAccessSection(
             loading = true
             runCatching { api.botUserGrants(botId) }
                 .onSuccess { grants = it }
-                .onFailure { onError(it.message ?: "Failed to load user access grants") }
+                .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_load_user_access_grants)) }
             loading = false
         }
     }
@@ -172,16 +177,16 @@ internal fun BotAccessSection(
 
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("User access grants", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(uiResources.getString(R.string.memoh_ui_user_access_grants), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             if (loading) CircularProgressIndicator(Modifier.height(18.dp).width(18.dp))
             if (canManage) {
-                TextButton(onClick = { showAddDialog = true }) { Text("+ Add member") }
+                TextButton(onClick = { showAddDialog = true }) { Text(uiResources.getString(R.string.memoh_ui_add_member)) }
             }
         }
 
         if (grants.isEmpty() && !loading) {
             Text(
-                "No explicit user grants assigned to this bot.",
+                uiResources.getString(R.string.memoh_ui_no_explicit_user_grants_assigned_to_this_bot),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
@@ -199,12 +204,12 @@ internal fun BotAccessSection(
                                     )
                                     if (grant.isOwner) {
                                         Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.extraSmall) {
-                                            Text("Owner", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
+                                            Text(uiResources.getString(R.string.memoh_ui_owner), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
                                 }
                                 Text(
-                                    "ID: ${grant.userId}",
+                                    uiResources.getString(R.string.memoh_ui_id_1_s, grant.userId),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -218,7 +223,7 @@ internal fun BotAccessSection(
                             }
                             if (canManage && !grant.isOwner) {
                                 TextButton(onClick = { deletingGrantId = grant.id }) {
-                                    Text("Revoke", color = MaterialTheme.colorScheme.error)
+                                    Text(uiResources.getString(R.string.memoh_ui_revoke), color = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
@@ -231,24 +236,21 @@ internal fun BotAccessSection(
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("Grant bot access") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_grant_bot_access)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = targetUserId,
-                        onValueChange = { targetUserId = it },
-                        label = { Text("User ID") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MemohResourceField(
+                        api, "/bots/${android.net.Uri.encode(botId)}/user-access/candidates",
+                        uiResources.getString(R.string.memoh_ui_user), targetUserId, { targetUserId = it }, serverSearch = true,
                     )
-                    Text("Permissions", style = MaterialTheme.typography.labelMedium)
+                    Text(uiResources.getString(R.string.memoh_ui_permissions), style = MaterialTheme.typography.labelMedium)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = grantChat, onCheckedChange = { grantChat = it })
-                        Text("chat (talk with this bot)")
+                        Text(uiResources.getString(R.string.memoh_ui_chat_talk_with_this_bot))
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = grantManage, onCheckedChange = { grantManage = it })
-                        Text("manage (configure bot settings & agents)")
+                        Text(uiResources.getString(R.string.memoh_ui_manage_configure_bot_settings_agents))
                     }
                 }
             },
@@ -267,13 +269,13 @@ internal fun BotAccessSection(
                                     targetUserId = ""
                                     refreshGrants()
                                 }
-                                .onFailure { onError(it.message ?: "Failed to create access grant") }
+                                .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_create_access_grant)) }
                         }
                     },
-                ) { Text("Grant access") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_grant_access)) }
             },
             dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showAddDialog = false }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             },
         )
     }
@@ -282,8 +284,8 @@ internal fun BotAccessSection(
         val grantId = deletingGrantId!!
         AlertDialog(
             onDismissRequest = { deletingGrantId = null },
-            title = { Text("Revoke access?") },
-            text = { Text("The user loses permissions immediately.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_revoke_access)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_the_user_loses_permissions_immediately)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -293,14 +295,14 @@ internal fun BotAccessSection(
                                     deletingGrantId = null
                                     refreshGrants()
                                 }
-                                .onFailure { onError(it.message ?: "Failed to revoke grant") }
+                                .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_revoke_grant)) }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                ) { Text("Revoke") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_revoke)) }
             },
             dismissButton = {
-                TextButton(onClick = { deletingGrantId = null }) { Text("Cancel") }
+                TextButton(onClick = { deletingGrantId = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             },
         )
     }
@@ -308,6 +310,7 @@ internal fun BotAccessSection(
 
 @Composable
 internal fun BotContainerSection(api: MemohApi, botId: String, onOpenWorkspace: () -> Unit) {
+    val uiResources = LocalContext.current.resources
     var info by remember { mutableStateOf<JSONObject?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -316,28 +319,28 @@ internal fun BotContainerSection(api: MemohApi, botId: String, onOpenWorkspace: 
         loading = true
         runCatching { api.botContainer(botId) }
             .onSuccess { info = it }
-            .onFailure { error = it.message ?: "Container information unavailable" }
+            .onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_container_information_unavailable) }
         loading = false
     }
 
     Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Workspace container", style = MaterialTheme.typography.titleMedium)
+        Text(uiResources.getString(R.string.memoh_ui_workspace_container), style = MaterialTheme.typography.titleMedium)
         if (loading) CircularProgressIndicator()
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
 
         info?.let { json ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    BotInfoRow("Status", json.optString("status").ifBlank { "Ready" })
-                    BotInfoRow("Workdir", json.optString("workdir").ifBlank { "/data" })
-                    BotInfoRow("Image", json.optString("image").ifBlank { "Default sandbox" })
+                    BotInfoRow(uiResources.getString(R.string.memoh_ui_status), json.optString("status").ifBlank { uiResources.getString(R.string.memoh_ui_ready) })
+                    BotInfoRow(uiResources.getString(R.string.memoh_ui_workdir), json.optString("workdir").ifBlank { "/data" })
+                    BotInfoRow(uiResources.getString(R.string.memoh_ui_image), json.optString("image").ifBlank { uiResources.getString(R.string.memoh_ui_default_sandbox) })
                 }
             }
         }
 
         Spacer(Modifier.height(4.dp))
         Button(onClick = onOpenWorkspace, modifier = Modifier.fillMaxWidth()) {
-            Text("Open workspace file explorer")
+            Text(uiResources.getString(R.string.memoh_ui_open_workspace_file_explorer))
         }
     }
 }

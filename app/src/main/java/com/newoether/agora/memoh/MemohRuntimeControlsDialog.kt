@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +33,7 @@ import org.json.JSONObject
  */
 @Composable
 internal fun MemohRuntimeControlsDialog(vm: MemohViewModel, onDismiss: () -> Unit) {
+    val uiResources = LocalContext.current.resources
     LaunchedEffect(vm.session?.id) { vm.refreshRuntimeControls() }
     val controls = vm.runtimeControlsJson
     val goal = vm.runtimeGoalJson
@@ -36,24 +41,24 @@ internal fun MemohRuntimeControlsDialog(vm: MemohViewModel, onDismiss: () -> Uni
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Runtime Controls") },
+        title = { Text(uiResources.getString(R.string.memoh_ui_runtime_controls)) },
         text = {
             if (controls == null) {
-                Text("Loading runtime controls…")
+                Text(uiResources.getString(R.string.memoh_ui_loading_runtime_controls))
             } else {
                 LazyColumn(
                     modifier = Modifier.heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    item { ModeSection(vm, controls.optJSONObject("modes"), "Permission Mode") }
-                    item { ModeSection(vm, controls.optJSONObject("plan_mode"), "Plan Mode") }
+                    item { ModeSection(vm, controls.optJSONObject("modes"), uiResources.getString(R.string.memoh_ui_permission_mode)) }
+                    item { ModeSection(vm, controls.optJSONObject("plan_mode"), uiResources.getString(R.string.memoh_ui_plan_mode)) }
                     if (goal?.optJSONObject("goal") != null) {
                         item { GoalSection(vm, goal.optJSONObject("goal")!!) }
                     }
                     val commands = controls.optJSONArray("commands")
                     if (commands != null && commands.length() > 0) {
                         item {
-                            Text("Runtime Commands",
+                            Text(uiResources.getString(R.string.memoh_ui_runtime_commands),
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.padding(top = 4.dp))
                         }
@@ -79,8 +84,8 @@ internal fun MemohRuntimeControlsDialog(vm: MemohViewModel, onDismiss: () -> Uni
                         OutlinedTextField(
                             value = command,
                             onValueChange = { command = it },
-                            label = { Text("Run command") },
-                            placeholder = { Text("e.g. /status") },
+                            label = { Text(uiResources.getString(R.string.memoh_ui_run_command)) },
+                            placeholder = { Text(uiResources.getString(R.string.memoh_ui_e_g_status)) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -88,32 +93,33 @@ internal fun MemohRuntimeControlsDialog(vm: MemohViewModel, onDismiss: () -> Uni
                             TextButton(
                                 onClick = { vm.runRuntimeCommand(command.trim()); command = "" },
                                 enabled = !vm.runtimeControlsBusy && command.isNotBlank(),
-                            ) { Text("Run") }
+                            ) { Text(uiResources.getString(R.string.memoh_ui_run)) }
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_done)) } },
     )
 }
 
 @Composable
 private fun ModeSection(vm: MemohViewModel, state: JSONObject?, title: String) {
+    val uiResources = LocalContext.current.resources
     if (state == null || !state.optBoolean("supported", false)) return
     val current = state.optString("current_mode_id")
     val modes = state.optJSONArray("available_modes") ?: return
     Column(Modifier.fillMaxWidth()) {
         Text(title, style = MaterialTheme.typography.labelMedium)
         if (state.optBoolean("apply_on_next_turn", false)) {
-            Text("Applies on the next turn",
+            Text(uiResources.getString(R.string.memoh_ui_applies_on_the_next_turn),
                 style = MaterialTheme.typography.bodySmall)
         }
         for (i in 0 until modes.length()) {
             val mode = modes.optJSONObject(i) ?: continue
             val id = mode.optString("id")
             TextButton(
-                onClick = { vm.setRuntimeMode(id, plan = title == "Plan Mode") },
+                onClick = { vm.setRuntimeMode(id, plan = title == uiResources.getString(R.string.memoh_ui_plan_mode)) },
                 enabled = !vm.runtimeControlsBusy && id != current,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -126,25 +132,26 @@ private fun ModeSection(vm: MemohViewModel, state: JSONObject?, title: String) {
 
 @Composable
 private fun GoalSection(vm: MemohViewModel, goal: JSONObject) {
+    val uiResources = LocalContext.current.resources
     Column(Modifier.fillMaxWidth()) {
-        Text("Goal", style = MaterialTheme.typography.labelMedium)
+        Text(uiResources.getString(R.string.memoh_ui_goal), style = MaterialTheme.typography.labelMedium)
         Text(goal.optString("objective"), style = MaterialTheme.typography.bodyMedium)
         val status = goal.optString("status")
         val tokens = goal.optLong("tokens_used", -1L)
         val budget = goal.optLong("token_budget", -1L)
-        if (status.isNotBlank()) Text("Status: $status", style = MaterialTheme.typography.bodySmall)
+        if (status.isNotBlank()) Text(uiResources.getString(R.string.memoh_ui_status_1_s, status), style = MaterialTheme.typography.bodySmall)
         if (tokens >= 0) {
             Text(
-                if (budget >= 0) "Tokens: $tokens / $budget" else "Tokens: $tokens",
+                if (budget >= 0) uiResources.getString(R.string.memoh_ui_tokens_1_s_2_s, tokens, budget) else uiResources.getString(R.string.memoh_ui_tokens_1_s, tokens),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
         Row {
             TextButton(onClick = vm::pauseRuntimeGoal, enabled = !vm.runtimeControlsBusy) {
-                Text("Pause")
+                Text(uiResources.getString(R.string.memoh_ui_pause))
             }
             TextButton(onClick = vm::clearRuntimeGoal, enabled = !vm.runtimeControlsBusy) {
-                Text("Clear")
+                Text(uiResources.getString(R.string.memoh_ui_clear))
             }
         }
     }

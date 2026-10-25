@@ -116,6 +116,10 @@ internal fun MessageList(
     onRecompact: (String) -> Unit = {},
     onDelete: (String, (Boolean) -> Unit) -> Boolean = { _, _ -> false },
     deleteActionsEnabled: Boolean = true,
+    /** A remote transcript has no sibling branches, so the < n / n > switcher is meaningless. */
+    branchSwitchingEnabled: Boolean = true,
+    /** A remote transcript keeps no model/token metadata per row, so Info would show blanks. */
+    messageInfoEnabled: Boolean = true,
     onDeleteConversation: (Set<String>, (Boolean) -> Unit) -> Boolean = { _, _ -> false },
     searchQuery: String = "",
     activeSearchMatch: ConversationSearchMatch? = null,
@@ -604,7 +608,11 @@ internal fun MessageList(
                     }
                     copyText.takeIf(String::isNotBlank)
                 },
-            showBranchSelector = messageActionsEnabled && !selectionMode && presentation?.showBranchSelector == true,
+            // A remote transcript has no alternative branches to switch between; offering < n / n >
+            // here would promise navigation this transport cannot perform.
+            showBranchSelector = branchSwitchingEnabled && messageActionsEnabled && !selectionMode &&
+                presentation?.showBranchSelector == true,
+            showInfoActionsEnabled = messageInfoEnabled,
             branchIndex = presentation?.branchIndex ?: 0,
             totalBranches = presentation?.totalBranches ?: 1,
             onSwitchBranch = { direction ->
