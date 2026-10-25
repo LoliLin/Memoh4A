@@ -104,7 +104,8 @@ The 8 unwired operations and why:
 
 - Memoh search now passes its active query and selected match into Agora's `MessageList`, enabling message highlighting and match navigation.
 - Recompact is connected to Memoh's session compaction request and disabled while runtime controls are busy. Per-message and compaction-record deletion are hidden in Memoh because its API only deletes whole sessions or bot history; Agora's shared component keeps deletion enabled by default for its existing callers.
-- Historical PDF tiles remain non-clickable: Memoh returns the PDF file, while Agora's shared pager expects rendered page images. `:app:compileDebugKotlin` passed after these changes; no tests, packaging or device checks were run for this slice.
+- Historical PDF tiles remain non-clickable: Memoh returns the PDF file, while Agora's shared pager expects rendered page images. `:app:compileDebugKotlin` and `:app:assembleDebug` passed; `apksigner verify` passed with APK Signature Scheme v2 and one signer.
+- Debug APK built at 09:23:47: `in.kawaiis.memoh.screenshots`, version `2.1.0-screenshots`, 67.35 MiB (70,623,999 bytes), SHA-256 `5690E1C86AB25CDCA1005EFB445F32FF30A9122B8DA3D080BA51DF67AF887E11`. Unit tests and device checks were not run for this slice.
 
 ## Gaps before daily use
 
