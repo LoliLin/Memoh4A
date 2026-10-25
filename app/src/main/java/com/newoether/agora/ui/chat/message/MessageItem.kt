@@ -140,6 +140,8 @@ internal fun MessageItem(
     onShare: (String) -> Unit = {},
     deleteTargetMessageId: String = message.id,
     deleteActionsEnabled: Boolean = true,
+    /** A remote transport owns message metadata; hide Info rather than show empty fields. */
+    showInfoActionsEnabled: Boolean = true,
     conversationMessages: () -> List<ChatMessage> = { emptyList() },
     onRecompact: (String) -> Unit = {},
     onDelete: (String, (Boolean) -> Unit) -> Boolean = { _, _ -> false },
@@ -400,6 +402,7 @@ internal fun MessageItem(
                         onShowDelete = onShowDelete,
                         showDeleteAction = deleteActionsEnabled,
                         searchHighlight = searchHighlight,
+                        showInfoAction = showInfoActionsEnabled,
                     )
                 } else {
                     AssistantMessageContent(
@@ -438,6 +441,7 @@ internal fun MessageItem(
                         onShowInfo = { showInfoDialog = true },
                         onShowDelete = onShowDelete,
                         showDeleteAction = deleteActionsEnabled,
+                        showInfoAction = showInfoActionsEnabled,
                         onSegmentSelected = { indices, showListFirst ->
                             onSegmentDetailRequest(message.id, indices, showListFirst)
                         },

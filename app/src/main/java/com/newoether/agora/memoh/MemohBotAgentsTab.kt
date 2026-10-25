@@ -1,5 +1,13 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.foundation.rememberScrollState
+
+import androidx.compose.foundation.verticalScroll
+
+import androidx.compose.foundation.layout.heightIn
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +34,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.newoether.agora.ui.components.rememberSecretVisible
+import com.newoether.agora.ui.components.secretVisualTransformation
+import com.newoether.agora.ui.components.SecretVisibilityToggle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -64,6 +75,7 @@ private fun BotAgentsContent(
     canManage: Boolean,
     onError: (String) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -95,21 +107,21 @@ private fun BotAgentsContent(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            onError(e.message ?: "Failed to refresh agents")
+            onError(e.message ?: uiResources.getString(R.string.memoh_ui_failed_to_refresh_agents))
         }
     }
 
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("Bot Agents", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(uiResources.getString(R.string.memoh_ui_bot_agents), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             if (controller.loading) CircularProgressIndicator(Modifier.height(18.dp).width(18.dp))
             if (canManage) {
-                TextButton(onClick = { showCreateDialog = true }) { Text("+ New Agent") }
+                TextButton(onClick = { showCreateDialog = true }) { Text(uiResources.getString(R.string.memoh_ui_new_agent)) }
             }
         }
 
         if (controller.agents.isEmpty() && !controller.loading) {
-            Text("No agents configured for this bot. Create an agent to handle coding or task delegation.",
+            Text(uiResources.getString(R.string.memoh_ui_no_agents_configured_for_this_bot_create_an_agent_to_handle_coding_or_ta),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp))
         } else {
@@ -120,7 +132,7 @@ private fun BotAgentsContent(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(agent.name, style = MaterialTheme.typography.titleSmall)
-                                    Text("Runtime: ${agent.runtime} | ID: ${agent.id}",
+                                    Text(uiResources.getString(R.string.memoh_ui_runtime_1_s_id_2_s, agent.runtime, agent.id),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -130,7 +142,7 @@ private fun BotAgentsContent(
                                     onCheckedChange = { enabled ->
                                         scope.launch {
                                             runCatching { controller.setEnabled(botId, agent, enabled) }
-                                                .onFailure { onError(it.message ?: "Failed to update agent status") }
+                                                .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_update_agent_status)) }
                                         }
                                     }
                                 )
@@ -142,7 +154,7 @@ private fun BotAgentsContent(
                                     shape = MaterialTheme.shapes.extraSmall
                                 ) {
                                     Text(
-                                        if (agent.credentialConnected) "Credential Connected" else "No Credential",
+                                        if (agent.credentialConnected) uiResources.getString(R.string.memoh_ui_credential_connected) else uiResources.getString(R.string.memoh_ui_no_credential),
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall
                                     )
@@ -154,10 +166,10 @@ private fun BotAgentsContent(
                                     TextButton(onClick = {
                                         credentialAgent = agent
                                         credentialSecret = ""
-                                    }) { Text("Credentials") }
+                                    }) { Text(uiResources.getString(R.string.memoh_ui_credentials)) }
 
                                     TextButton(onClick = { deletingAgent = agent }) {
-                                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                                        Text(uiResources.getString(R.string.memoh_ui_delete), color = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
@@ -171,22 +183,22 @@ private fun BotAgentsContent(
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("Create Agent") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_create_agent)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = newAgentName,
                         onValueChange = { newAgentName = it },
-                        label = { Text("Agent Name") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_agent_name)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-                    Text("Select Runtime:", style = MaterialTheme.typography.labelMedium)
+                    Text(uiResources.getString(R.string.memoh_ui_select_runtime), style = MaterialTheme.typography.labelMedium)
                     controller.options.forEach { opt ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = selectedOptionId == opt.id,
-                                onCheckedChange = { if (it) selectedOptionId = opt.id }
+                            androidx.compose.material3.RadioButton(
+                                selected = selectedOptionId == opt.id,
+                                onClick = { selectedOptionId = opt.id },
                             )
                             Column {
                                 Text(opt.label, style = MaterialTheme.typography.bodyMedium)
@@ -209,29 +221,33 @@ private fun BotAgentsContent(
                                     showCreateDialog = false
                                     newAgentName = ""
                                 }
-                                .onFailure { onError(it.message ?: "Failed to create agent") }
+                                .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_create_agent)) }
                         }
                     }
-                ) { Text("Create") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_create)) }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showCreateDialog = false }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }
 
     if (credentialAgent != null) {
         val agent = credentialAgent!!
+        var credentialVisible by rememberSecretVisible()
         AlertDialog(
             onDismissRequest = { credentialAgent = null },
-            title = { Text("Credentials for '${agent.name}'") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_credentials_for_1_s, agent.name)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Runtime: ${agent.runtime}", style = MaterialTheme.typography.bodySmall)
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(uiResources.getString(R.string.memoh_ui_runtime_1_s, agent.runtime), style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
                         value = credentialSecret,
                         onValueChange = { credentialSecret = it },
-                        label = { Text("API Key / Token") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_api_key_token)) },
+                        visualTransformation = secretVisualTransformation(credentialVisible),
+                        trailingIcon = { SecretVisibilityToggle(credentialVisible) { credentialVisible = !credentialVisible } },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -245,10 +261,10 @@ private fun BotAgentsContent(
                                             credentialAgent = null
                                             controller.refresh(botId)
                                         }
-                                        .onFailure { onError(it.message ?: "Failed to save credential") }
+                                        .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_save_credential)) }
                                 }
                             }
-                        ) { Text("Save Key") }
+                        ) { Text(uiResources.getString(R.string.memoh_ui_save_key)) }
 
                         if (agent.credentialConnected) {
                             TextButton(
@@ -259,28 +275,28 @@ private fun BotAgentsContent(
                                                 credentialAgent = null
                                                 controller.refresh(botId)
                                             }
-                                            .onFailure { onError(it.message ?: "Failed to delete credential") }
+                                            .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_delete_credential)) }
                                     }
                                 }
-                            ) { Text("Clear Key", color = MaterialTheme.colorScheme.error) }
+                            ) { Text(uiResources.getString(R.string.memoh_ui_clear_key), color = MaterialTheme.colorScheme.error) }
                         }
                     }
 
                     if (agent.runtime == "codex" || agent.runtime == "claude-code") {
                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                        Text("Or use Device Code Sign-In:", style = MaterialTheme.typography.labelMedium)
+                        Text(uiResources.getString(R.string.memoh_ui_or_use_device_code_sign_in), style = MaterialTheme.typography.labelMedium)
                         Button(
                             onClick = {
                                 deviceLogin.start(agent.id, agent.name)
                                 credentialAgent = null
                             }
-                        ) { Text("Start Device Code Sign-In") }
+                        ) { Text(uiResources.getString(R.string.memoh_ui_start_device_code_sign_in)) }
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { credentialAgent = null }) { Text("Close") }
+                TextButton(onClick = { credentialAgent = null }) { Text(uiResources.getString(R.string.memoh_ui_close)) }
             }
         )
     }
@@ -296,13 +312,13 @@ private fun BotAgentsContent(
         }
         AlertDialog(
             onDismissRequest = { deviceLogin.close() },
-            title = { Text("Device Sign-In: ${state.agentName}") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_device_sign_in_1_s, state.agentName)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (state.pending && login != null) {
-                        Text("User Code:", style = MaterialTheme.typography.bodySmall)
+                        Text(uiResources.getString(R.string.memoh_ui_user_code), style = MaterialTheme.typography.bodySmall)
                         Text(login.userCode, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
-                        Text("Verification URL: ${login.verificationUrl}", style = MaterialTheme.typography.bodySmall)
+                        Text(uiResources.getString(R.string.memoh_ui_verification_url_1_s, login.verificationUrl), style = MaterialTheme.typography.bodySmall)
                     }
                     Text(state.message, style = MaterialTheme.typography.bodyMedium)
                 }
@@ -313,12 +329,12 @@ private fun BotAgentsContent(
                         runCatching {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(login.verificationUrl)))
                         }
-                    }) { Text("Open Browser") }
+                    }) { Text(uiResources.getString(R.string.memoh_ui_open_browser)) }
                 }
             },
             dismissButton = {
                 TextButton(onClick = { deviceLogin.close() }) {
-                    Text(if (state.pending) "Cancel" else "Close")
+                    Text(if (state.pending) uiResources.getString(R.string.memoh_ui_cancel) else uiResources.getString(R.string.memoh_ui_close))
                 }
             }
         )
@@ -328,22 +344,22 @@ private fun BotAgentsContent(
         val agent = deletingAgent!!
         AlertDialog(
             onDismissRequest = { deletingAgent = null },
-            title = { Text("Delete Agent '${agent.name}'?") },
-            text = { Text("This will remove this agent configuration from the bot. Active sessions using this agent will need a new agent assigned.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_delete_agent_1_s, agent.name)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_this_will_remove_this_agent_configuration_from_the_bot_active_sessions_u)) },
             confirmButton = {
                 Button(
                     onClick = {
                         scope.launch {
                             runCatching { controller.delete(botId, agent) }
                                 .onSuccess { deletingAgent = null }
-                                .onFailure { onError(it.message ?: "Failed to delete agent") }
+                                .onFailure { onError(it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_delete_agent)) }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Delete") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { deletingAgent = null }) { Text("Cancel") }
+                TextButton(onClick = { deletingAgent = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }

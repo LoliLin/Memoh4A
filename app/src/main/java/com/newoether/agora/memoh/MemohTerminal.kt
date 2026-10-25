@@ -1,5 +1,7 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
@@ -255,6 +257,7 @@ private class TerminalJavascriptBridge(
 
 @Composable
 internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> Unit) {
+    val uiResources = LocalContext.current.resources
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -338,13 +341,13 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close terminal")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = uiResources.getString(R.string.memoh_ui_close_terminal))
                     }
                     Spacer(Modifier.width(4.dp))
                     Icon(Icons.Default.Code, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Terminal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(uiResources.getString(R.string.memoh_ui_terminal), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Text(
                             controller.message,
                             style = MaterialTheme.typography.labelSmall,
@@ -363,7 +366,7 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
                                 controller.reconnect(scope)
                             }
                         }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Reconnect terminal")
+                            Icon(Icons.Default.Refresh, contentDescription = uiResources.getString(R.string.memoh_ui_reconnect_terminal))
                         }
                     }
                 }
@@ -400,10 +403,10 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
                         ),
                     ) { Text("Ctrl", fontFamily = FontFamily.Monospace, fontSize = 13.sp) }
                     TerminalKeyButton("Tab") { sendTerminalKey(webViewRef.get(), "Tab") }
-                    TerminalKeyButton("←") { sendTerminalKey(webViewRef.get(), "Left") }
-                    TerminalKeyButton("↓") { sendTerminalKey(webViewRef.get(), "Down") }
-                    TerminalKeyButton("↑") { sendTerminalKey(webViewRef.get(), "Up") }
-                    TerminalKeyButton("→") { sendTerminalKey(webViewRef.get(), "Right") }
+                    TerminalKeyButton("←") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_left)) }
+                    TerminalKeyButton("↓") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_down)) }
+                    TerminalKeyButton("↑") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_up)) }
+                    TerminalKeyButton("→") { sendTerminalKey(webViewRef.get(), uiResources.getString(R.string.memoh_ui_right)) }
                     Box {
                         TerminalKeyButton("···") { moreKeysExpanded = true }
                         DropdownMenu(expanded = moreKeysExpanded, onDismissRequest = { moreKeysExpanded = false }) {
@@ -413,7 +416,7 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
                                     onClick = { moreKeysExpanded = false; sendTerminalKey(webViewRef.get(), "F$index") },
                                 )
                             }
-                            listOf("Home", "End", "Page up", "Page down", "Delete", "~", "|", "/", "-").forEach { key ->
+                            listOf("Home", "End", uiResources.getString(R.string.memoh_ui_page_up), uiResources.getString(R.string.memoh_ui_page_down), uiResources.getString(R.string.memoh_ui_delete), "~", "|", "/", "-").forEach { key ->
                                 DropdownMenuItem(
                                     text = { Text(key, fontFamily = FontFamily.Monospace) },
                                     onClick = { moreKeysExpanded = false; sendTerminalKey(webViewRef.get(), key) },
@@ -422,7 +425,7 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
                         }
                     }
                     IconButton(onClick = { toggleTerminalKeyboard(context, webViewRef.get()) }) {
-                        Icon(Icons.Default.Keyboard, contentDescription = "Show or hide keyboard")
+                        Icon(Icons.Default.Keyboard, contentDescription = uiResources.getString(R.string.memoh_ui_show_or_hide_keyboard))
                     }
                 }
             }

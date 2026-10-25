@@ -102,6 +102,8 @@ internal fun AssistantMessageContent(
     onLayoutMutationStarted: (String) -> Unit,
     onLayoutMutationSettled: (String) -> Unit,
     setThoughtBlockHeight: (Int) -> Unit,
+    /** Transports that keep no per-message metadata hide the Info row instead of faking it. */
+    showInfoAction: Boolean = true,
 ) {
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
@@ -657,7 +659,7 @@ internal fun AssistantMessageContent(
                                 expanded = showMenu && actionAvailability.informationVisible,
                                 onDismissRequest = { showMenu = false },
                             ) {
-                                AgoraDropdownMenuItem(
+                                if (showInfoAction) AgoraDropdownMenuItem(
                                     text = { Text(stringResource(R.string.info)) },
                                     onClick = {
                                         showMenu = false

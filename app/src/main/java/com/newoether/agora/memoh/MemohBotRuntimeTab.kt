@@ -1,5 +1,13 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.foundation.rememberScrollState
+
+import androidx.compose.foundation.verticalScroll
+
+import androidx.compose.foundation.layout.heightIn
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -63,6 +71,7 @@ internal fun MemohBotRuntimeTab(
     canManage: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val uiResources = LocalContext.current.resources
     val context = LocalContext.current
     val haptics = LocalAgoraHaptics.current
     val scope = rememberCoroutineScope()
@@ -84,7 +93,7 @@ internal fun MemohBotRuntimeTab(
                     loading = false
                 }
                 .onFailure {
-                    error = it.message ?: "Failed to load remote runtimes"
+                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_load_remote_runtimes)
                     loading = false
                 }
         }
@@ -103,12 +112,12 @@ internal fun MemohBotRuntimeTab(
         ) {
             Column {
                 Text(
-                    text = "Remote Runtime Workers (${runtimes.size})",
+                    text = uiResources.getString(R.string.memoh_ui_remote_runtime_workers_1_s, runtimes.size),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "External host nodes executing containerized bot sessions",
+                    text = uiResources.getString(R.string.memoh_ui_external_host_nodes_executing_containerized_bot_sessions),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -118,7 +127,7 @@ internal fun MemohBotRuntimeTab(
                     haptics.selection()
                     refresh()
                 }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    Icon(Icons.Default.Refresh, contentDescription = uiResources.getString(R.string.memoh_ui_refresh))
                 }
                 if (canManage) {
                     Button(
@@ -130,7 +139,7 @@ internal fun MemohBotRuntimeTab(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Register")
+                        Text(uiResources.getString(R.string.memoh_ui_register))
                     }
                 }
             }
@@ -169,7 +178,7 @@ internal fun MemohBotRuntimeTab(
                 CircularProgressIndicator()
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // Info Architecture Card
                 item {
                     Card(
@@ -182,13 +191,13 @@ internal fun MemohBotRuntimeTab(
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "Hybrid Execution Architecture",
+                                    text = uiResources.getString(R.string.memoh_ui_hybrid_execution_architecture),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "Bots can execute workloads within server-side cloud containers or offload commands to registered self-hosted worker nodes.",
+                                    text = uiResources.getString(R.string.memoh_ui_bots_can_execute_workloads_within_server_side_cloud_containers_or_offloa),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -207,13 +216,13 @@ internal fun MemohBotRuntimeTab(
                                 Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.height(8.dp))
                                 Text(
-                                    text = "No External Runtime Nodes",
+                                    text = uiResources.getString(R.string.memoh_ui_no_external_runtime_nodes),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Medium
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    text = "By default, this bot runs in the standard managed container environment. Register a remote worker node if you want to run tasks on private infrastructure.",
+                                    text = uiResources.getString(R.string.memoh_ui_by_default_this_bot_runs_in_the_standard_managed_container_environment_r),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -238,19 +247,20 @@ internal fun MemohBotRuntimeTab(
         var nodeName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showRegisterDialog = false },
-            title = { Text("Register Remote Runtime") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_register_remote_runtime)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Generate credentials for a worker node running the Memoh daemon.",
+                        text = uiResources.getString(R.string.memoh_ui_generate_credentials_for_a_worker_node_running_the_memoh_daemon),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false, keyboardType = androidx.compose.ui.text.input.KeyboardType.Ascii),
                         value = nodeName,
                         onValueChange = { nodeName = it },
-                        label = { Text("Worker Node Name") },
-                        placeholder = { Text("e.g. dev-workstation-01") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_worker_node_name)) },
+                        placeholder = { Text(uiResources.getString(R.string.memoh_ui_e_g_dev_workstation_01)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -271,16 +281,16 @@ internal fun MemohBotRuntimeTab(
                                 }
                                 .onFailure {
                                     haptics.reject()
-                                    error = it.message ?: "Failed to register runtime"
+                                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_register_runtime)
                                     loading = false
                                 }
                         }
                     },
                     enabled = nodeName.isNotBlank()
-                ) { Text("Generate Token") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_generate_token)) }
             },
             dismissButton = {
-                TextButton(onClick = { showRegisterDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showRegisterDialog = false }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }
@@ -289,11 +299,11 @@ internal fun MemohBotRuntimeTab(
     newlyCreatedKey?.let { (name, key) ->
         AlertDialog(
             onDismissRequest = { newlyCreatedKey = null },
-            title = { Text("Runtime Key Generated") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_runtime_key_generated)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Save this key now. It will authenticate the daemon on '$name'.",
+                        text = uiResources.getString(R.string.memoh_ui_save_this_key_now_it_will_authenticate_the_daemon_on_1_s, name),
                         style = MaterialTheme.typography.bodySmall
                     )
                     Box(
@@ -304,7 +314,7 @@ internal fun MemohBotRuntimeTab(
                             .padding(10.dp)
                     ) {
                         Text(
-                            text = key.ifBlank { "Registered successfully (key stored on server)" },
+                            text = key.ifBlank { uiResources.getString(R.string.memoh_ui_registered_successfully_key_stored_on_server) },
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
                         )
                     }
@@ -314,14 +324,14 @@ internal fun MemohBotRuntimeTab(
                 Button(onClick = {
                     if (key.isNotBlank()) {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Memoh Runtime Key", key))
+                        clipboard.setPrimaryClip(ClipData.newPlainText(uiResources.getString(R.string.memoh_ui_memoh_runtime_key), key))
                         haptics.confirm()
                     }
                     newlyCreatedKey = null
                 }) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Copy & Close")
+                    Text(uiResources.getString(R.string.memoh_ui_copy_close))
                 }
             }
         )
@@ -331,8 +341,8 @@ internal fun MemohBotRuntimeTab(
     deleteCandidate?.let { runtime ->
         AlertDialog(
             onDismissRequest = { deleteCandidate = null },
-            title = { Text("Revoke Runtime Node") },
-            text = { Text("Are you sure you want to revoke credentials for '${runtime.name}' (${runtime.hostname.ifBlank { "Node" }})?") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_revoke_runtime_node)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_are_you_sure_you_want_to_revoke_credentials_for_1_s_2_s, runtime.name, runtime.hostname.ifBlank { uiResources.getString(R.string.memoh_ui_node) })) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -342,20 +352,20 @@ internal fun MemohBotRuntimeTab(
                             runCatching { api.deleteRemoteRuntime(toDelete.id) }
                                 .onSuccess {
                                     haptics.confirm()
-                                    message = "Runtime '${toDelete.name}' revoked"
+                                    message = uiResources.getString(R.string.memoh_ui_runtime_1_s_revoked, toDelete.name)
                                     refresh()
                                 }
                                 .onFailure {
                                     haptics.reject()
-                                    error = it.message ?: "Failed to revoke runtime"
+                                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_revoke_runtime)
                                 }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Revoke") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_revoke)) }
             },
             dismissButton = {
-                OutlinedButton(onClick = { deleteCandidate = null }) { Text("Cancel") }
+                OutlinedButton(onClick = { deleteCandidate = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }
@@ -367,6 +377,7 @@ private fun RuntimeCard(
     canManage: Boolean,
     onRevoke: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -421,7 +432,7 @@ private fun RuntimeCard(
                         IconButton(onClick = onRevoke) {
                             Icon(
                                 Icons.Default.Delete,
-                                contentDescription = "Revoke",
+                                contentDescription = uiResources.getString(R.string.memoh_ui_revoke),
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
@@ -450,7 +461,7 @@ private fun RuntimeCard(
                 }
                 if (runtime.createdAt.isNotBlank()) {
                     Text(
-                        text = "• Added ${runtime.createdAt.take(10)}",
+                        text = uiResources.getString(R.string.memoh_ui_added_1_s, runtime.createdAt.take(10)),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -460,7 +471,7 @@ private fun RuntimeCard(
             if (runtime.workspaceBase.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Base: ${runtime.workspaceBase}",
+                    text = uiResources.getString(R.string.memoh_ui_base_1_s, runtime.workspaceBase),
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )

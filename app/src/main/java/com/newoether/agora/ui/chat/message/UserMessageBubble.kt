@@ -116,6 +116,8 @@ internal fun UserMessageBubble(
     showDeleteAction: Boolean,
     searchHighlight: SearchHighlightSpec?,
     allowMutations: Boolean = true,
+    /** Transports that keep no per-message metadata hide the Info row instead of faking it. */
+    showInfoAction: Boolean = true,
 ) {
     @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
@@ -359,7 +361,7 @@ internal fun UserMessageBubble(
                         leadingIcon = { Icon(Icons.Default.SelectAll, null) },
                     )
                 }
-                AgoraDropdownMenuItem(
+                if (showInfoAction) AgoraDropdownMenuItem(
                     text = { Text(stringResource(R.string.info)) },
                     onClick = {
                         showMenu = false

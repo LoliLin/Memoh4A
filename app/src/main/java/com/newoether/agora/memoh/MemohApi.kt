@@ -307,12 +307,23 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
         return result
     }
 
-    suspend fun createSession(botId: String, botAgentId: String = ""): MemohSession {
+    suspend fun createSession(botId: String, botAgentId: String = "", preferredModelId: String = "", preferredEffort: String = ""): MemohSession {
         val body = JSONObject().put("title", "").put("channel_type", "local")
         if (botAgentId.isNotBlank()) body.put("bot_agent_id", botAgentId)
+        // Omit an unchosen Bot default so this conversation continues following that default.
+        if (preferredModelId.isNotBlank()) body.put("preferred_chat_model_id", preferredModelId)
+            .put("preferred_reasoning_effort", preferredEffort)
         val created = decodeSession(request("/bots/${Uri.encode(botId)}/sessions", body))
         if (created.id.isBlank()) throw IOException("Memoh did not return a session ID")
         return created
+    }
+
+    suspend fun updateSessionModel(botId: String, sessionId: String, modelId: String, effort: String, expectedRevision: String): MemohSession {
+        val result = decodeSession(request("/bots/${Uri.encode(botId)}/sessions/${Uri.encode(sessionId)}",
+            JSONObject().put("preferred_chat_model_id", modelId).put("preferred_reasoning_effort", effort)
+                .put("expected_model_preference_revision", expectedRevision), method = "PATCH"))
+        require(result.id == sessionId) { "Memoh returned a different session" }
+        return result
     }
 
     suspend fun renameSession(botId: String, sessionId: String, title: String) {
@@ -681,7 +692,8 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
             if (item.optJSONObject("config")?.optBoolean("catalog_available", true) == false) continue
             val providerId = item.optString("provider_id")
             models.put(JSONObject()
-                .put("id", item.optString("model_id").ifBlank { item.optString("id") })
+                .put("id", item.optString("id").ifBlank { item.optString("model_id") })
+                .put("model_id", item.optString("model_id"))
                 .put("name", item.optString("name"))
                 .put("description", item.optString("description"))
                 .put("provider_id", providerId)

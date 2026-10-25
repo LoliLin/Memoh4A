@@ -34,6 +34,41 @@ internal class MemohAgentController(private val api: MemohApi) {
     /** Server-confirmed preference from model_preference_settled events. */
     var settledModelId by mutableStateOf("")
         private set
+    var botDefaultModelId by mutableStateOf("")
+        private set
+    private var modelLabelHint by mutableStateOf("")
+    var preferenceRevision = 0
+        private set
+    private var catalogGeneration = 0
+
+    val currentModelId: String
+        get() = preferredModelId.ifBlank { settledModelId.ifBlank { botDefaultModelId } }
+
+    val currentModelLabel: String
+        get() {
+            val entries = models?.optJSONArray("models")
+            val selected = entries?.let { list ->
+                (0 until list.length()).mapNotNull { list.optJSONObject(it) }
+                    .firstOrNull { it.optString("id") == currentModelId || it.optString("model_id") == currentModelId }
+            }
+            return selected?.optString("name").orEmpty()
+                .ifBlank { selected?.optString("model_id").orEmpty() }
+                .ifBlank { modelLabelHint }
+        }
+
+    /** Opening/repointing a conversation restores the persisted pair, never another chat's picker. */
+    fun beginConversation(session: MemohSession?) {
+        preferenceRevision++
+        preferredModelId = session?.preferredChatModelId.orEmpty()
+            .ifBlank { session?.preferredExternalModelId.orEmpty() }
+        preferredReasoningEffort = session?.preferredReasoningEffort.orEmpty()
+        modelLabelHint = session?.preferredExternalModelId.orEmpty()
+        settledModelId = ""
+    }
+
+    fun setBotDefault(modelId: String) {
+        botDefaultModelId = modelId
+    }
 
     val selectedAgent: MemohAgent?
         get() = agents.firstOrNull { it.id == selectedAgentId }
@@ -70,6 +105,10 @@ internal class MemohAgentController(private val api: MemohApi) {
         preferredModelId = ""
         preferredReasoningEffort = ""
         settledModelId = ""
+        botDefaultModelId = ""
+        modelLabelHint = ""
+        preferenceRevision++
+        catalogGeneration++
     }
 
     suspend fun refresh(botId: String) {
@@ -108,36 +147,26 @@ internal class MemohAgentController(private val api: MemohApi) {
         }
     }
 
-    /** Load the chat-model catalog. Homem uses the team-level /models list filtered to chat. */
-    suspend fun loadModels(botId: String, agentId: String, modelId: String = "") {
-        val generation = ++refreshGeneration
+    /** The catalog and Agent refreshes have independent generations: either may finish first. */
+    suspend fun loadModels() {
+        val generation = ++catalogGeneration
         val identity = api.scope
         modelsLoading = true
         try {
             val catalog = api.teamChatModels()
-            if (generation == refreshGeneration && api.scope === identity) {
-                models = catalog
-                // A welcome seed may have planted an id before the catalog arrived. If it does
-                // not resolve to a real entry it was a server default, not a user choice —
-                // clear it so the chip shows the settled name instead of a raw id.
-                val known = catalog.optJSONArray("models")?.let { arr ->
-                    (0 until arr.length()).any { i -> arr.optJSONObject(i)?.optString("id") == preferredModelId }
-                } ?: false
-                if (!known && preferredModelId.isNotBlank() && settledModelId.isBlank()) {
-                    preferredModelId = ""
-                    preferredReasoningEffort = ""
-                }
-            }
+            if (generation == catalogGeneration && api.scope === identity) models = catalog
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            // Model choice is optional; keep the composer usable without a catalog.
+        } catch (_: Exception) {
+            // Keep the server's remembered model usable without model-list permission.
         } finally {
-            if (generation == refreshGeneration && api.scope === identity) modelsLoading = false
+            if (generation == catalogGeneration && api.scope === identity) modelsLoading = false
         }
     }
 
     fun setModelPreference(modelId: String, reasoningEffort: String) {
+        preferenceRevision++
+        modelLabelHint = ""
         preferredModelId = modelId
         preferredReasoningEffort = reasoningEffort
     }

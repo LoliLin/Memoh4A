@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +62,7 @@ internal fun MemohBotAdvancedTab(
     canManage: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val uiResources = LocalContext.current.resources
     val haptics = LocalAgoraHaptics.current
     val scope = rememberCoroutineScope()
     var defaultEffect by remember { mutableStateOf("allow") }
@@ -99,12 +104,12 @@ internal fun MemohBotAdvancedTab(
         ) {
             Column {
                 Text(
-                    text = "Advanced Settings",
+                    text = uiResources.getString(R.string.memoh_ui_advanced_settings),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Security policies, health checks & lifecycle defaults",
+                    text = uiResources.getString(R.string.memoh_ui_security_policies_health_checks_lifecycle_defaults),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -113,7 +118,7 @@ internal fun MemohBotAdvancedTab(
                 haptics.selection()
                 refresh()
             }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                Icon(Icons.Default.Refresh, contentDescription = uiResources.getString(R.string.memoh_ui_refresh))
             }
         }
 
@@ -163,14 +168,14 @@ internal fun MemohBotAdvancedTab(
                                 Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "Access Control Default Effect",
+                                    text = uiResources.getString(R.string.memoh_ui_access_control_default_effect),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = "Policy decision applied when no explicit user or channel rule matches the conversation request.",
+                                text = uiResources.getString(R.string.memoh_ui_policy_decision_applied_when_no_explicit_user_or_channel_rule_matches_th),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -186,16 +191,16 @@ internal fun MemohBotAdvancedTab(
                                                 runCatching { api.setBotAclDefaultEffect(botId, "allow") }
                                                     .onSuccess {
                                                         haptics.confirm()
-                                                        message = "Default effect set to Allow"
+                                                        message = uiResources.getString(R.string.memoh_ui_default_effect_set_to_allow)
                                                     }
                                                     .onFailure {
-                                                        error = it.message ?: "Failed to set default effect"
+                                                        error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_set_default_effect)
                                                     }
                                             }
                                         }
                                     },
                                     enabled = canManage,
-                                    label = { Text("Allow (Permissive)") }
+                                    label = { Text(uiResources.getString(R.string.memoh_ui_allow_permissive)) }
                                 )
                                 FilterChip(
                                     selected = defaultEffect.equals("deny", ignoreCase = true),
@@ -207,16 +212,16 @@ internal fun MemohBotAdvancedTab(
                                                 runCatching { api.setBotAclDefaultEffect(botId, "deny") }
                                                     .onSuccess {
                                                         haptics.confirm()
-                                                        message = "Default effect set to Deny"
+                                                        message = uiResources.getString(R.string.memoh_ui_default_effect_set_to_deny)
                                                     }
                                                     .onFailure {
-                                                        error = it.message ?: "Failed to set default effect"
+                                                        error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_set_default_effect)
                                                     }
                                             }
                                         }
                                     },
                                     enabled = canManage,
-                                    label = { Text("Deny (Strict Whitelist)") }
+                                    label = { Text(uiResources.getString(R.string.memoh_ui_deny_strict_whitelist)) }
                                 )
                             }
                         }
@@ -240,7 +245,7 @@ internal fun MemohBotAdvancedTab(
                                     Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text = "Starter Prompts (${starterPrompts.size})",
+                                        text = uiResources.getString(R.string.memoh_ui_starter_prompts_1_s, starterPrompts.size),
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -256,9 +261,9 @@ internal fun MemohBotAdvancedTab(
                                                 }.onSuccess {
                                                     starterPrompts = it
                                                     haptics.confirm()
-                                                    message = "Starter prompts refreshed"
+                                                    message = uiResources.getString(R.string.memoh_ui_starter_prompts_refreshed)
                                                 }.onFailure {
-                                                    error = it.message ?: "Failed to refresh prompts"
+                                                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_refresh_prompts)
                                                 }
                                                 refreshingPrompts = false
                                             }
@@ -269,13 +274,13 @@ internal fun MemohBotAdvancedTab(
                                             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                                             Spacer(Modifier.width(4.dp))
                                         }
-                                        Text("Regenerate")
+                                        Text(uiResources.getString(R.string.memoh_ui_regenerate))
                                     }
                                 }
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = "Greeting suggestions offered to users when starting a new session with this bot.",
+                                text = uiResources.getString(R.string.memoh_ui_greeting_suggestions_offered_to_users_when_starting_a_new_session_with_t),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -323,14 +328,14 @@ internal fun MemohBotAdvancedTab(
                                 Icon(Icons.Default.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "Bot Health Checks (${checks.size})",
+                                    text = uiResources.getString(R.string.memoh_ui_bot_health_checks_1_s, checks.size),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = "Automated health checks evaluating workspace runtime readiness, model connectivity, and memory subsystem.",
+                                text = uiResources.getString(R.string.memoh_ui_automated_health_checks_evaluating_workspace_runtime_readiness_model_con),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -338,7 +343,7 @@ internal fun MemohBotAdvancedTab(
                             if (checks.isEmpty()) {
                                 Spacer(Modifier.height(8.dp))
                                 Text(
-                                    text = "All systems operational. No active check alerts.",
+                                    text = uiResources.getString(R.string.memoh_ui_all_systems_operational_no_active_check_alerts),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -400,13 +405,13 @@ internal fun MemohBotAdvancedTab(
                         ) {
                             Column(Modifier.padding(14.dp)) {
                                 Text(
-                                    text = "Maintenance",
+                                    text = uiResources.getString(R.string.memoh_ui_maintenance),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    text = "Clear session compaction logs and audit traces for this bot.",
+                                    text = uiResources.getString(R.string.memoh_ui_clear_session_compaction_logs_and_audit_traces_for_this_bot),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -417,7 +422,7 @@ internal fun MemohBotAdvancedTab(
                                 ) {
                                     Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Clear Compaction Logs")
+                                    Text(uiResources.getString(R.string.memoh_ui_clear_compaction_logs))
                                 }
                             }
                         }
@@ -430,8 +435,8 @@ internal fun MemohBotAdvancedTab(
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("Clear Compaction Logs") },
-            text = { Text("Are you sure you want to clear historical context compaction logs for this bot?") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_clear_compaction_logs)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_are_you_sure_you_want_to_clear_historical_context_compaction_logs_for_th)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -441,20 +446,20 @@ internal fun MemohBotAdvancedTab(
                             runCatching { api.clearCompactionLogs(botId) }
                                 .onSuccess {
                                     haptics.confirm()
-                                    message = "Compaction logs cleared"
+                                    message = uiResources.getString(R.string.memoh_ui_compaction_logs_cleared)
                                 }
                                 .onFailure {
                                     haptics.reject()
-                                    error = it.message ?: "Failed to clear logs"
+                                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_clear_logs)
                                 }
                             clearingLogs = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Clear") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_clear)) }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
+                OutlinedButton(onClick = { showClearConfirm = false }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }

@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -56,6 +60,7 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 private fun MemohLogin(vm: MemohViewModel) {
+    val uiResources = LocalContext.current.resources
     LaunchedEffect(vm.login.server) { vm.probeLoginMethod() }
     var passwordVisible by remember { mutableStateOf(false) }
     val idle = !vm.login.signingIn && !vm.login.sendingCode && !vm.restoringSession
@@ -84,7 +89,7 @@ private fun MemohLogin(vm: MemohViewModel) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Your bots, in a native Android chat.",
+                uiResources.getString(R.string.memoh_ui_your_bots_in_a_native_android_chat),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -94,13 +99,13 @@ private fun MemohLogin(vm: MemohViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Text("Restoring your saved session…",
+                    Text(uiResources.getString(R.string.memoh_ui_restoring_your_saved_session),
                         style = MaterialTheme.typography.bodyMedium)
                 }
                 Spacer(Modifier.height(16.dp))
             } else if (vm.sessionRestoreFailed) {
                 OutlinedButton(onClick = vm::retrySessionRestore, enabled = idle) {
-                    Text("Retry saved session")
+                    Text(uiResources.getString(R.string.memoh_ui_retry_saved_session))
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -109,10 +114,10 @@ private fun MemohLogin(vm: MemohViewModel) {
                 value = vm.login.server,
                 onValueChange = { vm.login.server = it },
                 enabled = idle,
-                label = { Text("API address") },
+                label = { Text(uiResources.getString(R.string.memoh_ui_api_address)) },
                 singleLine = true,
                 supportingText = {
-                    Text("Official Cloud: https://app.memoh.net — self-hosted: your server address")
+                    Text(uiResources.getString(R.string.memoh_ui_official_cloud_https_app_memoh_net_self_hosted_your_server_address))
                 },
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -124,7 +129,7 @@ private fun MemohLogin(vm: MemohViewModel) {
                     value = vm.login.email,
                     onValueChange = { vm.login.email = it },
                     enabled = idle,
-                    label = { Text("Email") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_email)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     shape = RoundedCornerShape(14.dp),
@@ -136,7 +141,7 @@ private fun MemohLogin(vm: MemohViewModel) {
                         value = vm.login.code,
                         onValueChange = { vm.login.code = it },
                         enabled = idle,
-                        label = { Text("Email code") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_email_code)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         shape = RoundedCornerShape(14.dp),
@@ -153,30 +158,30 @@ private fun MemohLogin(vm: MemohViewModel) {
                     Button(onClick = vm::sendLoginCode, enabled = idle,
                         modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         if (vm.login.sendingCode) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        else Text("Send code")
+                        else Text(uiResources.getString(R.string.memoh_ui_send_code))
                     }
                 } else {
                     Button(onClick = vm::loginWithCode, enabled = idle,
                         modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        else Text("Verify and sign in")
+                        else Text(uiResources.getString(R.string.memoh_ui_verify_and_sign_in))
                     }
                     TextButton(onClick = vm::sendLoginCode, enabled = idle) {
-                        Text(if (vm.login.sendingCode) "Sending" else "Resend code")
+                        Text(if (vm.login.sendingCode) uiResources.getString(R.string.memoh_ui_sending) else uiResources.getString(R.string.memoh_ui_resend_code))
                     }
                 }
                 if (vm.login.oauthProviders.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Use an emailed code to sign in here. Browser sign-in (" +
-                            vm.login.oauthProviders.joinToString(" / ") + ") is not available in this app yet.",
+                        uiResources.getString(R.string.memoh_ui_use_an_emailed_code_to_sign_in_here_browser_sign_in) +
+                            vm.login.oauthProviders.joinToString(" / ") + uiResources.getString(R.string.memoh_ui_is_not_available_in_this_app_yet),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
                 Spacer(Modifier.height(12.dp))
-                Text("This server uses a password sign-in. Memoh Cloud itself emails a code instead.",
+                Text(uiResources.getString(R.string.memoh_ui_this_server_uses_a_password_sign_in_memoh_cloud_itself_emails_a_code_ins),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
@@ -184,7 +189,7 @@ private fun MemohLogin(vm: MemohViewModel) {
                     value = vm.login.username,
                     onValueChange = { vm.login.username = it },
                     enabled = idle,
-                    label = { Text("Email or username") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_email_or_username)) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth(),
@@ -194,14 +199,14 @@ private fun MemohLogin(vm: MemohViewModel) {
                     value = vm.login.password,
                     onValueChange = { vm.login.password = it },
                     enabled = idle,
-                    label = { Text("Password") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_password)) },
                     singleLine = true,
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         IconButton(onClick = { passwordVisible = !passwordVisible }) {
                             Icon(
                                 imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                                contentDescription = if (passwordVisible) uiResources.getString(R.string.memoh_ui_hide_password) else uiResources.getString(R.string.memoh_ui_show_password)
                             )
                         }
                     },
@@ -217,14 +222,14 @@ private fun MemohLogin(vm: MemohViewModel) {
                 Button(onClick = vm::login, enabled = idle,
                     modifier = Modifier.fillMaxWidth().height(48.dp)) {
                     if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    else Text("Connect")
+                    else Text(uiResources.getString(R.string.memoh_ui_connect))
                 }
             }
 
             Spacer(Modifier.height(32.dp))
             Text(
-                "The Memoh server owns every conversation and tool run. Password tokens are " +
-                    "encrypted on this device; an email-code session ends when you sign out.",
+                uiResources.getString(R.string.memoh_ui_the_memoh_server_owns_every_conversation_and_tool_run_password_tokens_ar) +
+                    uiResources.getString(R.string.memoh_ui_encrypted_on_this_device_an_email_code_session_ends_when_you_sign_out),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

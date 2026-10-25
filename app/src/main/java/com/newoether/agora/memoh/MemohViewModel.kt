@@ -12,6 +12,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -27,6 +29,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
     private var authRevision = 0
     private var botRevision = 0
+    private val modelPreferenceMutex = Mutex()
     internal var attachmentDraftRevision by mutableStateOf(0); private set
     internal var historyRevision = 0; private set
     internal var navigationRevision = 0
@@ -238,7 +241,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         queueRevision++
         closeSocket()
         bot = value
-        agentController.select("")
+        agentController.clear()
         session = null
         turns = emptyList()
         loadedHistorySessionId = null
@@ -249,9 +252,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         pendingUserText = null; pendingUserAttachments = emptyList()
         navigationScope.launch {
             runCatching { agentController.refresh(value.id) }
-            // Seed the composer model preference like the web welcome screen.
+        }
+        navigationScope.launch { agentController.loadModels() }
+        navigationScope.launch {
             runCatching { api.modelPreferenceSeed(value.id) }.onSuccess { seed ->
-                agentController.setModelPreference(seed.optString("model_id"), seed.optString("reasoning_effort"))
+                if (revision == botRevision && bot?.id == value.id)
+                    agentController.setBotDefault(seed.optString("model_id"))
             }
         }
         navigationScope.launch {
@@ -275,6 +281,38 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         connectSocket(value.id)
     }
 
+    fun selectModel(modelId: String, effort: String) {
+        agentController.setModelPreference(modelId, effort)
+        val owner = bot ?: return
+        val selected = session ?: return
+        val identity = api.scope
+        val choiceRevision = agentController.preferenceRevision
+        navigationScope.launch {
+            modelPreferenceMutex.withLock {
+                fun current() = api.scope === identity && bot?.id == owner.id && session?.id == selected.id &&
+                    agentController.preferenceRevision == choiceRevision
+                if (!current()) return@withLock
+                try {
+                    val detail = api.getSession(owner.id, selected.id)
+                    if (!current()) return@withLock
+                    val updated = api.updateSessionModel(owner.id, selected.id, modelId, effort, detail.modelPreferenceRevision)
+                    if (current()) {
+                        session = updated
+                        sessions = sessions.map { if (it.id == updated.id) updated else it }
+                        agentController.beginConversation(updated)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    if (current()) {
+                        agentController.beginConversation(session)
+                        error = failure.message ?: getApplication<Application>().getString(com.newoether.agora.R.string.memoh_ui_save_failed_reload_to_resolve_the_conflict)
+                    }
+                }
+            }
+        }
+    }
+
     fun selectSession(value: MemohSession?) {
         if (awaitingAdmission.isNotEmpty() && value?.id != session?.id) {
             error = "Wait until your message is accepted before switching chats."
@@ -284,6 +322,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         queueRevision++
         runtimeControlsRevision++
         resetCursor()
+        agentController.beginConversation(value)
         if (value != null) agentController.selectFromSession(value.botAgentId)
         // A pending retry/edit belongs to the conversation being left; never carry its undo state
         // (or its optimistic trim) into another session's transcript.
@@ -303,6 +342,19 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (!previous.isNullOrEmpty()) sendNow(JSONObject()
             .put("type", "runtime_unsubscribe").put("session_id", previous))
         value?.let {
+            val ownerBot = bot?.id
+            val revision = historyRevision
+            val preferenceRevision = agentController.preferenceRevision
+            if (ownerBot != null) navigationScope.launch {
+                runCatching { api.getSession(ownerBot, it.id) }.onSuccess { detail ->
+                    if (historyRevision == revision && session?.id == detail.id && bot?.id == ownerBot &&
+                        agentController.preferenceRevision == preferenceRevision) {
+                        session = detail
+                        sessions = sessions.map { row -> if (row.id == detail.id) detail else row }
+                        agentController.beginConversation(detail)
+                    }
+                }
+            }
             sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", it.id))
             reloadHistory(it.id)
             refreshQueue()
@@ -642,8 +694,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         // Web composer parity: attach an explicit model preference only when the user chose one.
         if (agentController.preferredModelId.isNotBlank()) {
             payload.put("model_id", agentController.preferredModelId)
-            if (agentController.preferredReasoningEffort.isNotBlank())
-                payload.put("reasoning_effort", agentController.preferredReasoningEffort)
+            payload.put("reasoning_effort", agentController.preferredReasoningEffort)
         }
         awaitingAdmission[invocation] = payload
         pendingUserText = value
@@ -659,7 +710,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             val botRevisionAtSend = botRevision
             navigationScope.launch {
                 try {
-                    val created = api.createSession(selectedBot.id, agentController.selectedAgentId)
+                    val created = api.createSession(selectedBot.id, agentController.selectedAgentId,
+                        payload.optString("model_id"), payload.optString("reasoning_effort"))
                     if (authRevisionAtSend != authRevision || botRevisionAtSend != botRevision ||
                         !awaitingAdmission.containsKey(invocation)) return@launch
                     historyRevision++
@@ -916,7 +968,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             }
             "model_preference_settled" -> {
                 val settled = event.optString("model_id")
-                if (settled.isNotBlank()) agentController.onModelPreferenceSettled(settled)
+                if (target == session?.id && settled.isNotBlank()) agentController.onModelPreferenceSettled(settled)
             }
             "run_rejected", "error" -> {
                 if (invocation.isNotBlank() && awaitingAdmission.remove(invocation) != null) {

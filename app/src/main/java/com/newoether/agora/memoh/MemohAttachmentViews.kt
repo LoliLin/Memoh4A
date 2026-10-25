@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -171,6 +175,7 @@ internal fun AttachmentPickerButton(
     onAttachmentsPicked: (List<MemohAttachment>) -> Unit,
     onAttachmentError: (String) -> Unit = {},
 ) {
+    val uiResources = LocalContext.current.resources
     val context = androidx.compose.ui.platform.LocalContext.current
     var reading by remember { mutableStateOf(false) }
     var launchOwner by remember { mutableStateOf<MemohAttachmentDraftOwner?>(null) }
@@ -203,24 +208,24 @@ internal fun AttachmentPickerButton(
                             val attachment = resolveAttachmentFromUri(context, uri, remaining)
                             if (owner != ownerNow()) break
                             if (attachment == null) {
-                                onErrorNow("Could not read a selected file.")
+                                onErrorNow(uiResources.getString(R.string.memoh_ui_could_not_read_a_selected_file))
                             } else if (attachmentPickerError(attachmentsNow()) == null &&
                                 attachmentDraftError(attachmentsNow() + attachment) == null) {
                                 // Publish each file immediately: the next read uses the live draft budget.
                                 onPickedNow(listOf(attachment))
                             } else {
-                                onErrorNow("The selected file no longer fits in the attachment draft.")
+                                onErrorNow(uiResources.getString(R.string.memoh_ui_the_selected_file_no_longer_fits_in_the_attachment_draft))
                             }
                         } catch (e: AttachmentTooLargeException) {
                             if (owner != ownerNow()) break
-                            onErrorNow(e.message ?: "A selected file is too large.")
+                            onErrorNow(e.message ?: uiResources.getString(R.string.memoh_ui_a_selected_file_is_too_large))
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             // A provider may fail while answering name/type queries, before a
                             // stream exists; report that as one unreadable file, not a crash.
                             if (owner != ownerNow()) break
-                            onErrorNow("Could not read a selected file: ${e.message ?: "provider error"}")
+                            onErrorNow(uiResources.getString(R.string.memoh_ui_could_not_read_a_selected_file_1_s, e.message ?: uiResources.getString(R.string.memoh_ui_provider_error)))
                         }
                     }
                 } finally {
@@ -251,7 +256,7 @@ internal fun AttachmentPickerButton(
         if (reading) {
             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
         } else {
-            Icon(Icons.Default.AttachFile, contentDescription = "Add attachment")
+            Icon(Icons.Default.AttachFile, contentDescription = uiResources.getString(R.string.memoh_ui_add_attachment))
         }
     }
 }
@@ -262,6 +267,7 @@ internal fun AttachmentDraftStrip(
     onRemove: (MemohAttachment) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val uiResources = LocalContext.current.resources
     if (attachments.isEmpty()) return
     Row(
         modifier = modifier
@@ -322,7 +328,7 @@ internal fun AttachmentDraftStrip(
                     ) {
                         Icon(
                             Icons.Default.Close,
-                            contentDescription = "Remove",
+                            contentDescription = uiResources.getString(R.string.memoh_ui_remove),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -337,6 +343,7 @@ internal fun TurnAttachmentsView(
     attachments: List<MemohAttachment>,
     modifier: Modifier = Modifier,
 ) {
+    val uiResources = LocalContext.current.resources
     if (attachments.isEmpty()) return
     var previewAttachment by remember { mutableStateOf<MemohAttachment?>(null) }
 
@@ -429,7 +436,7 @@ internal fun TurnAttachmentsView(
                 ) {
                     Icon(
                         Icons.Default.Close,
-                        contentDescription = "Close preview",
+                        contentDescription = uiResources.getString(R.string.memoh_ui_close_preview),
                         tint = androidx.compose.ui.graphics.Color.White
                     )
                 }

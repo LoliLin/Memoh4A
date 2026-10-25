@@ -221,6 +221,7 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
 /** Preferences that change how the transcript behaves while you read it. */
 @Composable
 internal fun MemohChatBehaviorSettingsPage(viewModel: MemohViewModel, onBack: () -> Unit) {
+    val uiResources = LocalContext.current.resources
     val settings = viewModel.settings
     val stickToBottom by settings.stickToBottom.collectAsState()
     val hapticsEnabled by settings.hapticsEnabled.collectAsState()
@@ -283,14 +284,14 @@ internal fun MemohChatBehaviorSettingsPage(viewModel: MemohViewModel, onBack: ()
                         var modeMenu by remember { mutableStateOf(false) }
                         val normalized = ToolCallDisplayModes.normalize(toolCallMode)
                         val label = when (normalized) {
-                            ToolCallDisplayModes.COMPACT -> "Compact"
-                            ToolCallDisplayModes.TIMELINE -> "Timeline"
-                            else -> "Grouped timeline"
+                            ToolCallDisplayModes.COMPACT -> uiResources.getString(R.string.memoh_ui_compact)
+                            ToolCallDisplayModes.TIMELINE -> uiResources.getString(R.string.memoh_ui_timeline)
+                            else -> uiResources.getString(R.string.memoh_ui_grouped_timeline)
                         }
                         Box {
                             SettingsItem(
-                                headlineContent = { Text("Tool calls") },
-                                supportingContent = { Text("How tool steps are grouped in the transcript") },
+                                headlineContent = { Text(uiResources.getString(R.string.memoh_ui_tool_calls)) },
+                                supportingContent = { Text(uiResources.getString(R.string.memoh_ui_how_tool_steps_are_grouped_in_the_transcript)) },
                                 leadingContent = { Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.primary) },
                                 trailingContent = {
                                     Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -299,9 +300,9 @@ internal fun MemohChatBehaviorSettingsPage(viewModel: MemohViewModel, onBack: ()
                             )
                             AgoraDropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
                                 listOf(
-                                    ToolCallDisplayModes.GROUPED_TIMELINE to "Grouped timeline",
-                                    ToolCallDisplayModes.TIMELINE to "Timeline",
-                                    ToolCallDisplayModes.COMPACT to "Compact",
+                                    ToolCallDisplayModes.GROUPED_TIMELINE to uiResources.getString(R.string.memoh_ui_grouped_timeline),
+                                    ToolCallDisplayModes.TIMELINE to uiResources.getString(R.string.memoh_ui_timeline),
+                                    ToolCallDisplayModes.COMPACT to uiResources.getString(R.string.memoh_ui_compact),
                                 ).forEach { (mode, modeLabel) ->
                                     AgoraDropdownMenuItem(
                                         text = { Text(if (mode == normalized) "✓ $modeLabel" else modeLabel) },
@@ -324,6 +325,7 @@ internal fun MemohBotSettingsPage(
     onBack: () -> Unit,
     onOpenBotSettings: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val bot = viewModel.bot
     CollapsingSettingsScaffold(title = stringResource(R.string.memoh_settings_bot), onBack = onBack) {
         SettingsGroupColumn {
@@ -335,7 +337,7 @@ internal fun MemohBotSettingsPage(
                         supportingContent = { Text(stringResource(R.string.memoh_settings_bot_desc)) },
                         leadingContent = { Icon(Icons.Default.SmartToy, null, tint = MaterialTheme.colorScheme.primary) },
                         trailingContent = if (bot != null) {
-                            { TextButton(onClick = onOpenBotSettings) { Text("Open") } }
+                            { TextButton(onClick = onOpenBotSettings) { Text(uiResources.getString(R.string.memoh_ui_open)) } }
                         } else {
                             null
                         },
@@ -354,6 +356,7 @@ internal fun MemohDiagnosticsPage(
     onBack: () -> Unit,
     onNotice: (String) -> Unit = {},
 ) {
+    val uiResources = LocalContext.current.resources
     val context = LocalContext.current
     val packageInfo = remember(context) {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
@@ -427,7 +430,7 @@ internal fun MemohDiagnosticsPage(
                                     as? android.content.ClipboardManager
                                 clipboard?.setPrimaryClip(
                                     android.content.ClipData.newPlainText(
-                                        "Memoh diagnostics",
+                                        uiResources.getString(R.string.memoh_ui_memoh_diagnostics),
                                         buildDiagnosticsReport(
                                             version = version,
                                             versionCode = versionCode,
@@ -481,11 +484,12 @@ internal fun MemohLanguagePage(
     onBack: () -> Unit,
     onRestartNeeded: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val current by settings.appLanguage.collectAsState()
     var selected by remember(current) { mutableStateOf(current) }
     val options = remember {
         listOf(
-            "system" to "System default",
+            "system" to uiResources.getString(R.string.memoh_ui_system_default),
             "en" to "English",
             "zh" to "简体中文",
             "zh-Hant" to "繁體中文",

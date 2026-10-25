@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,19 +30,20 @@ import com.newoether.agora.ui.components.AgoraDropdownMenuItem
 
 @Composable
 internal fun MemohTeamPicker(teams: MemohTeamController) {
+    val uiResources = LocalContext.current.resources
     var expanded by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     Box(Modifier.padding(horizontal = 16.dp)) {
         TextButton(onClick = { expanded = true }, enabled = !teams.busy) {
-            Text(teams.current?.title ?: "Choose team")
+            Text(teams.current?.title ?: uiResources.getString(R.string.memoh_ui_choose_team))
         }
         AgoraDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             teams.items.forEach { team ->
                 AgoraDropdownMenuItem(text = { Text(if (team.id == teams.selectedId) "✓ ${team.title}" else team.title) },
                     onClick = { expanded = false; teams.select(team.id) })
             }
-            AgoraDropdownMenuItem(text = { Text("Refresh teams") }, onClick = { expanded = false; teams.load() })
-            if (teams.creationAllowed) AgoraDropdownMenuItem(text = { Text("Create team") },
+            AgoraDropdownMenuItem(text = { Text(uiResources.getString(R.string.memoh_ui_refresh_teams)) }, onClick = { expanded = false; teams.load() })
+            if (teams.creationAllowed) AgoraDropdownMenuItem(text = { Text(uiResources.getString(R.string.memoh_ui_create_team)) },
                 onClick = { expanded = false; creating = true })
         }
     }
@@ -47,33 +52,35 @@ internal fun MemohTeamPicker(teams: MemohTeamController) {
 
 @Composable
 internal fun MemohTeamSetup(vm: MemohViewModel) {
+    val uiResources = LocalContext.current.resources
     var creating by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Memoh teams", style = MaterialTheme.typography.headlineSmall)
+        Text(uiResources.getString(R.string.memoh_ui_memoh_teams), style = MaterialTheme.typography.headlineSmall)
         if (vm.teams.busy) CircularProgressIndicator()
         else {
-            Text("No team is selected. Refresh your memberships or create a team to continue.")
+            Text(uiResources.getString(R.string.memoh_ui_no_team_is_selected_refresh_your_memberships_or_create_a_team_to_continu))
             MemohTeamPicker(vm.teams)
-            Button(onClick = vm.teams::load) { Text("Retry") }
-            if (vm.teams.creationAllowed) Button(onClick = { creating = true }) { Text("Create team") }
+            Button(onClick = vm.teams::load) { Text(uiResources.getString(R.string.memoh_ui_retry)) }
+            if (vm.teams.creationAllowed) Button(onClick = { creating = true }) { Text(uiResources.getString(R.string.memoh_ui_create_team)) }
         }
         if (vm.error.isNotBlank()) Text(vm.error, color = MaterialTheme.colorScheme.error)
-        TextButton(onClick = vm::logout) { Text("Sign out") }
+        TextButton(onClick = vm::logout) { Text(uiResources.getString(R.string.memoh_ui_sign_out)) }
     }
     if (creating) MemohCreateTeam(vm.teams) { creating = false }
 }
 
 @Composable
 private fun MemohCreateTeam(teams: MemohTeamController, onDismiss: () -> Unit) {
+    val uiResources = LocalContext.current.resources
     var name by remember { mutableStateOf("") }
     var slug by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Create team") }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(uiResources.getString(R.string.memoh_ui_create_team)) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(slug, { slug = it }, label = { Text("Slug (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(name, { name = it }, label = { Text(uiResources.getString(R.string.memoh_ui_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(slug, { slug = it }, label = { Text(uiResources.getString(R.string.memoh_ui_slug_optional)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
         }
     }, confirmButton = {
-        TextButton(onClick = { teams.create(name, slug); onDismiss() }, enabled = name.isNotBlank() && !teams.busy) { Text("Create") }
-    }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+        TextButton(onClick = { teams.create(name, slug); onDismiss() }, enabled = name.isNotBlank() && !teams.busy) { Text(uiResources.getString(R.string.memoh_ui_create)) }
+    }, dismissButton = { TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } })
 }

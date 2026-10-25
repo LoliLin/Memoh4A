@@ -1,5 +1,15 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
+import androidx.compose.foundation.rememberScrollState
+
+import androidx.compose.foundation.verticalScroll
+
+import androidx.compose.foundation.layout.heightIn
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -65,6 +75,7 @@ internal fun MemohBotMcpTab(
     canManage: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val uiResources = LocalContext.current.resources
     val haptics = LocalAgoraHaptics.current
     val scope = rememberCoroutineScope()
     var servers by remember { mutableStateOf<List<MemohMcpConnection>>(emptyList()) }
@@ -85,7 +96,7 @@ internal fun MemohBotMcpTab(
                     loading = false
                 }
                 .onFailure {
-                    error = it.message ?: "Failed to load MCP servers"
+                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_load_mcp_servers)
                     loading = false
                 }
         }
@@ -104,12 +115,12 @@ internal fun MemohBotMcpTab(
         ) {
             Column {
                 Text(
-                    text = "MCP Servers (${servers.size})",
+                    text = uiResources.getString(R.string.memoh_ui_mcp_servers_1_s, servers.size),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Model Context Protocol tools & resources",
+                    text = uiResources.getString(R.string.memoh_ui_model_context_protocol_tools_resources),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -119,7 +130,7 @@ internal fun MemohBotMcpTab(
                     haptics.selection()
                     refresh()
                 }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    Icon(Icons.Default.Refresh, contentDescription = uiResources.getString(R.string.memoh_ui_refresh))
                 }
                 if (canManage) {
                     Button(
@@ -131,7 +142,7 @@ internal fun MemohBotMcpTab(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Add")
+                        Text(uiResources.getString(R.string.memoh_ui_add))
                     }
                 }
             }
@@ -183,20 +194,20 @@ internal fun MemohBotMcpTab(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "No MCP Servers Connected",
+                        text = uiResources.getString(R.string.memoh_ui_no_mcp_servers_connected),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Model Context Protocol connects your bot to external tools, databases, and APIs. Add a server via SSE or stdio process.",
+                        text = uiResources.getString(R.string.memoh_ui_model_context_protocol_connects_your_bot_to_external_tools_databases_and),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(servers, key = { it.id }) { server ->
                     McpServerCard(
                         server = server,
@@ -218,7 +229,7 @@ internal fun MemohBotMcpTab(
                                 }.onSuccess {
                                     refresh()
                                 }.onFailure {
-                                    error = it.message ?: "Failed to update MCP server"
+                                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_update_mcp_server)
                                 }
                             }
                         },
@@ -230,11 +241,11 @@ internal fun MemohBotMcpTab(
                             scope.launch {
                                 runCatching { api.probeMcpConnection(botId, server.id) }
                                     .onSuccess {
-                                        message = "Server '${server.name}' probed successfully"
+                                        message = uiResources.getString(R.string.memoh_ui_server_1_s_probed_successfully, server.name)
                                         refresh()
                                     }
                                     .onFailure {
-                                        error = "Probe failed: ${it.message}"
+                                        error = uiResources.getString(R.string.memoh_ui_probe_failed_1_s, it.message)
                                     }
                                 probingId = null
                             }
@@ -267,11 +278,11 @@ internal fun MemohBotMcpTab(
                         )
                     }.onSuccess {
                         haptics.confirm()
-                        message = "MCP Server '$name' added"
+                        message = uiResources.getString(R.string.memoh_ui_mcp_server_1_s_added, name)
                         refresh()
                     }.onFailure {
                         haptics.reject()
-                        error = it.message ?: "Failed to add MCP server"
+                        error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_add_mcp_server)
                         loading = false
                     }
                 }
@@ -283,8 +294,8 @@ internal fun MemohBotMcpTab(
     deleteCandidate?.let { server ->
         AlertDialog(
             onDismissRequest = { deleteCandidate = null },
-            title = { Text("Delete MCP Server") },
-            text = { Text("Are you sure you want to remove '${server.name}'? Tools provided by this server will no longer be available to the bot.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_delete_mcp_server)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_are_you_sure_you_want_to_remove_1_s_tools_provided_by_this_server_will_n, server.name)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -294,22 +305,22 @@ internal fun MemohBotMcpTab(
                             runCatching { api.deleteMcpConnection(botId, toDelete.id) }
                                 .onSuccess {
                                     haptics.confirm()
-                                    message = "MCP Server '${toDelete.name}' deleted"
+                                    message = uiResources.getString(R.string.memoh_ui_mcp_server_1_s_deleted, toDelete.name)
                                     refresh()
                                 }
                                 .onFailure {
                                     haptics.reject()
-                                    error = it.message ?: "Failed to delete MCP server"
+                                    error = it.message ?: uiResources.getString(R.string.memoh_ui_failed_to_delete_mcp_server)
                                 }
                         }
                     },
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
                     )
-                ) { Text("Delete") }
+                ) { Text(uiResources.getString(R.string.memoh_ui_delete)) }
             },
             dismissButton = {
-                OutlinedButton(onClick = { deleteCandidate = null }) { Text("Cancel") }
+                OutlinedButton(onClick = { deleteCandidate = null }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
             }
         )
     }
@@ -325,6 +336,7 @@ private fun McpServerCard(
     onProbe: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     var expandedTools by remember { mutableStateOf(false) }
 
     Card(
@@ -407,7 +419,7 @@ private fun McpServerCard(
                     )
                     if (server.lastProbedAt.isNotBlank()) {
                         Text(
-                            text = " • Probed: ${server.lastProbedAt.take(19).replace('T', ' ')}",
+                            text = uiResources.getString(R.string.memoh_ui_probed_1_s, server.lastProbedAt.take(19).replace('T', ' ')),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -436,7 +448,7 @@ private fun McpServerCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "${server.tools.size} tool${if (server.tools.size > 1) "s" else ""} exposed",
+                        text = uiResources.getString(R.string.memoh_ui_tools_exposed_1_s, server.tools.size),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary
@@ -488,13 +500,13 @@ private fun McpServerCard(
                             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(4.dp))
                         }
-                        Text("Probe Connection")
+                        Text(uiResources.getString(R.string.memoh_ui_probe_connection))
                     }
                     Spacer(Modifier.width(4.dp))
                     IconButton(onClick = onDelete) {
                         Icon(
                             Icons.Default.Delete,
-                            contentDescription = "Delete",
+                            contentDescription = uiResources.getString(R.string.memoh_ui_delete),
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
@@ -509,20 +521,21 @@ private fun AddMcpServerDialog(
     onDismiss: () -> Unit,
     onAdd: (name: String, transport: String, target: String) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     var name by remember { mutableStateOf("") }
     var transport by remember { mutableStateOf("sse") }
     var target by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add MCP Server") },
+        title = { Text(uiResources.getString(R.string.memoh_ui_add_mcp_server)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Server Name") },
-                    placeholder = { Text("e.g. filesystem-tools") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_server_name)) },
+                    placeholder = { Text(uiResources.getString(R.string.memoh_ui_e_g_filesystem_tools)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -530,18 +543,18 @@ private fun AddMcpServerDialog(
                     FilterChip(
                         selected = transport == "sse",
                         onClick = { transport = "sse" },
-                        label = { Text("SSE (HTTP)") }
+                        label = { Text(uiResources.getString(R.string.memoh_ui_sse_http)) }
                     )
                     FilterChip(
                         selected = transport == "stdio",
                         onClick = { transport = "stdio" },
-                        label = { Text("Stdio (Command)") }
+                        label = { Text(uiResources.getString(R.string.memoh_ui_stdio_command)) }
                     )
                 }
                 OutlinedTextField(
                     value = target,
                     onValueChange = { target = it },
-                    label = { Text(if (transport == "sse") "Server SSE URL" else "Execution Command") },
+                    label = { Text(if (transport == "sse") uiResources.getString(R.string.memoh_ui_server_sse_url) else uiResources.getString(R.string.memoh_ui_execution_command)) },
                     placeholder = {
                         Text(if (transport == "sse") "https://mcp.domain.com/sse" else "npx -y @modelcontextprotocol/...")
                     },
@@ -553,10 +566,10 @@ private fun AddMcpServerDialog(
             Button(
                 onClick = { onAdd(name, transport, target) },
                 enabled = name.isNotBlank() && target.isNotBlank()
-            ) { Text("Add Server") }
+            ) { Text(uiResources.getString(R.string.memoh_ui_add_server)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) }
         }
     )
 }

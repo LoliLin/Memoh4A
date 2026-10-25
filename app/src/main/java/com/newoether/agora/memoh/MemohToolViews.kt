@@ -1,5 +1,9 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
+
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -52,6 +56,7 @@ import com.newoether.agora.ui.common.LocalAgoraHaptics
 
 @Composable
 internal fun ReasoningBlock(block: MemohBlock) {
+    val uiResources = LocalContext.current.resources
     var expanded by remember(block.id) { mutableStateOf(false) }
     val haptics = LocalAgoraHaptics.current
     val chevronAngle by animateFloatAsState(targetValue = if (expanded) 180f else 0f, label = "reasoningChevron")
@@ -80,7 +85,7 @@ internal fun ReasoningBlock(block: MemohBlock) {
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (expanded) "Thinking Process" else "Thinking (${block.text.length} chars)",
+                    text = if (expanded) uiResources.getString(R.string.memoh_ui_thinking_process) else uiResources.getString(R.string.memoh_ui_thinking_1_s_chars, block.text.length),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -88,7 +93,7 @@ internal fun ReasoningBlock(block: MemohBlock) {
                 )
                 Icon(
                     Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    contentDescription = if (expanded) uiResources.getString(R.string.memoh_ui_collapse) else uiResources.getString(R.string.memoh_ui_expand),
                     modifier = Modifier
                         .size(18.dp)
                         .rotate(chevronAngle),
@@ -113,6 +118,7 @@ internal fun ReasoningBlock(block: MemohBlock) {
 
 @Composable
 internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
+    val uiResources = LocalContext.current.resources
     var expanded by remember(block.id) { mutableStateOf(false) }
     val haptics = LocalAgoraHaptics.current
     val chevronAngle by animateFloatAsState(targetValue = if (expanded) 180f else 0f, label = "toolChevron")
@@ -139,7 +145,7 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = block.toolName.ifBlank { "Tool Execution" },
+                    text = block.toolName.ifBlank { uiResources.getString(R.string.memoh_ui_tool_execution) },
                     fontWeight = FontWeight.SemiBold,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -149,27 +155,27 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                     CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Running",
+                        uiResources.getString(R.string.memoh_ui_running),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
                 } else {
                     Icon(
                         Icons.Default.CheckCircle,
-                        contentDescription = "Completed",
+                        contentDescription = uiResources.getString(R.string.memoh_ui_completed),
                         modifier = Modifier.size(16.dp),
                         tint = Color(0xFF4CAF50)
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        "Done",
+                        uiResources.getString(R.string.memoh_ui_done),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF388E3C)
                     )
                 }
             }
 
-            if (block.text.isNotBlank() && block.text != "Completed" && block.text != "Running") {
+            if (block.text.isNotBlank() && block.text != uiResources.getString(R.string.memoh_ui_completed) && block.text != uiResources.getString(R.string.memoh_ui_running)) {
                 Text(
                     text = block.text,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -189,7 +195,7 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (expanded) "Hide Parameters & Results" else "View Parameters & Results",
+                        text = if (expanded) uiResources.getString(R.string.memoh_ui_hide_parameters_results) else uiResources.getString(R.string.memoh_ui_view_parameters_results),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary
@@ -207,8 +213,8 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
 
                 AnimatedVisibility(visible = expanded) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (block.toolInput.isNotBlank()) DetailField("Input Parameters", block.toolInput)
-                        if (block.toolOutput.isNotBlank()) DetailField("Output Result", block.toolOutput)
+                        if (block.toolInput.isNotBlank()) DetailField(uiResources.getString(R.string.memoh_ui_input_parameters), block.toolInput)
+                        if (block.toolOutput.isNotBlank()) DetailField(uiResources.getString(R.string.memoh_ui_output_result), block.toolOutput)
                         if (block.toolDiff.isNotBlank()) DiffField(block.toolDiff)
                     }
                 }
@@ -230,7 +236,7 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                "Security Approval Required",
+                                uiResources.getString(R.string.memoh_ui_security_approval_required),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -247,7 +253,7 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                                         },
                                         enabled = vm.controlsReady && block.approvalId !in vm.waitingForInteraction
                                     ) {
-                                        Text(option.name.ifBlank { "Allow" })
+                                        Text(option.name.ifBlank { uiResources.getString(R.string.memoh_ui_allow) })
                                     }
                                 } else {
                                     OutlinedButton(
@@ -257,7 +263,7 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                                         },
                                         enabled = vm.controlsReady && block.approvalId !in vm.waitingForInteraction
                                     ) {
-                                        Text(option.name.ifBlank { "Deny" })
+                                        Text(option.name.ifBlank { uiResources.getString(R.string.memoh_ui_deny) })
                                     }
                                 }
                             }
@@ -275,6 +281,7 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
 
 @Composable
 private fun DetailField(label: String, content: String) {
+    val uiResources = LocalContext.current.resources
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
         Surface(
@@ -290,7 +297,7 @@ private fun DetailField(label: String, content: String) {
         }
         if (content.length > 12000) {
             Text(
-                "Content truncated to 12,000 characters",
+                uiResources.getString(R.string.memoh_ui_content_truncated_to_12_000_characters),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -300,8 +307,9 @@ private fun DetailField(label: String, content: String) {
 
 @Composable
 private fun DiffField(diff: String) {
+    val uiResources = LocalContext.current.resources
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Code / Workspace Changes", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+        Text(uiResources.getString(R.string.memoh_ui_code_workspace_changes), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
             shape = RoundedCornerShape(8.dp),
@@ -335,12 +343,13 @@ private fun DiffField(diff: String) {
 
 @Composable
 private fun UserInputForm(block: MemohBlock, vm: MemohViewModel) {
+    val uiResources = LocalContext.current.resources
     var selections by remember(block.userInputId) { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
     var texts by remember(block.userInputId) { mutableStateOf<Map<String, String>>(emptyMap()) }
     val haptics = LocalAgoraHaptics.current
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Information Required", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(uiResources.getString(R.string.memoh_ui_information_required), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         for (question in block.questions) {
             Text(question.text, style = MaterialTheme.typography.bodyMedium)
             if (question.kind == "text") {
@@ -388,7 +397,7 @@ private fun UserInputForm(block: MemohBlock, vm: MemohViewModel) {
                             texts = texts + (question.id to value)
                             if (value.isNotBlank()) selections = selections + (question.id to emptySet())
                         },
-                        label = { Text("Custom Answer") },
+                        label = { Text(uiResources.getString(R.string.memoh_ui_custom_answer)) },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -406,14 +415,14 @@ private fun UserInputForm(block: MemohBlock, vm: MemohViewModel) {
                     vm.answerUserInput(block, selections, texts)
                 },
                 enabled = canSend && valid
-            ) { Text("Submit Answers") }
+            ) { Text(uiResources.getString(R.string.memoh_ui_submit_answers)) }
             TextButton(
                 onClick = {
                     haptics.reject()
                     vm.answerUserInput(block, selections, texts, canceled = true)
                 },
                 enabled = canSend
-            ) { Text("Cancel Request") }
+            ) { Text(uiResources.getString(R.string.memoh_ui_cancel_request)) }
         }
     }
 }

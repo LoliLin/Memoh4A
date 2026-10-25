@@ -55,6 +55,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.newoether.agora.R
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -109,6 +111,7 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 internal fun MemohConversationScreen(vm: MemohViewModel) {
+    val uiResources = LocalContext.current.resources
     val api = remember { MemohApi(vm.workspaceApi) }
     val settings = vm.settings
     val blurEffectsEnabled by settings.blurEffectsEnabled.collectAsState()
@@ -157,10 +160,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var newTitle by remember { mutableStateOf("") }
     var sendQueueMenu by remember { mutableStateOf(false) }
     var modelMenu by remember { mutableStateOf(false) }
-    // Team-level catalog: load once per signed-in scope, no Agent selection required.
-    LaunchedEffect(vm.signedIn, vm.bot?.id) {
-        if (vm.signedIn && vm.bot != null) vm.agentController.loadModels("", "")
-    }
     var selectedAttachments by remember(vm.attachmentDraftOwner) {
         mutableStateOf<List<MemohAttachment>>(emptyList())
     }
@@ -379,14 +378,14 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         val selectedBot = vm.bot
         if (uri != null && selectedBot != null) {
             backupScope.launch {
-                backupStatus = "Saving backup…"
+                backupStatus = uiResources.getString(R.string.memoh_ui_saving_backup)
                 runCatching {
                     api.exportBotBackup(
                         selectedBot.id, uri, context.contentResolver,
                         pendingBackupSections, pendingBackupPassphrase,
                     )
-                }.onSuccess { backupStatus = "Backup saved." }
-                    .onFailure { backupStatus = "Export failed: ${it.message ?: "Unknown error"}" }
+                }.onSuccess { backupStatus = uiResources.getString(R.string.memoh_ui_backup_saved) }
+                    .onFailure { backupStatus = uiResources.getString(R.string.memoh_ui_export_failed_1_s, it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)) }
                     .also { pendingBackupSections = emptyList(); pendingBackupPassphrase = "" }
             }
         }
@@ -476,11 +475,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     contextAvailable = false,
                     subtitle = vm.connection.error.ifBlank {
                         (vm.bot?.title ?: "Memoh") + " · " + when (vm.connection.state) {
-                            MemohConnectionState.Connected -> "Connected"
-                            MemohConnectionState.Connecting -> "Connecting…"
-                            MemohConnectionState.Retrying -> "Reconnecting…"
-                            MemohConnectionState.Blocked -> "Connection failed"
-                            MemohConnectionState.Idle -> "Disconnected"
+                            MemohConnectionState.Connected -> uiResources.getString(R.string.memoh_ui_connected)
+                            MemohConnectionState.Connecting -> uiResources.getString(R.string.memoh_ui_connecting)
+                            MemohConnectionState.Retrying -> uiResources.getString(R.string.memoh_ui_reconnecting)
+                            MemohConnectionState.Blocked -> uiResources.getString(R.string.memoh_ui_connection_failed)
+                            MemohConnectionState.Idle -> uiResources.getString(R.string.memoh_ui_disconnected)
                         }
                     },
                     searchActive = conversationInteraction.searchActive,
@@ -527,7 +526,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     Modifier.fillMaxSize().onSizeChanged { scrollCoordinator.recordViewportHeight(it.height) },
                 ) {
                     when {
-                        vm.bot == null -> MemohNotice("No accessible bots yet")
+                        vm.bot == null -> MemohNotice(uiResources.getString(R.string.memoh_ui_no_accessible_bots_yet))
                         // New-chat welcome: Agora's typewriter headline vertically centered
                         // against the composer, not a static notice block.
                         messages.isEmpty() -> MemohWelcome(
@@ -547,6 +546,10 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             isLoading = vm.running,
                             isCompacting = vm.runtimeControlsBusy,
                             deleteActionsEnabled = false,
+                            // Memoh history is a single linear transcript and carries no per-row
+                            // model/token metadata, so both affordances would be dead ends.
+                            branchSwitchingEnabled = false,
+                            messageInfoEnabled = false,
                             toolCallDisplayMode = toolCallDisplayMode,
                             thinkingSegmentDisplayMode = thinkingSegmentDisplayMode,
                             autoExpandActiveGroup = autoExpandActiveGroup,
@@ -632,7 +635,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             enabled = !vm.loadingOlderMessages,
                             modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
                         ) {
-                            Text(if (vm.loadingOlderMessages) "Loading…" else "Load earlier messages")
+                            Text(if (vm.loadingOlderMessages) uiResources.getString(R.string.memoh_ui_loading) else uiResources.getString(R.string.memoh_ui_load_earlier_messages))
                         }
                     }
                     ChatBottomScrollButton(showBottomButton && !expanded, with(density) { barHeightPx.toDp() }) {
@@ -656,13 +659,13 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     isExpandAnimating = composerSpacer.isRunning,
                     onExpand = { expanded = true },
                     onCollapse = { expanded = false },
-                    placeholder = "向 ${vm.bot?.title ?: "Memoh"} 提问...",
+                    placeholder = uiResources.getString(R.string.memoh_ui_ask_1_s, vm.bot?.title ?: "Memoh"),
                     statusContent = {
                         if (vm.error.isNotBlank()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(vm.error, color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.weight(1f).padding(12.dp), maxLines = 3)
-                                TextButton(onClick = vm::dismissError) { Text("Dismiss") }
+                                TextButton(onClick = vm::dismissError) { Text(uiResources.getString(R.string.memoh_ui_dismiss)) }
                             }
                         }
                     },
@@ -700,26 +703,26 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                                 RecognizerIntent.EXTRA_LANGUAGE,
                                                 java.util.Locale.getDefault().toLanguageTag(),
                                             )
-                                            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")
+                                            putExtra(RecognizerIntent.EXTRA_PROMPT, uiResources.getString(R.string.memoh_ui_speak_your_message))
                                         }
                                         runCatching { voiceInput.launch(intent) }
-                                            .onFailure { vm.error = "Speech recognition is unavailable on this device." }
+                                            .onFailure { vm.error = uiResources.getString(R.string.memoh_ui_speech_recognition_is_unavailable_on_this_device) }
                                     },
                                 ) {
-                                    Icon(Icons.Default.Mic, contentDescription = "Voice input")
+                                    Icon(Icons.Default.Mic, contentDescription = uiResources.getString(R.string.memoh_ui_voice_input))
                                 }
                                 if (vm.running && vm.runId.isNotBlank()) {
                                     Box {
                                         TextButton(onClick = { sendQueueMenu = true },
                                             enabled = field.text.isNotBlank() && !vm.queueBusy) {
-                                            Text("Queue")
+                                            Text(uiResources.getString(R.string.memoh_ui_queue))
                                         }
                                         AgoraDropdownMenu(
                                             expanded = sendQueueMenu,
                                             onDismissRequest = { sendQueueMenu = false },
                                         ) {
                                             AgoraDropdownMenuItem(
-                                                text = { Text("Add Follow-Up") },
+                                                text = { Text(uiResources.getString(R.string.memoh_ui_add_follow_up)) },
                                                 onClick = {
                                                     if (vm.queueMessage(field.text.toString(), "follow_up")) {
                                                         field.clearText()
@@ -728,7 +731,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                                 },
                                             )
                                             AgoraDropdownMenuItem(
-                                                text = { Text("Steer Current Run") },
+                                                text = { Text(uiResources.getString(R.string.memoh_ui_steer_current_run)) },
                                                 enabled = vm.queueState?.steerSupported == true,
                                                 onClick = {
                                                     if (vm.queueMessage(field.text.toString(), "steer")) {
@@ -744,21 +747,13 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                 val controller = vm.agentController
                                 val catalog = controller.models
                                 val modelArray = catalog?.optJSONArray("models")
-                                val currentId = controller.preferredModelId.ifBlank { controller.settledModelId }
-                                val displayName = modelArray?.let { models ->
-                                    (0 until models.length())
-                                        .mapNotNull { models.optJSONObject(it) }
-                                        .firstOrNull { it.optString("id") == currentId }
-                                        ?.optString("name").orEmpty()
-                                }.orEmpty()
+                                val currentId = controller.currentModelId
+                                val displayName = controller.currentModelLabel
                                 ComposerModelSelector(
                                     displayText = when {
-                                        controller.modelsLoading -> "…"
+                                        controller.modelsLoading && displayName.isBlank() -> "…"
                                         displayName.isNotBlank() -> displayName
-                                        // An id the catalog does not know is a server default:
-                                        // never surface a raw hash as the chip label.
-                                        modelArray == null || modelArray.length() == 0 -> "模型"
-                                        else -> "选择模型"
+                                        else -> uiResources.getString(R.string.memoh_ui_model_unavailable)
                                     },
                                     isModelValid = currentId.isNotBlank(),
                                     expanded = modelMenu,
@@ -768,19 +763,14 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                 ) {
                                     if (modelArray == null || modelArray.length() == 0) {
                                         AgoraDropdownMenuItem(
-                                            text = { Text(if (controller.modelsLoading) "模型加载中…" else "没有可用模型") },
+                                            text = { Text(if (controller.modelsLoading) uiResources.getString(R.string.memoh_ui_loading_models) else uiResources.getString(R.string.memoh_ui_no_models_available)) },
                                             enabled = false,
                                             onClick = {},
                                         )
                                     } else {
-                                        ComposerModelMenuItem(
-                                            displayText = "跟随 Bot 默认",
-                                            selected = controller.preferredModelId.isBlank(),
-                                            onClick = {
-                                                controller.setModelPreference("", "")
-                                                modelMenu = false
-                                            },
-                                        )
+                                        // No "follow the bot default" row: the bot's own default is
+                                        // already shown as the selected model, so a blank-selection
+                                        // entry would be a second, ambiguous way to say the same thing.
                                         // Group by provider like Homem's model list: the provider
                                         // name heads each section, models sorted inside.
                                         val entries = (0 until modelArray.length())
@@ -804,12 +794,12 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                             }
                                             models.sortedBy { it.optString("name").lowercase() }.forEach { model ->
                                                 val id = model.optString("id")
-                                                val label = model.optString("name").ifBlank { id }
+                                                val label = model.optString("name").ifBlank { model.optString("model_id") }
                                                 ComposerModelMenuItem(
                                                     displayText = label,
                                                     selected = id == currentId,
                                                     onClick = {
-                                                        controller.setModelPreference(
+                                                        vm.selectModel(
                                                             id, model.optString("default_reasoning_effort"))
                                                         modelMenu = false
                                                     },
@@ -865,7 +855,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             title = { Text(name) },
             text = { Text(content, style = MaterialTheme.typography.bodySmall) },
             confirmButton = {
-                TextButton(onClick = { filePreview = null }) { Text("Close") }
+                TextButton(onClick = { filePreview = null }) { Text(uiResources.getString(R.string.memoh_ui_close)) }
             },
         )
     }
@@ -965,6 +955,7 @@ private fun MemohNotice(text: String, isError: Boolean = false) {
  */
 @Composable
 private fun MemohWelcome(bottomBarHeight: androidx.compose.ui.unit.Dp, windowHeightDp: Float) {
+    val uiResources = LocalContext.current.resources
     Box(
         modifier = Modifier.fillMaxSize().padding(bottom = bottomBarHeight),
         contentAlignment = Alignment.TopCenter,
@@ -982,7 +973,7 @@ private fun MemohWelcome(bottomBarHeight: androidx.compose.ui.unit.Dp, windowHei
                 modifier = Modifier.padding(top = topPadding).padding(horizontal = 24.dp),
             ) {
                 com.newoether.agora.ui.components.TypewriterText(
-                    text = "Welcome to Memoh.",
+                    text = uiResources.getString(R.string.memoh_ui_welcome_to_memoh),
                     animationKey = "memoh-welcome",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
@@ -993,7 +984,7 @@ private fun MemohWelcome(bottomBarHeight: androidx.compose.ui.unit.Dp, windowHei
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Start a conversation — your messages stay on the Memoh server.",
+                    uiResources.getString(R.string.memoh_ui_start_a_conversation_your_messages_stay_on_the_memoh_server),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,

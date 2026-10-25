@@ -1,5 +1,7 @@
 package com.newoether.agora.memoh
 
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,8 +33,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.newoether.agora.R
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
@@ -49,6 +53,7 @@ internal fun MemohSchedulesDialog(
     /** Jump into a conversation a schedule run produced. */
     onOpenSession: (String) -> Unit = {},
 ) {
+    val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     var schedules by remember(botId) { mutableStateOf<List<MemohSchedule>>(emptyList()) }
     var loading by remember(botId) { mutableStateOf(true) }
@@ -73,7 +78,7 @@ internal fun MemohSchedulesDialog(
             schedules = api.schedules(botId)
             message = ""
         } catch (e: Exception) {
-            notify(e.message ?: "Unable to load schedules", isError = true)
+            notify(e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_load_schedules), isError = true)
         } finally {
             loading = false
         }
@@ -83,8 +88,8 @@ internal fun MemohSchedulesDialog(
         Surface(Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.85f), shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Schedules", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Close") }
+                    Text(stringResource(R.string.memoh_schedules_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.memoh_close)) }
                 }
                 if (message.isNotBlank()) {
                     Text(
@@ -95,12 +100,12 @@ internal fun MemohSchedulesDialog(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { reloadKey++ }, enabled = !loading) { Text("Refresh") }
+                    TextButton(onClick = { reloadKey++ }, enabled = !loading) { Text(stringResource(R.string.memoh_refresh)) }
                     TextButton(onClick = { editor = MemohSchedule("", "", "", "", "", true) }) {
-                        Text("New Schedule")
+                        Text(stringResource(R.string.memoh_schedule_new))
                     }
                     TextButton(onClick = { allLogsOpen = true }, enabled = !loading) {
-                        Text("All runs")
+                        Text(stringResource(R.string.memoh_schedule_all_runs))
                     }
                 }
                 if (loading) CircularProgressIndicator()
@@ -117,7 +122,7 @@ internal fun MemohSchedulesDialog(
                                         notify("${task.name} ${if (enabled) "enabled" else "disabled"}.", false)
                                         reloadKey++
                                     } catch (e: Exception) {
-                                        notify(e.message ?: "Unable to update schedule", true)
+                                        notify(e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_update_schedule), true)
                                     } finally { pendingId = "" }
                                 }
                             },
@@ -164,8 +169,8 @@ internal fun MemohSchedulesDialog(
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("Delete Schedule?") },
-            text = { Text("Permanently delete ${target.name} from Memoh. Its run history is deleted too.") },
+            title = { Text(stringResource(R.string.memoh_schedule_delete_title)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_permanently_delete_1_s_from_memoh_its_run_history_is_deleted_too, target.name)) },
             confirmButton = {
                 TextButton(enabled = pendingId.isBlank(), onClick = {
                     pendingId = target.id
@@ -173,15 +178,15 @@ internal fun MemohSchedulesDialog(
                         try {
                             api.deleteSchedule(botId, target.id)
                             deleteTarget = null
-                            notify("${target.name} deleted.", false)
+                            notify(uiResources.getString(R.string.memoh_ui_1_s_deleted, target.name), false)
                             reloadKey++
                         } catch (e: Exception) {
-                            notify(e.message ?: "Unable to delete schedule", true)
+                            notify(e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_delete_schedule), true)
                         } finally { pendingId = "" }
                     }
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -195,9 +200,10 @@ private fun ScheduleCard(
     onLogs: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(task.name.ifBlank { "Untitled schedule" }, style = MaterialTheme.typography.titleSmall)
+            Text(task.name.ifBlank { uiResources.getString(R.string.memoh_ui_untitled_schedule) }, style = MaterialTheme.typography.titleSmall)
             Text(task.pattern, style = MaterialTheme.typography.bodySmall)
             if (task.description.isNotBlank()) {
                 Text(task.description, maxLines = 3, style = MaterialTheme.typography.bodySmall)
@@ -205,31 +211,31 @@ private fun ScheduleCard(
             Text(
                 when (task.runTarget) {
                     "existing_session" ->
-                        "Continues session ${task.targetSessionId.take(8).ifBlank { "?" }}"
-                    else -> "Starts a new session"
+                        uiResources.getString(R.string.memoh_ui_continues_session_1_s, task.targetSessionId.take(8).ifBlank { "?" })
+                    else -> uiResources.getString(R.string.memoh_ui_starts_a_new_session)
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (task.modelId.isNotBlank()) {
-                Text("Model override ${task.modelId.take(8)}", style = MaterialTheme.typography.labelSmall,
+                Text(uiResources.getString(R.string.memoh_ui_model_override_1_s, task.modelId.take(8)), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (task.maxRunSeconds > 0) {
-                Text("Budget ${task.maxRunSeconds}s", style = MaterialTheme.typography.labelSmall,
+                Text(uiResources.getString(R.string.memoh_ui_budget_1_ss, task.maxRunSeconds), style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (task.maxCalls > 0) {
-                Text("Used ${task.currentCalls}/${task.maxCalls} calls",
+                Text(uiResources.getString(R.string.memoh_ui_used_1_s_2_s_calls, task.currentCalls, task.maxCalls),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = task.enabled, enabled = !busy, onCheckedChange = onToggle)
-                Text(if (task.enabled) "Enabled" else "Disabled", modifier = Modifier.weight(1f))
-                TextButton(onClick = onLogs, enabled = !busy) { Text("Runs") }
-                TextButton(onClick = onEdit, enabled = !busy) { Text("Edit") }
-                TextButton(onClick = onDelete, enabled = !busy) { Text("Delete") }
+                Text(if (task.enabled) uiResources.getString(R.string.memoh_ui_enabled) else uiResources.getString(R.string.memoh_ui_disabled), modifier = Modifier.weight(1f))
+                TextButton(onClick = onLogs, enabled = !busy) { Text(stringResource(R.string.memoh_schedule_runs)) }
+                TextButton(onClick = onEdit, enabled = !busy) { Text(stringResource(R.string.edit)) }
+                TextButton(onClick = onDelete, enabled = !busy) { Text(stringResource(R.string.delete)) }
             }
         }
     }
@@ -245,6 +251,7 @@ private fun ScheduleEditor(
     onDismiss: () -> Unit,
     onSaved: (String) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     var name by remember(draft.id) { mutableStateOf(draft.name) }
     var pattern by remember(draft.id) { mutableStateOf(draft.pattern) }
@@ -261,7 +268,7 @@ private fun ScheduleEditor(
     var enabled by remember(draft.id) { mutableStateOf(draft.enabled) }
     var busy by remember(draft.id) { mutableStateOf(false) }
     var error by remember(draft.id) { mutableStateOf("") }
-    var pickingSession by remember(draft.id) { mutableStateOf(false) }
+    var botAgentId by remember(draft.id) { mutableStateOf(draft.botAgentId) }
 
     val budgetValue = budget.trim().toIntOrNull()
     val budgetValid = budget.isBlank() || (budgetValue != null && budgetValue in 300..86400)
@@ -270,54 +277,55 @@ private fun ScheduleEditor(
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(if (isNew) "New Schedule" else "Edit Schedule") },
+        title = { Text(if (isNew) uiResources.getString(R.string.memoh_ui_new_schedule) else uiResources.getString(R.string.memoh_ui_edit_schedule)) },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it },
-                    label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = pattern, onValueChange = { pattern = it },
-                    label = { Text("Cron Pattern") }, placeholder = { Text("0 9 * * *") },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(autoCorrectEnabled = false, keyboardType = androidx.compose.ui.text.input.KeyboardType.Ascii),value = pattern, onValueChange = { pattern = it },
+                    label = { Text(uiResources.getString(R.string.memoh_ui_cron_pattern)) }, placeholder = { Text("0 9 * * *") },
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    supportingText = { Text("minute hour day month weekday") })
+                    supportingText = { Text(uiResources.getString(R.string.memoh_ui_minute_hour_day_month_weekday)) })
                 OutlinedTextField(value = command, onValueChange = { command = it },
-                    label = { Text("Agent Instruction") }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+                    label = { Text(uiResources.getString(R.string.memoh_ui_agent_instruction)) }, modifier = Modifier.fillMaxWidth(), maxLines = 4)
                 OutlinedTextField(value = description, onValueChange = { description = it },
-                    label = { Text("Description (optional)") }, modifier = Modifier.fillMaxWidth(), maxLines = 2)
+                    label = { Text(uiResources.getString(R.string.memoh_ui_description_optional)) }, modifier = Modifier.fillMaxWidth(), maxLines = 2)
 
-                Text("Run in", style = MaterialTheme.typography.titleSmall)
+                Text(uiResources.getString(R.string.memoh_ui_run_in), style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { runTarget = "new_session"; targetSessionId = "" }) {
-                        Text(if (runTarget == "new_session") "✓ New session" else "New session")
+                        Text(if (runTarget == "new_session") uiResources.getString(R.string.memoh_ui_new_session_9c2e0a) else uiResources.getString(R.string.memoh_ui_new_session))
                     }
-                    TextButton(onClick = { runTarget = "existing_session"; pickingSession = true }) {
-                        Text(if (runTarget == "existing_session") "✓ Existing session" else "Existing session")
+                    TextButton(onClick = { runTarget = "existing_session" }) {
+                        Text(if (runTarget == "existing_session") uiResources.getString(R.string.memoh_ui_existing_session_f7aa7a) else uiResources.getString(R.string.memoh_ui_existing_session))
                     }
                 }
                 if (runTarget == "existing_session") {
-                    Text(
-                        if (targetSessionId.isBlank()) "No session chosen yet."
-                        else "Target: ${targetSessionId.take(8)}",
-                        style = MaterialTheme.typography.bodySmall,
+                    MemohResourceField(
+                        api, "/bots/${android.net.Uri.encode(botId)}/sessions?types=chat,discuss,acp_agent&hide_schedule_runs=true&limit=50",
+                        uiResources.getString(R.string.memoh_ui_conversation), targetSessionId, { targetSessionId = it }, enabled = !busy,
+                        currentLabel = sessions.firstOrNull { it.id == targetSessionId }?.title.orEmpty(),
                     )
-                    TextButton(onClick = { pickingSession = true }) { Text("Choose session") }
                 } else {
-                    OutlinedTextField(value = modelId, onValueChange = { modelId = it },
-                        label = { Text("Model override ID (optional)") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        supportingText = { Text("Leave empty to use the bot's default model") })
+                    MemohResourceField(api, "/models", uiResources.getString(R.string.memoh_ui_model), modelId, { modelId = it },
+                        enabled = !busy, optional = true, modelType = "chat")
+                    MemohResourceField(api, "/bots/${android.net.Uri.encode(botId)}/agents", uiResources.getString(R.string.memoh_ui_agent), botAgentId,
+                        { botAgentId = it }, enabled = !busy, optional = true)
                 }
                 OutlinedTextField(value = budget, onValueChange = { budget = it.filter(Char::isDigit) },
-                    label = { Text("Run budget in seconds (optional)") }, singleLine = true,
+                    label = { Text(uiResources.getString(R.string.memoh_ui_run_budget_in_seconds_optional)) }, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                     isError = !budgetValid,
                     supportingText = {
-                        Text(if (budgetValid) "300–86400; empty uses the one-hour default"
-                        else "Must be between 300 and 86400")
+                        Text(if (budgetValid) uiResources.getString(R.string.memoh_ui_300_86400_empty_uses_the_one_hour_default)
+                        else uiResources.getString(R.string.memoh_ui_must_be_between_300_and_86400))
                     })
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = enabled, onCheckedChange = { enabled = it })
-                    Text("Enabled")
+                    Text(uiResources.getString(R.string.memoh_ui_enabled))
                 }
                 if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
@@ -335,9 +343,9 @@ private fun ScheduleEditor(
                                 description = description, runTarget = runTarget,
                                 targetSessionId = if (runTarget == "existing_session") targetSessionId else "",
                                 modelId = if (runTarget == "new_session") modelId else "",
-                                maxRunSeconds = budgetValue ?: 0, enabled = enabled,
+                                maxRunSeconds = budgetValue ?: 0, enabled = enabled, botAgentId = if (runTarget == "new_session") botAgentId else "",
                             )
-                            onSaved("Schedule created.")
+                            onSaved(uiResources.getString(R.string.memoh_ui_schedule_created))
                         } else {
                             api.updateSchedule(
                                 botId = botId, scheduleId = draft.id,
@@ -345,80 +353,20 @@ private fun ScheduleEditor(
                                 description = description, runTarget = runTarget,
                                 targetSessionId = if (runTarget == "existing_session") targetSessionId else "",
                                 modelId = if (runTarget == "new_session") modelId else "",
-                                botAgentId = if (runTarget == "new_session") draft.botAgentId else "",
+                                botAgentId = if (runTarget == "new_session") botAgentId else "",
                                 maxRunSeconds = budgetValue ?: 0, enabled = enabled,
                             )
-                            onSaved("Schedule updated.")
+                            onSaved(uiResources.getString(R.string.memoh_ui_schedule_updated))
                         }
                     } catch (e: Exception) {
-                        error = e.message ?: "Unable to save schedule"
+                        error = e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_save_schedule)
                     } finally { busy = false }
                 }
-            }) { Text(if (isNew) "Create" else "Save") }
+            }) { Text(if (isNew) uiResources.getString(R.string.memoh_ui_create) else uiResources.getString(R.string.memoh_ui_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
     )
 
-    if (pickingSession) {
-        SessionPickerDialog(
-            api = api,
-            botId = botId,
-            initialSessions = sessions,
-            onPick = { targetSessionId = it.id; pickingSession = false },
-            onDismiss = { pickingSession = false },
-        )
-    }
-}
-
-@Composable
-private fun SessionPickerDialog(
-    api: MemohApi,
-    botId: String,
-    initialSessions: List<MemohSession>,
-    onPick: (MemohSession) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var sessions by remember(botId) { mutableStateOf(initialSessions) }
-    var cursor by remember(botId) { mutableStateOf("") }
-    var nextCursor by remember(botId) { mutableStateOf<String?>(null) }
-    var loading by remember(botId) { mutableStateOf(true) }
-    var error by remember(botId) { mutableStateOf("") }
-    var retry by remember(botId) { mutableStateOf(0) }
-    LaunchedEffect(botId, cursor, retry) {
-        loading = true
-        error = ""
-        try {
-            val page = api.sessionsPage(botId, cursor)
-            sessions = (sessions + page.items).distinctBy { it.id }
-            nextCursor = page.nextCursor?.takeIf { it != cursor }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            error = e.message ?: "Unable to load conversations"
-        } finally { loading = false }
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Choose Session") },
-        text = {
-            Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                if (loading) CircularProgressIndicator()
-                if (error.isNotBlank()) {
-                    Text(error, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = { retry++ }, enabled = !loading) { Text("Retry") }
-                }
-                if (!loading && error.isBlank() && sessions.isEmpty()) Text("No conversations available.")
-                sessions.forEach { session ->
-                    TextButton(onClick = { onPick(session) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(session.title.ifBlank { session.id.take(8) })
-                    }
-                }
-                if (nextCursor != null) TextButton(enabled = !loading && error.isBlank(),
-                    onClick = { cursor = nextCursor.orEmpty() }) { Text("Load Older Conversations") }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 @Composable
@@ -429,6 +377,7 @@ private fun ScheduleLogsDialog(
     onDismiss: () -> Unit,
     onOpenSession: (String) -> Unit = {},
 ) {
+    val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
     var logs by remember(schedule.id) { mutableStateOf<List<MemohScheduleLog>>(emptyList()) }
     var sessions by remember(schedule.id) { mutableStateOf<List<MemohSession>>(emptyList()) }
@@ -449,7 +398,7 @@ private fun ScheduleLogsDialog(
             moreLogs = page.size == 20
             error = ""
         } catch (e: Exception) {
-            error = e.message ?: "Unable to load run history"
+            error = e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_load_run_history)
         } finally { loading = false }
     }
 
@@ -465,63 +414,63 @@ private fun ScheduleLogsDialog(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            sessionsError = e.message ?: "Unable to load schedule conversations"
+            sessionsError = e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_load_schedule_conversations)
         } finally { sessionsLoading = false }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Runs · ${schedule.name.ifBlank { "schedule" }}") },
+        title = { Text(uiResources.getString(R.string.memoh_ui_runs_1_s, schedule.name.ifBlank { uiResources.getString(R.string.memoh_ui_schedule) })) },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (loading) CircularProgressIndicator()
                 if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
                 if (!loading && error.isBlank() && logs.isEmpty()) {
-                    Text("No runs recorded yet.")
+                    Text(uiResources.getString(R.string.memoh_ui_no_runs_recorded_yet))
                 }
                 if (sessions.isNotEmpty()) {
-                    Text("Run Conversations", style = MaterialTheme.typography.titleSmall)
+                    Text(uiResources.getString(R.string.memoh_ui_run_conversations), style = MaterialTheme.typography.titleSmall)
                     sessions.forEach { run ->
                         TextButton(onClick = { onOpenSession(run.id) }, modifier = Modifier.fillMaxWidth()) {
                             Text(run.title.ifBlank { run.id.take(8) })
                         }
                     }
-                    Text("Runs", style = MaterialTheme.typography.titleSmall)
+                    Text(uiResources.getString(R.string.memoh_ui_runs), style = MaterialTheme.typography.titleSmall)
                 }
                 if (sessionsLoading) CircularProgressIndicator()
                 if (sessionsError.isNotBlank()) Text(sessionsError, color = MaterialTheme.colorScheme.error)
                 if (nextCursor != null) {
                     TextButton(enabled = !sessionsLoading, onClick = { sessionCursor = nextCursor.orEmpty() }) {
-                        Text("Load Older Conversations")
+                        Text(uiResources.getString(R.string.memoh_ui_load_older_conversations))
                     }
                 }
                 TextButton(enabled = !loading && !sessionsLoading, onClick = {
                     logOffset = 0
                     sessionCursor = ""
                     reloadKey++
-                }) { Text("Refresh") }
+                }) { Text(uiResources.getString(R.string.memoh_ui_refresh)) }
                 logs.forEach { log -> ScheduleLogCard(log, onOpenSession) }
                 if (moreLogs) TextButton(enabled = !loading && error.isBlank(), onClick = { logOffset += 20 }) {
-                    Text("Load Older Runs")
+                    Text(uiResources.getString(R.string.memoh_ui_load_older_runs))
                 }
             }
         },
         confirmButton = {
             if (logs.isNotEmpty()) {
-                TextButton(onClick = { confirmClear = true }) { Text("Clear All Bot Run History") }
+                TextButton(onClick = { confirmClear = true }) { Text(uiResources.getString(R.string.memoh_ui_clear_all_bot_run_history)) }
             } else {
-                TextButton(onClick = onDismiss) { Text("Close") }
+                TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_close)) }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_close)) } },
     )
 
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear run history?") },
-            text = { Text("Deletes every recorded run for this bot's schedules. The schedules themselves stay.") },
+            title = { Text(uiResources.getString(R.string.memoh_ui_clear_run_history)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_deletes_every_recorded_run_for_this_bot_s_schedules_the_schedules_themse)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmClear = false
@@ -532,12 +481,12 @@ private fun ScheduleLogsDialog(
                             sessionCursor = ""
                             reloadKey++
                         } catch (e: Exception) {
-                            error = e.message ?: "Unable to clear history"
+                            error = e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_clear_history)
                         }
                     }
-                }) { Text("Clear") }
+                }) { Text(uiResources.getString(R.string.memoh_ui_clear)) }
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
 }
@@ -550,6 +499,7 @@ private fun AllScheduleLogsDialog(
     onDismiss: () -> Unit,
     onOpenSession: (String) -> Unit,
 ) {
+    val uiResources = LocalContext.current.resources
     var logs by remember(botId) { mutableStateOf<List<MemohScheduleLog>>(emptyList()) }
     var loading by remember(botId) { mutableStateOf(true) }
     var error by remember(botId) { mutableStateOf("") }
@@ -565,37 +515,38 @@ private fun AllScheduleLogsDialog(
             hasMore = page.size == 50
             error = ""
         } catch (e: Exception) {
-            error = e.message ?: "Unable to load run history"
+            error = e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_load_run_history)
         } finally { loading = false }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("All schedule runs") },
+        title = { Text(uiResources.getString(R.string.memoh_ui_all_schedule_runs)) },
         text = {
             Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (loading) CircularProgressIndicator()
                 if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
-                if (!loading && error.isBlank() && logs.isEmpty()) Text("No runs recorded yet.")
+                if (!loading && error.isBlank() && logs.isEmpty()) Text(uiResources.getString(R.string.memoh_ui_no_runs_recorded_yet))
                 logs.forEach { log -> ScheduleLogCard(log, onOpenSession) }
                 if (hasMore) TextButton(enabled = !loading && error.isBlank(), onClick = { offset += 50 }) {
-                    Text("Load Older Runs")
+                    Text(uiResources.getString(R.string.memoh_ui_load_older_runs))
                 }
                 TextButton(enabled = !loading, onClick = {
                     if (error.isBlank()) offset = 0
                     reloadKey++
                 }) {
-                    Text(if (error.isBlank()) "Refresh" else "Retry")
+                    Text(if (error.isBlank()) uiResources.getString(R.string.memoh_ui_refresh) else uiResources.getString(R.string.memoh_ui_retry))
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(uiResources.getString(R.string.memoh_ui_close)) } },
     )
 }
 
 @Composable
 private fun ScheduleLogCard(log: MemohScheduleLog, onOpenSession: (String) -> Unit) {
+    val uiResources = LocalContext.current.resources
     val failed = log.status.equals("failed", ignoreCase = true) ||
         log.status.equals("error", ignoreCase = true) || log.errorCode.isNotBlank()
     Card(
@@ -611,7 +562,7 @@ private fun ScheduleLogCard(log: MemohScheduleLog, onOpenSession: (String) -> Un
                 style = MaterialTheme.typography.labelMedium,
             )
             if (log.completedAt.isNotBlank()) {
-                Text("Finished ${log.completedAt}", style = MaterialTheme.typography.labelSmall)
+                Text(uiResources.getString(R.string.memoh_ui_finished_1_s, log.completedAt), style = MaterialTheme.typography.labelSmall)
             }
             val failure = log.errorMessage.ifBlank { log.errorCode }
             if (failure.isNotBlank()) {
@@ -623,7 +574,7 @@ private fun ScheduleLogCard(log: MemohScheduleLog, onOpenSession: (String) -> Un
             }
             if (log.sessionId.isNotBlank()) {
                 TextButton(onClick = { onOpenSession(log.sessionId) }) {
-                    Text("Open Conversation · ${log.sessionId.take(8)}")
+                    Text(uiResources.getString(R.string.memoh_ui_open_conversation_1_s, log.sessionId.take(8)))
                 }
             }
         }
