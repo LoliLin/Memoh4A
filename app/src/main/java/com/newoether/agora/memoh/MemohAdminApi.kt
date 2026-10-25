@@ -39,6 +39,13 @@ internal class MemohAdminApi(parent: MemohTransport? = null) : MemohTransport(pa
 
     suspend fun providerTemplate(id: String): JSONObject = request("/provider-templates/${Uri.encode(id)}")
 
+    // ---- Providers (create/edit/test) ----
+
+    suspend fun createProviderFromRequest(body: JSONObject): JSONObject = request("/providers", body)
+
+    suspend fun updateProviderFromRequest(id: String, body: JSONObject): JSONObject =
+        request("/providers/${Uri.encode(id)}", body, method = "PUT")
+
     // ---- Models ----
 
     suspend fun models(): JSONObject = request("/models")
