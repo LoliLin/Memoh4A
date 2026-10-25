@@ -139,6 +139,7 @@ internal fun MessageItem(
     onFork: (String) -> Unit = {},
     onShare: (String) -> Unit = {},
     deleteTargetMessageId: String = message.id,
+    deleteActionsEnabled: Boolean = true,
     conversationMessages: () -> List<ChatMessage> = { emptyList() },
     onRecompact: (String) -> Unit = {},
     onDelete: (String, (Boolean) -> Unit) -> Boolean = { _, _ -> false },
@@ -364,6 +365,7 @@ internal fun MessageItem(
                         ContextCompactPill(
                             presentation = compactPresentation,
                             actionsEnabled = compactActionsEnabled && !compactInProgress,
+                            showDeleteAction = deleteActionsEnabled,
                             onClick = { showCompactDetail = true },
                             onRecompact = { onRecompact(message.id) },
                             onDelete = onShowDelete,
@@ -396,6 +398,7 @@ internal fun MessageItem(
                         onPdfPagesClick = onPdfPagesClick,
                         onShowInfo = { showInfoDialog = true },
                         onShowDelete = onShowDelete,
+                        showDeleteAction = deleteActionsEnabled,
                         searchHighlight = searchHighlight,
                     )
                 } else {
@@ -434,6 +437,7 @@ internal fun MessageItem(
                         onMediaClick = onMediaClick,
                         onShowInfo = { showInfoDialog = true },
                         onShowDelete = onShowDelete,
+                        showDeleteAction = deleteActionsEnabled,
                         onSegmentSelected = { indices, showListFirst ->
                             onSegmentDetailRequest(message.id, indices, showListFirst)
                         },
@@ -513,6 +517,7 @@ internal fun MessageItem(
 internal fun ContextCompactPill(
     presentation: ContextCompactPillPresentation,
     actionsEnabled: Boolean = true,
+    showDeleteAction: Boolean = true,
     onClick: (() -> Unit)? = null,
     onRecompact: () -> Unit = {},
     onDelete: () -> Unit = {},
@@ -675,7 +680,7 @@ internal fun ContextCompactPill(
                             onRecompact()
                         },
                     )
-                    AgoraDropdownMenuItem(
+                    if (showDeleteAction) AgoraDropdownMenuItem(
                         text = {
                             Text(
                                 text = stringResource(com.newoether.agora.R.string.delete),
