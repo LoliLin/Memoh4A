@@ -1,5 +1,7 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.SettingsOverlayHost
+
 import android.content.Intent
 import android.net.Uri
 import android.speech.RecognizerIntent
@@ -297,9 +299,10 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         drawerEnabled = true,
         motionPolicy = motion,
         onDrawerProgress = {},
-        drawerContent = { _, closeFromContent ->
+        drawerContent = { drawerWidth, closeFromContent ->
             MemohDrawerContent(
                 vm = vm,
+                drawerWidth = drawerWidth,
                 selectedId = vm.session?.id,
                 onNewChat = {
                     vm.newChat()
@@ -736,19 +739,11 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             },
         )
     }
-    if (settingsOpen) {
-        androidx.compose.ui.window.Dialog(
-            onDismissRequest = { settingsOpen = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-        ) {
-            androidx.compose.material3.Surface(
-                modifier = Modifier.fillMaxSize().padding(12.dp),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.background,
-            ) {
-                MemohSettingsHost(vm) { settingsOpen = false }
-            }
-        }
+    SettingsOverlayHost(
+        visible = settingsOpen,
+        onDismiss = { settingsOpen = false },
+    ) {
+        MemohSettingsHost(vm) { settingsOpen = false }
     }
 
     MemohDialogs(

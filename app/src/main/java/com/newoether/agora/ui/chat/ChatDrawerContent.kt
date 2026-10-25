@@ -2,14 +2,12 @@ package com.newoether.agora.ui.chat
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,7 +44,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,11 +58,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.focus.FocusRequester
@@ -77,7 +71,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -88,7 +81,6 @@ import com.newoether.agora.ui.chat.search.DrawerSearchBar
 import com.newoether.agora.ui.chat.search.SearchResultItem
 import com.newoether.agora.ui.chat.search.rememberDrawerSearchState
 import com.newoether.agora.ui.components.clearFocusOnTap
-import com.newoether.agora.ui.common.LocalAgoraHaptics
 import com.newoether.agora.ui.motion.LocalAgoraMotionPolicy
 import com.newoether.agora.ui.theme.ChatType
 import com.newoether.agora.util.verticalEdgeFade
@@ -170,7 +162,6 @@ internal fun ChatDrawerContent(
     onRequestRename: (String, String) -> Unit,
     onRequestDelete: (String) -> Unit,
 ) {
-    val haptics = LocalAgoraHaptics.current
     val motionPolicy = LocalAgoraMotionPolicy.current
     val focusManager = LocalFocusManager.current
     val density = LocalDensity.current
@@ -441,37 +432,6 @@ internal fun ChatDrawerContent(
                                         stringResource(R.string.conversation_unread_generation)
                                     var showMenu by remember { mutableStateOf(false) }
                                     var pressOffset by remember { mutableStateOf(DpOffset.Zero) }
-                                    var lastPosition by remember {
-                                        mutableStateOf(androidx.compose.ui.geometry.Offset.Zero)
-                                    }
-                                    val density = LocalDensity.current
-                                    val selectionContainerColor by animateColorAsState(
-                                        targetValue = if (isSelected) {
-                                            MaterialTheme.colorScheme.secondaryContainer
-                                        } else {
-                                            Color.Transparent
-                                        },
-                                        animationSpec = tween(durationMillis = 250),
-                                        label = "drawerConversationSelectionContainer",
-                                    )
-                                    val selectionContentColor by animateColorAsState(
-                                        targetValue = if (isSelected) {
-                                            MaterialTheme.colorScheme.onSecondaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurface
-                                        },
-                                        animationSpec = tween(durationMillis = 250),
-                                        label = "drawerConversationSelectionContent",
-                                    )
-                                    val selectionIndicatorColor by animateColorAsState(
-                                        targetValue = if (isSelected) {
-                                            MaterialTheme.colorScheme.onSecondaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.primary
-                                        },
-                                        animationSpec = tween(durationMillis = 250),
-                                        label = "drawerConversationSelectionIndicator",
-                                    )
 
                                     Box(
                                         modifier = Modifier.animateItem(
@@ -486,115 +446,22 @@ internal fun ChatDrawerContent(
                                             fadeOutSpec = tween(180),
                                         ),
                                     ) {
-                                        Surface(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(44.dp)
-                                                .padding(vertical = 2.dp)
-                                                .clip(CircleShape)
-                                                .pointerInput(showMenu) {
-                                                    if (!showMenu) {
-                                                        awaitPointerEventScope {
-                                                            while (true) {
-                                                                val event = awaitPointerEvent(
-                                                                    PointerEventPass.Initial,
-                                                                )
-                                                                lastPosition =
-                                                                    event.changes.first().position
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                .combinedClickable(
-                                                    enabled = !isSwitching,
-                                                    hapticFeedbackEnabled = false,
-                                                    onClick = {
-                                                        if (!isSelected) viewModel.selectConversation(conversation.id)
-                                                        scope.launch {
-                                                            onRequestClose()
-                                                        }
-                                                    },
-                                                    onLongClick = {
-                                                        haptics.longPress()
-                                                        pressOffset = with(density) {
-                                                            val x = lastPosition.x
-                                                                .toDp()
-                                                                .coerceIn(16.dp, 200.dp)
-                                                            DpOffset(
-                                                                x,
-                                                                lastPosition.y.toDp() - 28.dp,
-                                                            )
-                                                        }
-                                                        showMenu = true
-                                                    }
-                                                ),
-                                            color = selectionContainerColor,
-                                            shape = CircleShape
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(horizontal = 16.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Crossfade(
-                                                    targetState = visibleConversationTitle,
-                                                    animationSpec = tween(
-                                                        durationMillis = 200,
-                                                        easing = FastOutSlowInEasing,
-                                                    ),
-                                                    modifier = Modifier.weight(1f),
-                                                    label = "DrawerConversationTitleCrossfade",
-                                                ) { title ->
-                                                    Text(
-                                                        text = title,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        style = MaterialTheme.typography.bodyLarge,
-                                                        color = selectionContentColor,
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Box(
-                                                    modifier = Modifier.size(18.dp),
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    androidx.compose.animation.AnimatedVisibility(
-                                                        visible =
-                                                            indicator ==
-                                                                DrawerConversationIndicator.GENERATING,
-                                                        enter = fadeIn(tween(200)),
-                                                        exit = fadeOut(tween(200)),
-                                                    ) {
-                                                        CircularProgressIndicator(
-                                                            modifier = Modifier.size(18.dp),
-                                                            strokeWidth = 2.dp,
-                                                            color = selectionIndicatorColor,
-                                                        )
-                                                    }
-                                                    androidx.compose.animation.AnimatedVisibility(
-                                                        visible =
-                                                            indicator ==
-                                                                DrawerConversationIndicator.UNREAD,
-                                                        enter = fadeIn(tween(200)),
-                                                        exit = fadeOut(tween(200)),
-                                                    ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(8.dp)
-                                                                .background(
-                                                                    MaterialTheme.colorScheme.primary,
-                                                                    CircleShape,
-                                                                )
-                                                                .semantics {
-                                                                    contentDescription =
-                                                                        unreadDescription
-                                                                },
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        AgoraDrawerConversationRow(
+                                            title = visibleConversationTitle,
+                                            selected = isSelected,
+                                            indicator = indicator,
+                                            enabled = !isSwitching,
+                                            contextMenuVisible = showMenu,
+                                            unreadDescription = unreadDescription,
+                                            onClick = {
+                                                if (!isSelected) viewModel.selectConversation(conversation.id)
+                                                scope.launch { onRequestClose() }
+                                            },
+                                            onLongClick = { offset ->
+                                                pressOffset = offset
+                                                showMenu = true
+                                            },
+                                        )
 
                                         AgoraDropdownMenu(
                                             containerColor =

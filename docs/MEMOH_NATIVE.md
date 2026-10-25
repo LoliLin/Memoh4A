@@ -107,6 +107,13 @@ The 8 unwired operations and why:
 - Historical PDF tiles remain non-clickable: Memoh returns the PDF file, while Agora's shared pager expects rendered page images. `:app:compileDebugKotlin` and `:app:assembleDebug` passed; `apksigner verify` passed with APK Signature Scheme v2 and one signer.
 - Debug APK built at 09:23:47: `in.kawaiis.memoh.screenshots`, version `2.1.0-screenshots`, 67.35 MiB (70,623,999 bytes), SHA-256 `5690E1C86AB25CDCA1005EFB445F32FF30A9122B8DA3D080BA51DF67AF887E11`. Unit tests and device checks were not run for this slice.
 
+## Agora shell reuse follow-up (2026-10-25)
+
+- Memoh now consumes the drawer width from Agora's `ChatDrawerHost`, uses the shared conversation row for selection, activity, haptics and long-press anchoring, and matches the drawer sheet color, elevation, edge fade and item transitions. Rename/delete remain Memoh-backed actions.
+- Initial session loading shows a spinner only when there are no rows yet; loading an older session page leaves already loaded sessions visible.
+- The settings page now uses Agora's `SettingsOverlayHost`; its appearance controls continue to read Memoh's lightweight settings repository and Agora's shared settings components.
+- `:app:compileDebugKotlin` passed with the configured Java 21 runtime. Unit tests, APK packaging and device checks were not run for this slice.
+
 ## Gaps before daily use
 
 - Chat attachments use base64 with an 8 MiB per-file cap, a 16 MiB total raw draft cap and at most 10 files. Base64/JSON overhead also consumes the WebSocket queue budget, so a raw draft near that total cap may still be refused. There is no chunked message upload path; the workspace uploader handles larger standalone files.
