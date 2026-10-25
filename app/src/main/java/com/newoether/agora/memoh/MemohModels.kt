@@ -166,6 +166,63 @@ internal data class MemohTurn(
     val turnId: String = "",
 )
 
+/**
+ * Undo state for an optimistic retry/edit: the transcript as it was, and the index the mutation
+ * truncated to. Restoring re-appends [removed] after the surviving prefix.
+ */
+internal data class HistoryMutationSnapshot(
+    val original: List<MemohTurn>,
+    val cutIndex: Int,
+) {
+    val removed: List<MemohTurn> get() = original.drop(cutIndex)
+}
+
+/** Result of optimistically trimming history before a retry/edit reaches the server. */
+internal data class TrimmedHistory(
+    /** Rows that survive a retry: the question, without its answer or anything after it. */
+    val surviving: List<MemohTurn>,
+    /** Rows that survive an edit: the same prefix, with the question's new wording applied. */
+    val result: List<MemohTurn>,
+    val undo: HistoryMutationSnapshot,
+)
+
+/**
+ * The transcript as it should look the moment a retry/edit is sent.
+ *
+ * A retry keeps the addressed question and drops its answer plus everything after it. An edit
+ * keeps the question too (rewritten when [newText] is given) and drops the replies that followed.
+ * Returns null when there is nothing to remove — an unanswered question, a missing turn, or a
+ * question that is already the last row.
+ */
+internal fun trimmedHistory(
+    turns: List<MemohTurn>,
+    turnId: String,
+    newText: String? = null,
+): TrimmedHistory? {
+    if (turns.isEmpty() || turnId.isBlank()) return null
+    val index = turns.indexOfFirst { it.turnId == turnId }
+    if (index < 0) return null
+    // The caller may address the question or its answer; the surviving question is the last user
+    // row at or before that index.
+    val questionIndex = if (turns[index].role == "user") {
+        index
+    } else {
+        (index - 1 downTo 0).firstOrNull { turns[it].role == "user" } ?: index
+    }
+    if (questionIndex >= turns.lastIndex) return null
+    val surviving = turns.take(questionIndex + 1)
+    val result = if (newText.isNullOrBlank()) {
+        surviving
+    } else {
+        surviving.dropLast(1) + surviving.last().copy(text = newText.trim())
+    }
+    return TrimmedHistory(
+        surviving = surviving,
+        result = result,
+        undo = HistoryMutationSnapshot(turns, questionIndex + 1),
+    )
+}
+
 internal fun decodeAccount(obj: JSONObject): MemohAccount = MemohAccount(
     id = obj.optString("id"), username = obj.optString("username"), email = obj.optString("email"),
     role = obj.optString("role"), displayName = obj.optString("display_name"),

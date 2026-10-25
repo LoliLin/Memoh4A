@@ -72,6 +72,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     internal var liveBlocks by mutableStateOf<List<MemohBlock>>(emptyList())
     internal var settlingRunId = ""
     internal var admissionTimeoutJob: Job? = null
+    /** Rows removed for an in-flight retry/edit, so a rejection can restore the transcript. */
+    private var historyMutationSnapshot: HistoryMutationSnapshot? = null
+    private var pendingHistoryMutationInvocation: String? = null
+    /** True while an optimistic history trim is on screen; the terminal refresh must keep it. */
+    internal val historyMutationPending: Boolean get() = historyMutationSnapshot != null
 
     val login = MemohLoginForm(prefs.getString("server", MemohEndpoints.CLOUD_ORIGIN).orEmpty())
 
@@ -280,6 +285,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         runtimeControlsRevision++
         resetCursor()
         if (value != null) agentController.selectFromSession(value.botAgentId)
+        // A pending retry/edit belongs to the conversation being left; never carry its undo state
+        // (or its optimistic trim) into another session's transcript.
+        historyMutationSnapshot = null
+        pendingHistoryMutationInvocation = null
         val previous = session?.id
         session = value
         loadedHistorySessionId = null
@@ -691,7 +700,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
      * Only meaningful when no run is active; Homem's client hides both actions otherwise.
      * The server creates the follow-up run; [turnId] addresses the turn to mutate.
      */
-    fun mutateTurn(turnId: String, retry: Boolean, text: String? = null): Boolean {        val sid = session?.id?.takeIf { it.isNotBlank() } ?: return false
+    fun mutateTurn(turnId: String, retry: Boolean, text: String? = null): Boolean {
+        val sid = session?.id?.takeIf { it.isNotBlank() } ?: return false
         if (turnId.isBlank()) return false
         if (running || awaitingAdmission.isNotEmpty() || pendingUserText != null) {
             error = "Wait for the current run to finish before editing history."
@@ -704,6 +714,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         text?.let { payload.put("text", it) }
         if (agentController.preferredModelId.isNotBlank()) payload.put("model_id", agentController.preferredModelId)
         val invocation = payload.optString("invocation_id")
+        // Drop the rows the server is about to replace before its reply starts streaming. Without
+        // this the stale assistant turn stays on screen and the new run appends below it, so the
+        // transcript reads as two answers until the terminal refresh swaps everything out.
+        if (truncateForHistoryMutation(turnId, retry, text)) {
+            pendingHistoryMutationInvocation = invocation
+        }
         awaitingAdmission[invocation] = payload
         armAdmissionTimeout(invocation, text.orEmpty())
         if (connected) {
@@ -713,6 +729,48 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             ensureConnection(bot?.id ?: return false)
         }
         return true
+    }
+
+    /**
+     * Optimistically trims history for a retry/edit, the way the server will.
+     *
+     * A retry keeps the user turn and drops its answer plus everything after it. An edit keeps the
+     * addressed user turn too — rewritten in place when new text was supplied — and drops only the
+     * replies that followed. Either way the tail the server is about to regenerate disappears
+     * immediately, so the new streaming run can never render below a stale answer.
+     *
+     * @return true when rows were removed and [historyMutationSnapshot] holds the undo state.
+     */
+    private fun truncateForHistoryMutation(turnId: String, retry: Boolean, text: String?): Boolean {
+        val trimmed = trimmedHistory(turns, turnId, text) ?: return false
+        // A retry never rewrites the question; only an edit may replace its wording.
+        historyMutationSnapshot = trimmed.undo
+        turns = if (retry) trimmed.surviving else trimmed.result
+        return true
+    }
+
+    /**
+     * Undo a rejected history mutation. The server refused the retry/edit, so the rows that were
+     * optimistically removed are still the source of truth.
+     */
+    internal fun restoreHistoryMutation(invocation: String? = null) {
+        if (invocation != null && invocation != pendingHistoryMutationInvocation) return
+        val snapshot = historyMutationSnapshot ?: return
+        historyMutationSnapshot = null
+        pendingHistoryMutationInvocation = null
+        val current = turns
+        val restored = if (snapshot.cutIndex <= current.size) {
+            current.take(snapshot.cutIndex) + snapshot.removed
+        } else {
+            snapshot.removed
+        }
+        turns = restored.distinctBy { it.id }
+    }
+
+    /** Settle a successful mutation: keep the trimmed history and forget the undo state. */
+    private fun commitHistoryMutation() {
+        historyMutationSnapshot = null
+        pendingHistoryMutationInvocation = null
     }
 
     /** Fork the conversation from a turn; the server returns the new session (Homem parity). */
@@ -845,6 +903,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             }
             "run_accepted" -> {
                 if (awaitingAdmission.remove(invocation) != null) cancelAdmissionTimeout()
+                // The mutation is now the server's own history; the trimmed transcript stands.
+                if (invocation.isNotBlank() && invocation == pendingHistoryMutationInvocation) {
+                    commitHistoryMutation()
+                }
                 if (session?.id == target) {
                     refreshQueue()
                     settlingRunId = ""
@@ -860,6 +922,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 if (invocation.isNotBlank() && awaitingAdmission.remove(invocation) != null) {
                     cancelAdmissionTimeout()
                     restorePendingDraft()
+                }
+                // A refused retry/edit never touches the server, so the optimistic trim must be
+                // undone or the transcript loses rows that are still authoritative.
+                if (invocation.isNotBlank() && invocation == pendingHistoryMutationInvocation) {
+                    restoreHistoryMutation()
                 }
                 error = event.optString("message").ifBlank { event.optString("code").ifBlank { "Run rejected" } }
                 if (session?.id == target && runId == event.optString("run_id") && runId.isNotEmpty()) {
@@ -971,6 +1038,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                         val updatedIds = settled.mapTo(HashSet()) { it.id }
                         turns = (turns.filterNot { it.id in updatedIds } + settled).distinctBy { it.id }
                         pendingUserText = null; pendingUserAttachments = emptyList()
+                        // The run that carried the retry/edit completed, so the trim is final even
+                        // if the acceptance frame was lost.
+                        commitHistoryMutation()
                         clearRun()
                         val refreshed = api.sessionsPage(botId)
                         if (bot?.id == botId && session?.id == sid) {
