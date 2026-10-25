@@ -95,7 +95,9 @@ class MemohCloudTeamIntegrationTest {
             api.cancelDeviceLogin("shared", "agent", "login")
         } finally { source.delete(); destination.delete() }
         val discovery = server.requests.filter { it.path == "/api/v1/users/me" || it.path == "/api/v1/teams" }
-        assertEquals(3, discovery.size)
+        // verify-code identity, team bootstrap, and the post-sign-in profile read that supplies the
+        // account avatar/display name. All three are deliberately team-less.
+        assertEquals(4, discovery.size)
         assertTrue(discovery.all { it.team == null })
         val scoped = server.requests.filter { it.path.startsWith("/api/memoh/") || it.path == "/api/v1/ws-tickets" }
         assertTrue(scoped.size >= 20)

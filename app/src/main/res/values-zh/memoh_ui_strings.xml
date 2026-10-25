@@ -564,4 +564,17 @@
     <string name="memoh_ui_workspace_files_7e0294">"工作区文件"</string>
     <string name="memoh_ui_tools_exposed_1_s">"提供的工具：%1$s"</string>
     <string name="memoh_ui_unknown_error">未知错误</string>
+    <string name="memoh_ui_reasoning_effort">思考强度</string>
+    <string name="memoh_ui_reasoning_low">低</string>
+    <string name="memoh_ui_reasoning_medium">中</string>
+    <string name="memoh_ui_reasoning_high">高</string>
+    <string name="memoh_ui_reasoning_xhigh">超高</string>
+    <string name="memoh_ui_reasoning_max">最大</string>
+    <string name="memoh_ui_manage_bots">管理 Bot</string>
+    <string name="memoh_ui_market">市场</string>
+    <string name="memoh_ui_installed_apps">已安装应用</string>
+    <string name="memoh_ui_available_in_market">市场中的应用</string>
+    <string name="memoh_ui_no_apps_installed">这个 Bot 还没有安装任何应用。</string>
+    <string name="memoh_ui_install">安装</string>
+    <string name="memoh_ui_installed">已安装</string>
 </resources>

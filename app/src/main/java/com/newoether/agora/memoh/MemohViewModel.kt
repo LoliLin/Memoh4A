@@ -41,29 +41,47 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     internal val workspaceApi: MemohApi get() = api
     internal val settings by lazy { SettingsRepository(SettingsManager(application), viewModelScope) }
     internal var agentController = MemohAgentController(api); private set
-    internal val connection = MemohConnection(
+    private val botConnections = mutableMapOf<String, MemohConnection>()
+    private val idleConnection by lazy { createConnection("") }
+    internal val connection: MemohConnection
+        get() = bot?.id?.let(::connectionFor) ?: idleConnection
+
+    private fun connectionFor(botId: String): MemohConnection =
+        botConnections.getOrPut(botId) { createConnection(botId) }
+
+    private fun createConnection(ownerBotId: String) = MemohConnection(
         scope = navigationScope,
         open = api::socket,
         onConnected = {
-            session?.id?.let { id ->
-                sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", id))
+            if (bot?.id == ownerBotId) session?.id?.let { id ->
+                sendToBot(ownerBotId, JSONObject().put("type", "runtime_subscribe").put("session_id", id))
             }
-            awaitingAdmission.values.filter { it.optString("session_id").isNotBlank() }
-                .forEach { sendNow(it) }
+            awaitingAdmission.filter { (id, payload) ->
+                (sendStates[id]?.botId ?: bot?.id) == ownerBotId && payload.optString("session_id").isNotBlank()
+            }.values.toList().forEach { sendToBot(ownerBotId, it) }
         },
-        onEvent = ::receive,
+        onEvent = { receiveFromBot(ownerBotId, it) },
         onDisconnected = {
-            resetCursor()
-            if (pendingControls.isNotEmpty()) {
-                error = "Connection lost. A tool decision may have been applied; check the run before retrying."
-                pendingControls.clear()
-                waitingForInteraction = emptySet()
+            if (bot?.id == ownerBotId) {
+                resetCursor()
+                if (pendingControls.isNotEmpty()) {
+                    error = "Connection lost. A tool decision may have been applied; check the run before retrying."
+                    pendingControls.clear()
+                    waitingForInteraction = emptySet()
+                }
             }
         },
         onUnauthorized = { logout(); error = "Session expired. Sign in again." },
     )
     private val awaitingAdmission = linkedMapOf<String, JSONObject>()
     internal val admissionInvocations: MutableMap<String, JSONObject> get() = awaitingAdmission
+    internal val sendStates = linkedMapOf<String, MemohSendState>()
+    internal val admissionTimeoutJobs = mutableMapOf<String, Job>()
+    internal val hasCurrentAdmission: Boolean
+        get() = awaitingAdmission.any { (id, payload) ->
+            sendStates[id]?.belongsTo(bot?.id, session?.id)
+                ?: (payload.optString("session_id") == session?.id.orEmpty())
+        }
     internal var pendingUserTurnId: String? = null
     private val pendingControls = mutableMapOf<String, String>()
     var waitingForInteraction by mutableStateOf<Set<String>>(emptySet())
@@ -74,7 +92,6 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     internal var currentRunStatus = ""
     internal var liveBlocks by mutableStateOf<List<MemohBlock>>(emptyList())
     internal var settlingRunId = ""
-    internal var admissionTimeoutJob: Job? = null
     /** Rows removed for an in-flight retry/edit, so a rejection can restore the transcript. */
     private var historyMutationSnapshot: HistoryMutationSnapshot? = null
     private var pendingHistoryMutationInvocation: String? = null
@@ -91,11 +108,24 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         scope = viewModelScope,
         form = login,
         onError = { error = it },
-        onSignedIn = { resetNavigation(); signedIn = true; error = ""; login.code = ""; if (api.usesSessionCookie) teams.load() else refreshBots() },
+        onSignedIn = { resetNavigation(); signedIn = true; error = ""; login.code = ""; loadPlatformProfile(); if (api.usesSessionCookie) teams.load() else refreshBots() },
     )
 
     var signedIn by mutableStateOf(false)
         internal set
+    var profileDisplayName by mutableStateOf("")
+        private set
+    var profileAvatarUrl by mutableStateOf("")
+        private set
+
+    private fun loadPlatformProfile() {
+        navigationScope.launch {
+            runCatching { api.platformProfile() }.onSuccess { profile ->
+                profileDisplayName = platformDisplayName(profile)
+                profileAvatarUrl = platformAvatarUrl(profile)
+            }
+        }
+    }
     internal var restoringSession by mutableStateOf(false)
     internal var sessionRestoreGeneration = 0
     internal var sessionRestoreFailed by mutableStateOf(false)
@@ -135,7 +165,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             .getOrDefault("")
         if (saved.isNotEmpty()) {
             runCatching { api.configure(login.server, saved) }
-                .onSuccess { signedIn = true; refreshBots() }
+                .onSuccess { signedIn = true; loadPlatformProfile(); refreshBots() }
                 .onFailure { error = it.message.orEmpty() }
         } else {
             // A sealed session cookie may already be on disk from the previous process. Ask the
@@ -229,17 +259,24 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun selectBot(value: MemohBot) {
-        if (awaitingAdmission.isNotEmpty()) {
-            error = "Wait until your message is accepted before switching bots."
-            return
+        if (bot?.id == value.id) return
+        bot?.id?.let { previousBot ->
+            // An unacknowledged send keeps its own socket until admission settles. Switching the
+            // visible bot never aborts a server run or discards its original invocation ID.
+            if (awaitingAdmission.keys.none { sendStates[it]?.botId == previousBot }) {
+                botConnections.remove(previousBot)?.close()
+            }
         }
         val revision = ++botRevision
         attachmentDraftRevision++; historyRevision++
         loadingOlderMessages = false
         firstHistoryMessageId = null
         olderMessagesAvailable = false
-        queueRevision++
-        closeSocket()
+        queueRevision++; runtimeControlsRevision++
+        resetCursor()
+        historyMutationSnapshot = null; pendingHistoryMutationInvocation = null
+        pendingUserTurnId = null
+        restoreDraft = null; restoreAttachments = emptyList()
         bot = value
         agentController.clear()
         session = null
@@ -250,6 +287,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         olderSessionsAvailable = false
         clearRun()
         pendingUserText = null; pendingUserAttachments = emptyList()
+        restoreConversationSendState()
         navigationScope.launch {
             runCatching { agentController.refresh(value.id) }
         }
@@ -314,10 +352,6 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun selectSession(value: MemohSession?) {
-        if (awaitingAdmission.isNotEmpty() && value?.id != session?.id) {
-            error = "Wait until your message is accepted before switching chats."
-            return
-        }
         attachmentDraftRevision++; historyRevision++
         queueRevision++
         runtimeControlsRevision++
@@ -338,7 +372,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         firstHistoryMessageId = null
         olderMessagesAvailable = false
         pendingUserText = null; pendingUserAttachments = emptyList()
+        pendingUserTurnId = null
+        restoreDraft = null; restoreAttachments = emptyList()
         clearRun()
+        restoreConversationSendState()
         if (!previous.isNullOrEmpty()) sendNow(JSONObject()
             .put("type", "runtime_unsubscribe").put("session_id", previous))
         value?.let {
@@ -432,10 +469,6 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun newChat() = selectSession(null)
 
     fun selectAgentForNewChat(agentId: String) {
-        if (running || pendingUserText != null || awaitingAdmission.isNotEmpty()) {
-            error = "Finish or stop the current run before starting a chat with another Agent."
-            return
-        }
         agentController.select(agentId)
         selectSession(null)
     }
@@ -581,7 +614,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val b = bot?.id ?: return
         val sid = session?.id ?: return
         val revision = historyRevision
-        if (running || awaitingAdmission.isNotEmpty()) {
+        if (running || hasCurrentAdmission) {
             error = "Stop or finish the running Agent before deleting this conversation."
             return
         }
@@ -626,7 +659,51 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun consumeRestoredDraft() { restoreDraft = null; restoreAttachments = emptyList() }
+    fun consumeRestoredDraft() {
+        restoreDraft = null; restoreAttachments = emptyList()
+        sendStates.values.filter { it.belongsTo(bot?.id, session?.id) && it.failure.isNotBlank() }
+            .forEach { it.draftDelivered = true }
+    }
+
+    private fun restoreConversationSendState() {
+        val state = sendStates.values.lastOrNull { it.belongsTo(bot?.id, session?.id) } ?: return
+        if (state.failure.isNotBlank()) {
+            if (!state.draftDelivered) {
+                restoreDraft = state.text
+                restoreAttachments = state.attachments
+                error = state.failure
+            }
+        } else if (state.text != null) {
+            pendingUserText = state.text
+            pendingUserAttachments = state.attachments
+        }
+    }
+
+    internal fun failAdmission(invocation: String, message: String) {
+        val payload = awaitingAdmission.remove(invocation) ?: return
+        cancelAdmissionTimeout(invocation)
+        val state = sendStates[invocation]
+        state?.failure = message
+        val visible = state?.belongsTo(bot?.id, session?.id)
+            ?: (payload.optString("session_id") == session?.id.orEmpty())
+        if (visible) {
+            if (state?.text != null) {
+                restoreDraft = state.text
+                restoreAttachments = state.attachments
+                pendingUserText = null; pendingUserAttachments = emptyList()
+            } else if (state == null && pendingUserText != null) restorePendingDraft()
+            restoreHistoryMutation(invocation)
+            error = message
+        }
+        releaseBackgroundConnection(state?.botId)
+    }
+
+    private fun releaseBackgroundConnection(ownerBotId: String?) {
+        if (ownerBotId != null && ownerBotId != bot?.id &&
+            awaitingAdmission.keys.none { sendStates[it]?.botId == ownerBotId }) {
+            botConnections.remove(ownerBotId)?.close()
+        }
+    }
 
     internal fun restorePendingDraft() {
         restoreDraft = pendingUserText.orEmpty()
@@ -671,7 +748,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun send(text: String, attachments: List<MemohAttachment> = emptyList()): Boolean {
         val value = text.trim()
         val selectedBot = bot ?: return false
-        if ((value.isEmpty() && attachments.isEmpty()) || pendingUserText != null || running || awaitingAdmission.isNotEmpty()) return false
+        if ((value.isEmpty() && attachments.isEmpty()) || pendingUserText != null || running || hasCurrentAdmission) return false
         attachmentDraftError(attachments)?.let { error = it; return false }
         error = ""
         consumeRestoredDraft()
@@ -683,7 +760,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             attachments.forEach { att ->
                 val o = JSONObject().put("id", att.id.ifBlank { UUID.randomUUID().toString() })
                     .put("name", att.name).put("mime", att.mime).put("type", att.type).put("size", att.size)
-                if (att.base64.isNotBlank()) o.put("base64", att.base64)
+                if (att.base64.isNotBlank()) o.put("base64", att.wireBase64())
                 if (att.url.isNotBlank()) o.put("url", att.url)
                 arr.put(o)
             }
@@ -697,6 +774,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             payload.put("reasoning_effort", agentController.preferredReasoningEffort)
         }
         awaitingAdmission[invocation] = payload
+        sendStates[invocation] = MemohSendState(selectedBot.id, session?.id, value, attachments,
+            agentController.selectedAgentId, navigationRevision = historyRevision)
         pendingUserText = value
         pendingUserAttachments = attachments
         attachmentDraftRevision++
@@ -707,31 +786,35 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } else ensureConnection(selectedBot.id)
         } else {
             val authRevisionAtSend = authRevision
-            val botRevisionAtSend = botRevision
+            val historyRevisionAtSend = historyRevision
+            val pending = checkNotNull(sendStates[invocation])
             navigationScope.launch {
                 try {
-                    val created = api.createSession(selectedBot.id, agentController.selectedAgentId,
+                    val created = api.createSession(selectedBot.id, pending.agentId,
                         payload.optString("model_id"), payload.optString("reasoning_effort"))
-                    if (authRevisionAtSend != authRevision || botRevisionAtSend != botRevision ||
-                        !awaitingAdmission.containsKey(invocation)) return@launch
-                    historyRevision++
-                    resetCursor()
-                    session = created
-                    loadedHistorySessionId = created.id
-                    sessions = listOf(created) + sessions.filterNot { it.id == created.id }
+                    if (authRevisionAtSend != authRevision || !awaitingAdmission.containsKey(invocation)) return@launch
+                    pending.sessionId = created.id
                     payload.put("session_id", created.id)
-                    if (connected) {
-                        sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", created.id))
-                        sendNow(payload)
-                    } else ensureConnection(selectedBot.id)
+                    if (bot?.id == selectedBot.id) {
+                        sessions = listOf(created) + sessions.filterNot { it.id == created.id }
+                        // HTTP creation may finish after navigation. Only the original visible draft
+                        // follows its newly allocated session; another chat is never pulled back.
+                        if (session == null && historyRevisionAtSend == historyRevision) {
+                            historyRevision++
+                            resetCursor()
+                            session = created
+                            loadedHistorySessionId = created.id
+                            sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", created.id))
+                        }
+                    }
+                    val ownerConnection = connectionFor(selectedBot.id)
+                    if (ownerConnection.state == MemohConnectionState.Connected) sendToBot(selectedBot.id, payload)
+                    else ensureConnection(selectedBot.id)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (e: Exception) {
-                    if (authRevisionAtSend == authRevision && botRevisionAtSend == botRevision &&
-                        awaitingAdmission.remove(invocation) != null) {
-                        restorePendingDraft()
-                        error = e.message ?: "Failed to create conversation"
-                    }
+                    if (authRevisionAtSend == authRevision)
+                        failAdmission(invocation, e.message ?: "Failed to create conversation")
                 }
             }
         }
@@ -755,7 +838,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun mutateTurn(turnId: String, retry: Boolean, text: String? = null): Boolean {
         val sid = session?.id?.takeIf { it.isNotBlank() } ?: return false
         if (turnId.isBlank()) return false
-        if (running || awaitingAdmission.isNotEmpty() || pendingUserText != null) {
+        if (running || hasCurrentAdmission || pendingUserText != null) {
             error = "Wait for the current run to finish before editing history."
             return false
         }
@@ -773,6 +856,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             pendingHistoryMutationInvocation = invocation
         }
         awaitingAdmission[invocation] = payload
+        sendStates[invocation] = MemohSendState(bot?.id.orEmpty(), sid, null)
         armAdmissionTimeout(invocation, text.orEmpty())
         if (connected) {
             sendNow(payload)
@@ -909,7 +993,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                         // A short page is the only proof that this is the start of history.
                         olderMessagesAvailable = result.size >= HISTORY_PAGE_SIZE
                     }
-                    if (!running && awaitingAdmission.isEmpty()) {
+                    if (!running && !hasCurrentAdmission) {
                         pendingUserText = null
                         pendingUserAttachments = emptyList()
                     }
@@ -923,65 +1007,80 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    private fun sendNow(value: JSONObject): Boolean = connection.send(value)
+    private fun sendNow(value: JSONObject): Boolean = bot?.id?.let { sendToBot(it, value) } ?: false
 
-    private fun connectSocket(botId: String) = connection.connect(botId)
+    private fun sendToBot(botId: String, value: JSONObject): Boolean = connectionFor(botId).send(value)
+
+    private fun connectSocket(botId: String) = connectionFor(botId).connect(botId)
 
     private fun ensureConnection(botId: String) {
-        if (connection.state != MemohConnectionState.Connecting && connection.state != MemohConnectionState.Retrying) {
-            connectSocket(botId)
+        val ownerConnection = connectionFor(botId)
+        if (ownerConnection.state != MemohConnectionState.Connecting && ownerConnection.state != MemohConnectionState.Retrying) {
+            ownerConnection.connect(botId)
         }
     }
 
     fun retryConnection() = connection.retry()
 
-    private fun receive(event: JSONObject) {
+    private fun receive(event: JSONObject) = receiveFromBot(bot?.id.orEmpty(), event)
+
+    private fun receiveFromBot(ownerBotId: String, event: JSONObject) {
         val kind = event.optString("type")
         val target = event.optString("session_id")
         val invocation = event.optString("invocation_id")
+        val pending = sendStates[invocation]
+        val visibleBot = ownerBotId == bot?.id
+        // A background connection may settle its own send. Its runtime and controls cannot mutate
+        // whichever conversation the user opened in the meantime.
+        if (!visibleBot && kind !in setOf("session_created", "run_accepted", "run_rejected", "error")) return
         when (kind) {
             "session_created" -> {
                 if (target.isNotBlank() && invocation.isNotEmpty() && awaitingAdmission.containsKey(invocation)) {
-                    historyRevision++
-                    resetCursor()
-                    val sid = target
-                    awaitingAdmission[invocation]?.put("session_id", sid)
-                    val created = MemohSession(sid, "New conversation", agentController.selectedAgentId)
-                    sessions = listOf(created) + sessions.filterNot { it.id == sid }
-                    session = created
-                    loadedHistorySessionId = sid
-                    sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", sid))
+                    val followsDraft = visibleBot && (session?.id == target ||
+                        (session == null && (pending == null || pending.navigationRevision == historyRevision)))
+                    awaitingAdmission[invocation]?.put("session_id", target)
+                    pending?.sessionId = target
+                    val created = MemohSession(target, "New conversation", pending?.agentId.orEmpty())
+                    if (visibleBot) sessions = listOf(created) + sessions.filterNot { it.id == target }
+                    if (followsDraft) {
+                        historyRevision++
+                        resetCursor()
+                        session = created
+                        loadedHistorySessionId = target
+                        sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", target))
+                    }
                 }
             }
             "run_accepted" -> {
-                if (awaitingAdmission.remove(invocation) != null) cancelAdmissionTimeout()
+                if (awaitingAdmission.remove(invocation) != null) cancelAdmissionTimeout(invocation)
+                pending?.accepted = true
                 // The mutation is now the server's own history; the trimmed transcript stands.
                 if (invocation.isNotBlank() && invocation == pendingHistoryMutationInvocation) {
                     commitHistoryMutation()
                 }
-                if (session?.id == target) {
+                if (visibleBot && session?.id == target) {
                     refreshQueue()
                     settlingRunId = ""
                     runId = event.optString("run_id")
                     running = true
                 }
+                releaseBackgroundConnection(ownerBotId)
             }
             "model_preference_settled" -> {
                 val settled = event.optString("model_id")
                 if (target == session?.id && settled.isNotBlank()) agentController.onModelPreferenceSettled(settled)
             }
             "run_rejected", "error" -> {
-                if (invocation.isNotBlank() && awaitingAdmission.remove(invocation) != null) {
-                    cancelAdmissionTimeout()
-                    restorePendingDraft()
-                }
+                val message = event.optString("message").ifBlank { event.optString("code").ifBlank { "Run rejected" } }
+                if (invocation.isNotBlank()) failAdmission(invocation, message)
                 // A refused retry/edit never touches the server, so the optimistic trim must be
                 // undone or the transcript loses rows that are still authoritative.
                 if (invocation.isNotBlank() && invocation == pendingHistoryMutationInvocation) {
                     restoreHistoryMutation()
                 }
-                error = event.optString("message").ifBlank { event.optString("code").ifBlank { "Run rejected" } }
-                if (session?.id == target && runId == event.optString("run_id") && runId.isNotEmpty()) {
+                if (pending?.belongsTo(bot?.id, session?.id) ?: (visibleBot && (target.isBlank() || session?.id == target)))
+                    error = message
+                if (visibleBot && session?.id == target && runId == event.optString("run_id") && runId.isNotEmpty()) {
                     running = false
                 }
             }
@@ -1021,7 +1120,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 val decisionId = pendingControls.remove(controlId)
                 if (decisionId != null && !event.optBoolean("applied", false))
                     waitingForInteraction = waitingForInteraction - decisionId
-                if (!event.optBoolean("applied", false))
+                if (decisionId != null && !event.optBoolean("applied", false))
                     error = "Action not applied: ${event.optString("code")}"
             }
         }
@@ -1122,7 +1221,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private fun closeSocket() {
-        connection.close()
+        botConnections.values.toList().forEach { it.close() }
+        botConnections.clear()
+        sendStates.clear()
         resetCursor()
         pendingControls.clear()
         waitingForInteraction = emptySet()

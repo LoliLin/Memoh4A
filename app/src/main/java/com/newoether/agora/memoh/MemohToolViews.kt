@@ -221,60 +221,82 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
             }
 
             if (block.canApprove && block.approvalOptions.isNotEmpty()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Warning,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                uiResources.getString(R.string.memoh_ui_security_approval_required),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            block.approvalOptions.forEach { option ->
-                                val isAllow = option.kind.contains("allow", ignoreCase = true)
-                                if (isAllow) {
-                                    Button(
-                                        onClick = {
-                                            haptics.confirm()
-                                            vm.decide(block, option)
-                                        },
-                                        enabled = vm.controlsReady && block.approvalId !in vm.waitingForInteraction
-                                    ) {
-                                        Text(option.name.ifBlank { uiResources.getString(R.string.memoh_ui_allow) })
-                                    }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = {
-                                            haptics.reject()
-                                            vm.decide(block, option)
-                                        },
-                                        enabled = vm.controlsReady && block.approvalId !in vm.waitingForInteraction
-                                    ) {
-                                        Text(option.name.ifBlank { uiResources.getString(R.string.memoh_ui_deny) })
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                MemohApprovalActions(block, vm)
             }
 
             if (block.canRespond && block.questions.isNotEmpty()) {
                 UserInputForm(block, vm)
             }
+        }
+    }
+}
+
+/** Approval buttons live in a card of their own so history rows and live runs share one control. */
+@Composable
+internal fun MemohApprovalActions(block: MemohBlock, vm: MemohViewModel) {
+    val uiResources = LocalContext.current.resources
+    val haptics = LocalAgoraHaptics.current
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    uiResources.getString(R.string.memoh_ui_security_approval_required),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                block.approvalOptions.forEach { option ->
+                    val isAllow = option.kind.contains("allow", ignoreCase = true)
+                    if (isAllow) {
+                        Button(
+                            onClick = {
+                                haptics.confirm()
+                                vm.decide(block, option)
+                            },
+                            enabled = vm.controlsReady && block.approvalId !in vm.waitingForInteraction
+                        ) {
+                            Text(option.name.ifBlank { uiResources.getString(R.string.memoh_ui_allow) })
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = {
+                                haptics.reject()
+                                vm.decide(block, option)
+                            },
+                            enabled = vm.controlsReady && block.approvalId !in vm.waitingForInteraction
+                        ) {
+                            Text(option.name.ifBlank { uiResources.getString(R.string.memoh_ui_deny) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The ask form with its own framing so it renders identically from history or a live run. */
+@Composable
+internal fun MemohAskCard(block: MemohBlock, vm: MemohViewModel) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            UserInputForm(block, vm)
         }
     }
 }
@@ -342,7 +364,7 @@ private fun DiffField(diff: String) {
 }
 
 @Composable
-private fun UserInputForm(block: MemohBlock, vm: MemohViewModel) {
+internal fun UserInputForm(block: MemohBlock, vm: MemohViewModel) {
     val uiResources = LocalContext.current.resources
     var selections by remember(block.userInputId) { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
     var texts by remember(block.userInputId) { mutableStateOf<Map<String, String>>(emptyMap()) }

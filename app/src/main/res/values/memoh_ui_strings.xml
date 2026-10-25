@@ -564,4 +564,17 @@
     <string name="memoh_ui_workspace_files_7e0294">"Workspace files"</string>
     <string name="memoh_ui_tools_exposed_1_s">"Tools exposed: %1$s"</string>
     <string name="memoh_ui_unknown_error">Unknown error</string>
+    <string name="memoh_ui_reasoning_effort">Reasoning effort</string>
+    <string name="memoh_ui_reasoning_low">Low</string>
+    <string name="memoh_ui_reasoning_medium">Medium</string>
+    <string name="memoh_ui_reasoning_high">High</string>
+    <string name="memoh_ui_reasoning_xhigh">Extra high</string>
+    <string name="memoh_ui_reasoning_max">Max</string>
+    <string name="memoh_ui_manage_bots">Manage bots</string>
+    <string name="memoh_ui_market">Market</string>
+    <string name="memoh_ui_installed_apps">Installed apps</string>
+    <string name="memoh_ui_available_in_market">Available in market</string>
+    <string name="memoh_ui_no_apps_installed">No apps installed for this Bot yet.</string>
+    <string name="memoh_ui_install">Install</string>
+    <string name="memoh_ui_installed">Installed</string>
 </resources>

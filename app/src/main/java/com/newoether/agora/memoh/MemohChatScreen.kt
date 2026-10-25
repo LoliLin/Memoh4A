@@ -1,6 +1,7 @@
 package com.newoether.agora.memoh
 
 import com.newoether.agora.SettingsOverlayHost
+import com.newoether.agora.model.Participant
 
 import android.content.Intent
 import android.net.Uri
@@ -152,6 +153,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var runtimeControlsOpen by remember { mutableStateOf(false) }
     var compactConfirm by remember { mutableStateOf(false) }
     var terminalOpen by remember { mutableStateOf(false) }
+    var marketOpen by remember { mutableStateOf(false) }
     var botSettingsOpen by remember { mutableStateOf(false) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
     var backupStatus by remember { mutableStateOf("") }
@@ -514,6 +516,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                 newTitle = vm.session?.title.orEmpty(); renameDialog = true
                             }
                             MemohAccountAction.Delete -> deleteDialog = true
+                            MemohAccountAction.Market -> marketOpen = true
+                            MemohAccountAction.ManageBots -> settingsOpen = true
                         }
                     } },
                     onNewChat = { haptics.selection(); vm.newChat() },
@@ -621,6 +625,9 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             onFileContentClick = { name, content ->
                                 filePreview = name to content
                             },
+                            messageFooter = { message ->
+                                MemohInteractiveBlocksFooter(vm, message)
+                            },
                             contentPadding = PaddingValues(
                                 start = 8.dp,
                                 end = 8.dp,
@@ -661,6 +668,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                     onCollapse = { expanded = false },
                     placeholder = uiResources.getString(R.string.memoh_ui_ask_1_s, vm.bot?.title ?: "Memoh"),
                     statusContent = {
+                        MemohLiveInteractions(vm)
                         if (vm.error.isNotBlank()) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(vm.error, color = MaterialTheme.colorScheme.error,
@@ -800,11 +808,16 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                                     selected = id == currentId,
                                                     onClick = {
                                                         vm.selectModel(
-                                                            id, model.optString("default_reasoning_effort"))
+                                                            id, model.reasoningEfforts().firstOrNull()
+                                                                ?: model.optString("default_reasoning_effort"))
                                                         modelMenu = false
                                                     },
                                                 )
                                             }
+                                        }
+                                        MemohReasoningEffortSelector(controller, currentId) { effort, apply ->
+                                            vm.selectModel(apply, effort)
+                                            modelMenu = false
                                         }
                                     }
                                 }
@@ -933,6 +946,9 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
 
     vm.bot?.takeIf { terminalOpen }?.let { selectedBot ->
         MemohTerminalDialog(api = api, botId = selectedBot.id, onDismiss = { terminalOpen = false })
+    }
+    vm.bot?.takeIf { marketOpen }?.let { selectedBot ->
+        MemohMarketDialog(api = api, botId = selectedBot.id, onDismiss = { marketOpen = false })
     }
 }
 

@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -153,6 +156,9 @@ internal fun MemohServerSettingsPage(viewModel: MemohViewModel, onBack: () -> Un
             viewModel.bots.forEach { candidate ->
                 AgoraDropdownMenuItem(
                     text = { Text(if (candidate.id == viewModel.bot?.id) "✓ ${candidate.title}" else candidate.title) },
+                    leadingIcon = {
+                        MemohBotAvatar(candidate, size = 22.dp)
+                    },
                     onClick = { botMenu = false; viewModel.switchBotFromSettings(candidate) },
                 )
             }
@@ -172,15 +178,24 @@ internal fun MemohAccountSettingsPage(viewModel: MemohViewModel, onBack: () -> U
                 items = listOf(
                     {
                         SettingsItem(
-                            headlineContent = { Text(stringResource(R.string.memoh_settings_sign_in_identity)) },
-                            supportingContent = {
+                            headlineContent = {
                                 Text(
-                                    viewModel.login.username.ifBlank {
-                                        stringResource(R.string.memoh_settings_sign_in_identity_desc)
-                                    },
+                                    listOf(viewModel.profileDisplayName, viewModel.login.username)
+                                        .firstOrNull(String::isNotBlank)
+                                        ?: stringResource(R.string.memoh_settings_sign_in_identity_desc),
                                 )
                             },
-                            leadingContent = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
+                            leadingContent = {
+                                if (viewModel.profileAvatarUrl.isNotBlank()) {
+                                    MemohAvatarImage(
+                                        url = viewModel.profileAvatarUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape),
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            },
                         )
                     },
                     {

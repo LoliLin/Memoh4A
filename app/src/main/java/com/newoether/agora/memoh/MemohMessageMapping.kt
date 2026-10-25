@@ -39,7 +39,7 @@ internal fun memohMessages(
     if (liveBlocks.isNotEmpty() || running) {
         add(
             MemohTurn(MEMOH_LIVE_MESSAGE_ID, "assistant", blocks = liveBlocks)
-                .toChatMessage(MEMOH_LIVE_MESSAGE_ID, running),
+                .toChatMessage(MEMOH_LIVE_MESSAGE_ID, running, cacheDir),
         )
     }
 }
@@ -61,38 +61,53 @@ internal fun memohLiveStub(): ChatMessage = ChatMessage(
  * them through its own attachment-thumbnail pipeline (Coil paths only, never raw base64).
  * Image metadata links each item back to its file through imageIndex.
  */
+internal fun MemohAttachment.wireBase64(): String =
+    if (base64.startsWith("data:", ignoreCase = true)) base64
+    else "data:${mime.ifBlank { "application/octet-stream" }};base64,$base64"
+
+internal fun MemohAttachment.inlineBytes(): ByteArray? {
+    val raw = base64.ifBlank { url.takeIf { it.startsWith("data:", ignoreCase = true) }.orEmpty() }
+    if (raw.isBlank()) return null
+    val payload = if (raw.startsWith("data:", ignoreCase = true)) {
+        val comma = raw.indexOf(',')
+        if (comma < 0 || !raw.substring(0, comma).endsWith(";base64", ignoreCase = true)) return null
+        raw.substring(comma + 1)
+    } else raw
+    if (!payload.matches(Regex("[A-Za-z0-9+/=\\r\\n\\t ]+"))) return null
+    return runCatching { java.util.Base64.getMimeDecoder().decode(payload) }.getOrNull()?.takeIf { it.isNotEmpty() }
+}
+
 internal fun MemohAttachment.materialize(cacheDir: java.io.File): java.io.File? {
-    if (base64.isBlank()) return null
-    val target = java.io.File(cacheDir, "attachments").apply { mkdirs() }
-    val safeName = name.ifBlank { "attachment-${id.hashCode()}" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
-    val file = java.io.File(target, "${id.hashCode()}-$safeName")
-    if (file.exists() && file.length() > 0) return file
-    return try {
-        java.util.Base64.getDecoder().decode(base64).let { file.writeBytes(it) }
-        file
-    } catch (_: IllegalArgumentException) { null }
+    cachedFile(cacheDir)?.let { return it }
+    val bytes = inlineBytes() ?: return null
+    val target = cachedTarget(cacheDir)
+    return runCatching {
+        writeMemohMediaAtomically(target) { it.write(bytes) }
+        target
+    }.getOrNull()
 }
 
-/** Cache lookup without writing; composition calls this, workers call [materialize]. */
-internal fun MemohAttachment.cachedFile(cacheDir: java.io.File): java.io.File? {
-    if (base64.isBlank() && path.isBlank() && url.isBlank()) return null
-    val safeName = name.ifBlank { "attachment-${id.hashCode()}" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
-    val file = java.io.File(java.io.File(cacheDir, "attachments"), "${id.hashCode()}-$safeName")
-    return file.takeIf { it.exists() && it.length() > 0 }
-}
+/** Cache lookup never decodes or writes while a message is composing. */
+internal fun MemohAttachment.cachedFile(cacheDir: java.io.File): java.io.File? =
+    cachedTarget(cacheDir).takeIf { it.isFile && it.length() > 0 }
 
-/** Server-history attachments reference container paths; bytes arrive on demand. */
 internal fun MemohAttachment.needsDownload(): Boolean =
-    base64.isBlank() && (path.isNotBlank() || url.isNotBlank())
+    base64.isBlank() && !url.startsWith("data:", ignoreCase = true) &&
+        (contentHash.isNotBlank() || path.isNotBlank() || url.isNotBlank())
 
-/** Where [downloadAttachmentBytes] writes; the same cache slot [cachedFile] reads. */
+/** Empty IDs are common in server rows; include the source so equal filenames cannot collide. */
 internal fun MemohAttachment.cachedTarget(cacheDir: java.io.File): java.io.File {
-    val safeName = name.ifBlank { "attachment-${id.hashCode()}" }.replace(Regex("[^A-Za-z0-9._-]"), "_")
-    return java.io.File(java.io.File(cacheDir, "attachments"), "${id.hashCode()}-$safeName")
+    val key = listOf(id, contentHash, botId, path, url, base64).joinToString("\u0000")
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(key.toByteArray())
+        .joinToString("") { "%02x".format(it) }
+    val safeName = name.ifBlank { "attachment" }.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(100)
+    return java.io.File(java.io.File(cacheDir, "attachments"), "$digest-$safeName")
 }
 
 private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false, cacheDir: java.io.File? = null): ChatMessage {
-    val segments = blocks.mapNotNull { block ->
+    val displayBlocks = blocks + if (role != "user" && attachments.isNotEmpty())
+        listOf(MemohBlock(-1, "attachments", "", attachments = attachments)) else emptyList()
+    val segments = displayBlocks.mapNotNull { block ->
         when (block.type) {
             "reasoning" -> MessageSegment("thought", block.text)
             "tool" -> MessageSegment(
@@ -115,8 +130,8 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
                 toolName = "attachments",
                 toolCallId = "memoh-attachments-${block.id}",
                 toolState = ToolExecutionStates.SUCCEEDED,
-                toolImages = block.attachments.mapNotNull { att ->
-                    val file = cacheDir?.let { dir -> att.cachedFile(dir) ?: att.materialize(dir) }
+                toolImages = block.attachments.filter { it.type == "image" || it.mime.startsWith("image/") }.mapNotNull { att ->
+                    val file = cacheDir?.let { dir -> att.cachedFile(dir) }
                     val path = file?.absolutePath ?: att.url.takeIf(String::isNotBlank)
                         ?: return@mapNotNull null
                     com.newoether.agora.model.ToolImageAttachment(
@@ -140,18 +155,17 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
         text = if (role == "user") text else segments.filter { it.type == "answer" }
             .joinToString("\n") { it.content },
         images = if (role == "user" && cacheDir != null) {
-            attachments.mapNotNull { att ->
-                if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank()) null
+            attachments.map { att ->
+                if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank() && att.contentHash.isBlank()) ""
                 else att.cachedFile(cacheDir)?.absolutePath
-                    ?: att.materialize(cacheDir)?.absolutePath
                     ?: att.url.takeIf(String::isNotBlank) ?: ""
-            }.filter(String::isNotEmpty)
+            }
         } else emptyList(),
         attachmentMeta = if (role == "user" && attachments.isNotEmpty()) {
             // Link every item to its file slot so the shared bubble's ordering and
             // tap-to-open resolution stay driven by metadata, exactly like native rows.
             AttachmentMeta(items = attachments.mapIndexedNotNull { index, att ->
-                if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank()) return@mapIndexedNotNull null
+                if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank() && att.contentHash.isBlank()) return@mapIndexedNotNull null
                 AttachmentItem(
                     type = when {
                         att.mime.startsWith("image/") -> "image"

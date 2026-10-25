@@ -921,17 +921,14 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
             addQueryParameter("cols", cols.coerceIn(1, 500).toString())
             addQueryParameter("rows", rows.coerceIn(1, 500).toString())
         }.build()
-        val websocketToken = if (captured.identity.bearer.isNotEmpty()) {
-            captured.identity.bearer
-        } else {
-            teamPlatformRequest("/ws-tickets", JSONObject(), method = "POST")
-                .optString("ticket")
-                .also { require(it.isNotBlank()) { "Memoh did not return a WebSocket ticket" } }
-        }
-        // The terminal endpoint documents `token` as its WebSocket query parameter. The runtime
-        // socket uses `ticket`; using that name here completes the handshake but is ignored by the
-        // terminal handler.
-        url = url.newBuilder().addQueryParameter("token", websocketToken).build()
+        // The terminal handler reads its credential from `token`, unlike the runtime socket's
+        // `ticket`. Verified against app.memoh.net: ?ticket= never answers, ?token=<ticket> opens.
+        // A ticket is a one-use session trade, so ask for it rather than sending the bearer here.
+        val terminalToken = teamPlatformRequest("/ws-tickets", JSONObject(), method = "POST")
+            .optString("ticket")
+            .ifBlank { captured.identity.bearer }
+        require(terminalToken.isNotBlank()) { "Memoh did not return a terminal credential" }
+        url = url.newBuilder().addQueryParameter("token", terminalToken).build()
         requireCurrent(captured)
         return captured.identity.client.newWebSocket(builder.url(url).build(), listener)
     }
