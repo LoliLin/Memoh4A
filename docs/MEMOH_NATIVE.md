@@ -111,7 +111,7 @@ The 8 unwired operations and why:
 
 - Memoh now consumes the drawer width from Agora's `ChatDrawerHost`, uses the shared conversation row for selection, activity, haptics and long-press anchoring, and matches the drawer sheet color, elevation, edge fade and item transitions. Rename/delete remain Memoh-backed actions.
 - Initial session loading shows a spinner only when there are no rows yet; loading an older session page leaves already loaded sessions visible.
-- The settings page now uses Agora's `SettingsOverlayHost`; its appearance controls continue to read Memoh's lightweight settings repository and Agora's shared settings components.
+- Selecting Settings closes the drawer before opening Agora's `SettingsOverlayHost`, keeping its standard scrim, enter/exit motion and page bounds. The appearance controls continue to read Memoh's lightweight settings repository and Agora's shared settings components.
 - `:app:compileDebugKotlin` passed with the configured Java 21 runtime. Unit tests, APK packaging and device checks were not run for this slice.
 
 ## Gaps before daily use
