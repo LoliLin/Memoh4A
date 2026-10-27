@@ -86,7 +86,7 @@ private fun MemohViewModel.applyRuntimeUserUpserts(upserts: JSONArray?) {
         val turn = upserts.optJSONObject(i)?.let(::runtimeUser) ?: continue
         val index = users.indexOfFirst { it.turnId == turn.turnId }
         if (index < 0) users.add(turn) else users[index] = turn
-        recordPendingUserTurnId(turn.turnId, turn.text)
+        recordPendingUserTurnId(turn.turnId)
     }
     liveUserTurns = users
 }
@@ -113,7 +113,7 @@ private fun sortedRuntimeBlocks(blocks: JSONArray): JSONArray {
 private fun MemohViewModel.applyRequestUserTurn(request: JSONObject?) {
     val turn = request?.let(::runtimeUser) ?: return
     if (liveUserTurns.isEmpty()) liveUserTurns = listOf(turn)
-    recordPendingUserTurnId(turn.turnId, turn.text)
+    recordPendingUserTurnId(turn.turnId)
 }
 private fun MemohViewModel.applySteerTurnUpserts(upserts: JSONArray?) {
     if (upserts == null) return

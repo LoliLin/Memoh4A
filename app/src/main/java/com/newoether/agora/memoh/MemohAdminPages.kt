@@ -275,6 +275,8 @@ internal fun MemohProviderDetailPage(
     var deleting by remember { mutableStateOf(false) }
     var addingModel by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var editSaving by remember { mutableStateOf(false) }
+    var editError by remember { mutableStateOf("") }
     val scrollState = rememberSettingsScrollState()
 
     CollapsingSettingsScaffold(title = provider.name, onBack = onBack, scrollState = scrollState) {
@@ -587,16 +589,29 @@ internal fun MemohProviderDetailPage(
         MemohProviderFormPage(
             title = uiResources.getString(R.string.memoh_ui_edit_provider),
             existing = provider,
+            saving = editSaving,
+            // The form covers the detail page, so its own banner is the only place an error shows.
+            error = editError,
             onBack = { editing = false },
             onSave = { name, clientType, baseUrl, apiKey ->
+                editSaving = true
+                editError = ""
                 scope.launch {
-                    runCatching {
+                    try {
                         admin.updateProviderFromRequest(
                             provider.id,
                             providerRequestBody(name, clientType, baseUrl, apiKey, provider, create = false),
                         )
-                    }.onFailure { error = it.message.orEmpty() }
-                        .onSuccess { editing = false; onChanged() }
+                        editing = false
+                        onChanged()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        editError = failure.message
+                            ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+                    } finally {
+                        editSaving = false
+                    }
                 }
             },
         )

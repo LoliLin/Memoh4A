@@ -330,6 +330,45 @@ class MemohFeatureParityTest {
     }
 
     @Test
+    fun `a history that never records the turn stops retrying instead of looping forever`() {
+        val dispatcher = UnconfinedTestDispatcher()
+        withCloud(dispatcher) { vm, server ->
+            val historyCalls = java.util.concurrent.atomic.AtomicInteger(0)
+            // History always answers 200, but never contains this run's turn: a stuck server.
+            server.handler = { exchange, seen ->
+                if (seen.path.endsWith("/messages")) {
+                    historyCalls.incrementAndGet()
+                    server.reply(exchange, """{"items":[]}""")
+                    true
+                } else false
+            }
+            login(vm)
+            vm.selectSession(MemohSession("chat", "Chat", "agent"))
+            awaitState { vm.loadedHistorySessionId == "chat" }
+            assertTrue(vm.send("hello"))
+            val invocation = vm.admissionInvocations.keys.single()
+            val receive = MemohViewModel::class.java.getDeclaredMethod("receive", JSONObject::class.java)
+                .apply { isAccessible = true }
+            receive.invoke(vm, JSONObject().put("type", "run_accepted").put("session_id", "chat")
+                .put("invocation_id", invocation).put("turn_id", "turn-1").put("run_id", "run-1"))
+            vm.applyRunView(JSONObject().put("run_id", "run-1").put("turn_id", "turn-1")
+                .put("status", "running").put("messages", JSONArray()
+                    .put(JSONObject().put("id", 1).put("type", "text").put("content", "answer"))))
+            vm.applyRuntimeDelta(JSONObject().put("run", JSONObject().put("status", "completed")), "chat")
+
+            awaitWithRetries(dispatcher) { historyCalls.get() >= MAX_SETTLEMENT_RETRIES + 2 }
+            val settledCalls = historyCalls.get()
+            assertTrue("expected the handoff to give up, got $settledCalls calls", settledCalls <= MAX_SETTLEMENT_RETRIES + 3)
+            assertTrue(vm.liveBlocks.isEmpty())
+            assertFalse(vm.sendStates.containsKey(invocation))
+            // Once it gives up it must stay given up, not restart from a fresh delay.
+            dispatcher.scheduler.advanceTimeBy(120_000)
+            dispatcher.scheduler.runCurrent()
+            assertTrue(historyCalls.get() <= settledCalls + 1)
+        }
+    }
+
+    @Test
     fun `settled user is not restored as pending after returning to a session`() = withCloud { vm, server ->
         val ready = java.util.concurrent.atomic.AtomicBoolean(false)
         server.handler = { exchange, seen ->
@@ -357,6 +396,41 @@ class MemohFeatureParityTest {
         vm.newChat()
         vm.selectSession(conversation)
         assertNull(vm.pendingUserText)
+    }
+
+    @Test
+    fun `an attachment-only send is confirmed by its runtime echo`() {
+        // The echo carries no text, so a text-keyed match would leave the optimistic row pending.
+        val dispatcher = UnconfinedTestDispatcher()
+        withCloud(dispatcher) { vm, server ->
+            server.handler = { exchange, seen ->
+                if (seen.path.endsWith("/messages")) {
+                    server.reply(exchange, """{"items":[]}""")
+                    true
+                } else false
+            }
+            login(vm)
+            vm.selectSession(MemohSession("chat", "Chat", "agent"))
+            awaitState { vm.loadedHistorySessionId == "chat" }
+            val attachment = MemohAttachment(id = "a1", name = "photo.jpg", mime = "image/jpeg",
+                type = "image", base64 = "aGVsbG8=")
+            assertTrue(vm.send("", listOf(attachment)))
+            val invocation = vm.admissionInvocations.keys.single()
+            val receive = MemohViewModel::class.java.getDeclaredMethod("receive", JSONObject::class.java)
+                .apply { isAccessible = true }
+            receive.invoke(vm, JSONObject().put("type", "run_accepted").put("session_id", "chat")
+                .put("invocation_id", invocation).put("turn_id", "turn-1").put("run_id", "run-1"))
+            vm.applyRunView(JSONObject().put("run_id", "run-1").put("turn_id", "turn-1")
+                .put("status", "running")
+                .put("user_turns", JSONArray().put(JSONObject().put("turn_id", "turn-1").put("text", "")))
+                .put("messages", JSONArray()
+                    .put(JSONObject().put("id", 1).put("type", "text").put("content", "seen"))))
+
+            assertEquals("turn-1", vm.pendingUserTurnId)
+            val rows = memohTranscriptRows(vm.turns, vm.liveUserTurns, vm.pendingUserText,
+                vm.pendingUserAttachments, vm.pendingUserTurnId, vm.liveTurnId, true, null)
+            assertEquals(1, rows.count { it.participant == com.newoether.agora.model.Participant.USER })
+        }
     }
 
     @Test

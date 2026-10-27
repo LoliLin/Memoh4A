@@ -30,12 +30,19 @@ internal fun MemohViewModel.cancelAdmissionTimeout(invocation: String? = null) {
     }
 }
 
-/** Records the server turn_id that confirms the optimistic user turn. */
-internal fun MemohViewModel.recordPendingUserTurnId(turnId: String, echoedText: String) {
-    if (turnId.isBlank() || echoedText.isBlank() || pendingUserTurnId != null || pendingUserText != echoedText) return
+/**
+ * Records the server turn_id that confirms the optimistic user turn.
+ *
+ * The echo is matched on turn_id and run, never on text: an attachment-only message has no text at
+ * all, and matching by text would also mis-attribute a repeated question to the wrong send.
+ */
+internal fun MemohViewModel.recordPendingUserTurnId(turnId: String) {
+    // pendingUserText is null only when no optimistic row is on screen; an attachment-only send
+    // legitimately has an empty string here.
+    if (turnId.isBlank() || pendingUserTurnId != null || pendingUserText == null) return
     val matchingSend = sendStates.values.lastOrNull {
         it.belongsTo(bot?.id, session?.id) && it.accepted && it.serverRunId.isNotBlank() &&
-            it.serverRunId == runId && it.text == echoedText
+            it.serverRunId == runId && it.serverTurnId.isBlank()
     } ?: return
     matchingSend.serverTurnId = turnId
     pendingUserTurnId = turnId
