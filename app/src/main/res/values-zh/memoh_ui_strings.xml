@@ -625,4 +625,5 @@
     <string name="memoh_ui_range">时间范围</string>
     <string name="memoh_ui_range_desc">最近 %1$d 天</string>
     <string name="memoh_ui_by_model">按模型</string>
+    <string name="memoh_ui_test_unverified">无法验证连接</string>
 </resources>

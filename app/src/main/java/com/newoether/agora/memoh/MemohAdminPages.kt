@@ -69,13 +69,15 @@ import org.json.JSONObject
 internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
-    val admin = remember(viewModel.api) { MemohAdminApi(viewModel.api) }
-    var providers by remember { mutableStateOf<List<MemohProvider>>(emptyList()) }
-    var models by remember { mutableStateOf<List<MemohAdminModel>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf("") }
-    var selectedProviderId by rememberSaveable { mutableStateOf<String?>(null) }
-    var adding by rememberSaveable { mutableStateOf(false) }
+    val selectedTeamId = viewModel.teams.selectedId
+    val apiScope = viewModel.api.scope
+    val admin = remember(viewModel.api, apiScope, selectedTeamId) { MemohAdminApi(viewModel.api) }
+    var providers by remember(admin) { mutableStateOf<List<MemohProvider>>(emptyList()) }
+    var models by remember(admin) { mutableStateOf<List<MemohAdminModel>>(emptyList()) }
+    var loading by remember(admin) { mutableStateOf(true) }
+    var error by remember(admin) { mutableStateOf("") }
+    var selectedProviderId by rememberSaveable(admin) { mutableStateOf<String?>(null) }
+    var adding by rememberSaveable(admin) { mutableStateOf(false) }
     val scrollState = rememberSettingsScrollState()
 
     suspend fun reload() {
@@ -95,7 +97,7 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(admin) { reload() }
 
     val selected = providers.firstOrNull { it.id == selectedProviderId }
     Box(Modifier.fillMaxSize()) {
@@ -106,6 +108,7 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
             when {
                 isAdding -> MemohSecondaryPane {
                     MemohNewProviderPage(
+                        admin = admin,
                         onBack = { adding = false },
                         onCreated = { adding = false; scope.launch { reload() } },
                     )
@@ -118,6 +121,7 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                     } else {
                         MemohSecondaryPane {
                             MemohProviderDetailPage(
+                                admin = admin,
                                 provider = provider,
                                 models = models.filter { it.providerId == provider.id },
                                 onBack = { selectedProviderId = null },
@@ -255,7 +259,8 @@ private fun StreamBadge(
 
 /** One provider's own page: connectivity, models under it, and its own destructive action. */
 @Composable
-private fun MemohProviderDetailPage(
+internal fun MemohProviderDetailPage(
+    admin: MemohAdminApi,
     provider: MemohProvider,
     models: List<MemohAdminModel>,
     onBack: () -> Unit,
@@ -263,12 +268,12 @@ private fun MemohProviderDetailPage(
 ) {
     val uiResources = LocalContext.current.resources
     val scope = rememberCoroutineScope()
-    val admin = remember { MemohAdminApi() }
     var testing by remember { mutableStateOf(false) }
     var testMessage by remember { mutableStateOf("") }
     var testFailed by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var addingModel by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scrollState = rememberSettingsScrollState()
 
@@ -322,15 +327,23 @@ private fun MemohProviderDetailPage(
                                     TextButton(onClick = {
                                         testing = true
                                         scope.launch {
-                                            val outcome = runCatching { admin.testProvider(provider.id) }
-                                            testing = false
-                                            testFailed = outcome.isFailure
-                                            testMessage = outcome.fold(
-                                                onSuccess = { uiResources.getString(R.string.memoh_ui_test_passed) },
-                                                onFailure = {
-                                                    it.message ?: uiResources.getString(R.string.memoh_ui_test_failed)
-                                                },
-                                            )
+                                            try {
+                                                val status = memohConnectivityStatus(admin.testProvider(provider.id))
+                                                testFailed = status == MemohConnectivityStatus.FAILED
+                                                testMessage = uiResources.getString(when (status) {
+                                                    MemohConnectivityStatus.PASSED -> R.string.memoh_ui_test_passed
+                                                    MemohConnectivityStatus.FAILED -> R.string.memoh_ui_test_failed
+                                                    MemohConnectivityStatus.UNVERIFIED -> R.string.memoh_ui_test_unverified
+                                                })
+                                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                                throw cancelled
+                                            } catch (failure: Exception) {
+                                                testFailed = true
+                                                testMessage = failure.message
+                                                    ?: uiResources.getString(R.string.memoh_ui_test_failed)
+                                            } finally {
+                                                testing = false
+                                            }
                                         }
                                     }) { Text(uiResources.getString(R.string.memoh_ui_test)) }
                                 }
@@ -359,49 +372,65 @@ private fun MemohProviderDetailPage(
                     }
                     models.forEach { model ->
                         var showMenu by remember(model.id) { mutableStateOf(false) }
+                        var modelTesting by remember(model.id) { mutableStateOf(false) }
+                        var modelTestMessage by remember(model.id) { mutableStateOf("") }
+                        var modelTestFailed by remember(model.id) { mutableStateOf(false) }
                         add {
                             SettingsItem(
                                 headlineContent = { Text(model.label, fontWeight = FontWeight.Medium) },
                                 supportingContent = {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(model.modelId, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (model.contextWindow > 0) {
-                                            StreamBadge(
-                                                text = "ctx ${formatTokens(model.contextWindow)}",
-                                                container = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                                content = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
+                                    Column {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(model.modelId, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            if (model.contextWindow > 0) {
+                                                StreamBadge(
+                                                    text = "ctx ${formatTokens(model.contextWindow)}",
+                                                    container = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                                    content = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            model.reasoningEfforts.firstOrNull()?.let { effort ->
+                                                StreamBadge(
+                                                    text = effort,
+                                                    container = MaterialTheme.colorScheme.tertiaryContainer,
+                                                    content = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                )
+                                            }
+                                            if (!model.enabled) {
+                                                StreamBadge(
+                                                    text = uiResources.getString(R.string.memoh_ui_disabled),
+                                                    container = MaterialTheme.colorScheme.errorContainer,
+                                                    content = MaterialTheme.colorScheme.onErrorContainer,
+                                                )
+                                            }
                                         }
-                                        model.reasoningEfforts.firstOrNull()?.let { effort ->
-                                            StreamBadge(
-                                                text = effort,
-                                                container = MaterialTheme.colorScheme.tertiaryContainer,
-                                                content = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            )
-                                        }
-                                        if (!model.enabled) {
-                                            StreamBadge(
-                                                text = uiResources.getString(R.string.memoh_ui_disabled),
-                                                container = MaterialTheme.colorScheme.errorContainer,
-                                                content = MaterialTheme.colorScheme.onErrorContainer,
+                                        if (modelTestMessage.isNotBlank()) {
+                                            Text(
+                                                modelTestMessage,
+                                                color = if (modelTestFailed) MaterialTheme.colorScheme.error
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
                                     }
                                 },
                                 trailingContent = {
                                     Box {
-                                        IconButton(
-                                            onClick = { showMenu = true },
-                                            modifier = Modifier.size(24.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Default.MoreVert,
-                                                uiResources.getString(R.string.memoh_ui_options),
-                                                modifier = Modifier.size(18.dp),
-                                            )
+                                        if (modelTesting) {
+                                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                        } else {
+                                            IconButton(
+                                                onClick = { showMenu = true },
+                                                modifier = Modifier.size(24.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.MoreVert,
+                                                    uiResources.getString(R.string.memoh_ui_options),
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
                                         }
                                         AgoraDropdownMenu(
                                             expanded = showMenu,
@@ -409,6 +438,33 @@ private fun MemohProviderDetailPage(
                                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
                                             tonalElevation = 16.dp,
                                         ) {
+                                            AgoraDropdownMenuItem(
+                                                text = { Text(uiResources.getString(R.string.memoh_ui_test_connection)) },
+                                                leadingIcon = { Icon(Icons.Default.Cloud, null) },
+                                                onClick = {
+                                                    showMenu = false
+                                                    modelTesting = true
+                                                    scope.launch {
+                                                        try {
+                                                            val status = memohConnectivityStatus(admin.testModel(model.id))
+                                                            modelTestFailed = status == MemohConnectivityStatus.FAILED
+                                                            modelTestMessage = uiResources.getString(when (status) {
+                                                                MemohConnectivityStatus.PASSED -> R.string.memoh_ui_test_passed
+                                                                MemohConnectivityStatus.FAILED -> R.string.memoh_ui_test_failed
+                                                                MemohConnectivityStatus.UNVERIFIED -> R.string.memoh_ui_test_unverified
+                                                            })
+                                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                                            throw cancelled
+                                                        } catch (failure: Exception) {
+                                                            modelTestFailed = true
+                                                            modelTestMessage = failure.message
+                                                                ?: uiResources.getString(R.string.memoh_ui_test_failed)
+                                                        } finally {
+                                                            modelTesting = false
+                                                        }
+                                                    }
+                                                },
+                                            )
                                             AgoraDropdownMenuItem(
                                                 text = {
                                                     Text(
@@ -459,6 +515,12 @@ private fun MemohProviderDetailPage(
                                 modifier = Modifier.heightIn(min = 64.dp),
                             )
                         }
+                    }
+                    add {
+                        SettingsAddItem(
+                            label = uiResources.getString(R.string.models_add_custom),
+                            onClick = { addingModel = true },
+                        )
                     }
                 },
             )
@@ -512,6 +574,15 @@ private fun MemohProviderDetailPage(
         }
     }
 
+    if (addingModel) {
+        MemohCreateModelDialog(
+            admin = admin,
+            provider = provider,
+            onDismiss = { addingModel = false },
+            onCreated = { addingModel = false; onChanged() },
+        )
+    }
+
     if (editing) {
         MemohProviderFormPage(
             title = uiResources.getString(R.string.memoh_ui_edit_provider),
@@ -557,11 +628,90 @@ private fun MemohProviderDetailPage(
     }
 }
 
+@Composable
+private fun MemohCreateModelDialog(
+    admin: MemohAdminApi,
+    provider: MemohProvider,
+    onDismiss: () -> Unit,
+    onCreated: () -> Unit,
+) {
+    val uiResources = LocalContext.current.resources
+    val scope = rememberCoroutineScope()
+    var modelId by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+
+    AlertDialog(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text(uiResources.getString(R.string.models_add_custom), fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = modelId,
+                    onValueChange = { modelId = it },
+                    label = { Text(uiResources.getString(R.string.model_id_label)) },
+                    singleLine = true,
+                    enabled = !saving,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(uiResources.getString(R.string.models_alias_hint)) },
+                    singleLine = true,
+                    enabled = !saving,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                )
+                if (error.isNotBlank()) {
+                    Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !saving && modelId.isNotBlank(), onClick = {
+                saving = true
+                error = ""
+                scope.launch {
+                    try {
+                        admin.createModel(modelRequestBody(
+                            providerId = provider.id,
+                            modelId = modelId,
+                            name = name.ifBlank { modelId.trim() },
+                            enabled = true,
+                            reasoningEfforts = emptyList(),
+                            contextWindow = 0,
+                            create = true,
+                        ))
+                        onCreated()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        error = failure.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+                    } finally {
+                        saving = false
+                    }
+                }
+            }) {
+                if (saving) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Text(uiResources.getString(R.string.add))
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !saving, onClick = onDismiss) {
+                Text(uiResources.getString(R.string.provider_cancel))
+            }
+        },
+    )
+}
+
 /** New-provider page: full settings page, not a dialog, so the form gets room and a title bar. */
 @Composable
-private fun MemohNewProviderPage(onBack: () -> Unit, onCreated: () -> Unit) {
+private fun MemohNewProviderPage(admin: MemohAdminApi, onBack: () -> Unit, onCreated: () -> Unit) {
     val uiResources = LocalContext.current.resources
-    val admin = remember { MemohAdminApi() }
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }

@@ -10,7 +10,7 @@ import org.json.JSONObject
  * these routes answer 403 for ordinary members; the UI treats that as "managed by
  * your administrator" rather than an error state.
  */
-internal class MemohAdminApi(parent: MemohTransport? = null) : MemohTransport(parent) {
+internal class MemohAdminApi(parent: MemohTransport) : MemohTransport(parent) {
 
     // ---- LLM providers ----
 

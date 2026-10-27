@@ -65,4 +65,71 @@ class MemohSelfHostedContractTest {
             } finally { api.clearIdentity(); server.stop(0) }
         }
     }
+
+    @Test
+    fun `administration requests share the selected server credentials and team`() = runBlocking {
+        data class Seen(val method: String, val path: String, val auth: String?, val team: String?, val body: String)
+        val seen = CopyOnWriteArrayList<Seen>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            seen += Seen(
+                exchange.requestMethod,
+                exchange.requestURI.path,
+                exchange.requestHeaders.getFirst("Authorization"),
+                exchange.requestHeaders.getFirst("X-Team-ID"),
+                exchange.requestBody.bufferedReader().readText(),
+            )
+            val response = (if (exchange.requestURI.path.endsWith("/test")) {
+                """{"status":"auth_error"}"""
+            } else {
+                """{"id":"provider-1"}"""
+            }).toByteArray()
+            exchange.sendResponseHeaders(200, response.size.toLong())
+            exchange.responseBody.use { it.write(response) }
+        }
+        server.start()
+        val api = MemohApi()
+        try {
+            api.configure("http://127.0.0.1:${server.address.port}/proxy/api", "test-jwt")
+            api.selectTeam("team-1")
+            val admin = MemohAdminApi(api)
+            admin.createProviderFromRequest(JSONObject().put("name", "Test"))
+            val result = admin.testProvider("provider-1")
+            admin.createModel(modelRequestBody("provider-1", " vendor/model ", "", true, emptyList(), 0, create = true))
+            admin.testModel("model-1")
+            admin.updateModel("model-1", JSONObject().put("enable", false))
+            admin.deleteProvider("provider-1")
+
+            assertEquals(MemohConnectivityStatus.FAILED, memohConnectivityStatus(result))
+            assertEquals(
+                listOf(
+                    "POST" to "/proxy/api/providers",
+                    "POST" to "/proxy/api/providers/provider-1/test",
+                    "POST" to "/proxy/api/models",
+                    "POST" to "/proxy/api/models/model-1/test",
+                    "PUT" to "/proxy/api/models/model-1",
+                    "DELETE" to "/proxy/api/providers/provider-1",
+                ),
+                seen.map { it.method to it.path },
+            )
+            assertTrue(seen.all { it.auth == "Bearer test-jwt" && it.team == "team-1" })
+            val modelBody = JSONObject(seen[2].body)
+            assertEquals("provider-1", modelBody.getString("provider_id"))
+            assertEquals("vendor/model", modelBody.getString("model_id"))
+            assertEquals("chat", modelBody.getString("type"))
+            assertTrue(modelBody.getBoolean("enable"))
+
+            api.selectTeam("team-2")
+            try {
+                admin.providers()
+                fail("A client captured for the old team must not send requests after a switch")
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // The settings page must create a new client for the new team.
+            }
+            assertEquals(6, seen.size)
+        } finally {
+            api.clearIdentity()
+            server.stop(0)
+        }
+    }
 }

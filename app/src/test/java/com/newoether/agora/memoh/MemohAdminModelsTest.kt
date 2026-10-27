@@ -64,6 +64,15 @@ class MemohAdminModelsTest {
         assertTrue(body.getJSONObject("config").has("api_key"))
     }
 
+    @Test fun connectivityTestsUseTheServerStatusRatherThanHttpSuccessAlone() {
+        assertEquals(MemohConnectivityStatus.PASSED, memohConnectivityStatus(JSONObject("""{"status":"ok"}""")))
+        assertEquals(MemohConnectivityStatus.FAILED, memohConnectivityStatus(JSONObject("""{"status":"auth_error"}""")))
+        assertEquals(MemohConnectivityStatus.FAILED, memohConnectivityStatus(JSONObject("""{"status":"model_not_supported"}""")))
+        assertEquals(MemohConnectivityStatus.FAILED, memohConnectivityStatus(JSONObject("""{"status":"error"}""")))
+        assertEquals(MemohConnectivityStatus.UNVERIFIED, memohConnectivityStatus(JSONObject("""{"status":"unverified"}""")))
+        assertEquals(MemohConnectivityStatus.UNVERIFIED, memohConnectivityStatus(JSONObject()))
+    }
+
     @Test fun modelRowsDecodeTheirProviderAndReasoningLadder() {
         val row = JSONObject()
             .put("id", "model-rec")
