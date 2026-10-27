@@ -625,4 +625,5 @@
     <string name="memoh_ui_range">Range</string>
     <string name="memoh_ui_range_desc">Last %1$d days</string>
     <string name="memoh_ui_by_model">By model</string>
+    <string name="memoh_ui_test_unverified">Không thể xác minh kết nối</string>
 </resources>

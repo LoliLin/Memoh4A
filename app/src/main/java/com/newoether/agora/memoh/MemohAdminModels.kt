@@ -41,6 +41,16 @@ internal fun decodeProviders(response: JSONObject): List<MemohProvider> {
     }
 }
 
+internal enum class MemohConnectivityStatus { PASSED, FAILED, UNVERIFIED }
+
+/** A successful HTTP response can still report an authentication or provider failure. */
+internal fun memohConnectivityStatus(response: JSONObject): MemohConnectivityStatus =
+    when (response.optString("status").lowercase()) {
+        "ok" -> MemohConnectivityStatus.PASSED
+        "auth_error", "model_not_supported", "error" -> MemohConnectivityStatus.FAILED
+        else -> MemohConnectivityStatus.UNVERIFIED
+    }
+
 /** One configured model (server shape: models.AddResponse / list row). */
 internal data class MemohAdminModel(
     val id: String,
