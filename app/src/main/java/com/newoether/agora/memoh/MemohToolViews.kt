@@ -160,17 +160,19 @@ internal fun ToolBlock(block: MemohBlock, vm: MemohViewModel) {
                         color = MaterialTheme.colorScheme.primary
                     )
                 } else {
+                    // Completion keeps a green icon but takes the themed text colour: the fixed
+                    // dark green failed contrast on the dark surface.
                     Icon(
                         Icons.Default.CheckCircle,
                         contentDescription = uiResources.getString(R.string.memoh_ui_completed),
                         modifier = Modifier.size(16.dp),
-                        tint = Color(0xFF4CAF50)
+                        tint = MemohDiffAdded
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
                         uiResources.getString(R.string.memoh_ui_done),
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF388E3C)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -327,6 +329,11 @@ private fun DetailField(label: String, content: String) {
     }
 }
 
+/** Line tints only; kept bright enough to read on both light and dark surfaces. */
+private val MemohDiffAdded = Color(0xFF2DA44E)
+private val MemohDiffRemoved = Color(0xFFD1242F)
+private val MemohDiffHunk = Color(0xFF0969DA)
+
 @Composable
 private fun DiffField(diff: String) {
     val uiResources = LocalContext.current.resources
@@ -339,10 +346,12 @@ private fun DiffField(diff: String) {
         ) {
             Column(Modifier.padding(8.dp)) {
                 diff.lines().take(300).forEach { line ->
+                    // The tint only marks the line; the text itself follows the theme. A fixed
+                    // dark green as body text is unreadable on the dark surface.
                     val (bgColor, textColor) = when {
-                        line.startsWith("+") -> Color(0x1F4CAF50) to Color(0xFF2E7D32)
-                        line.startsWith("-") -> Color(0x1FF44336) to Color(0xFFC62828)
-                        line.startsWith("@@") -> Color(0x1F2196F3) to Color(0xFF1565C0)
+                        line.startsWith("+") -> MemohDiffAdded.copy(alpha = 0.15f) to MaterialTheme.colorScheme.onSurface
+                        line.startsWith("-") -> MemohDiffRemoved.copy(alpha = 0.15f) to MaterialTheme.colorScheme.onSurface
+                        line.startsWith("@@") -> MemohDiffHunk.copy(alpha = 0.15f) to MaterialTheme.colorScheme.primary
                         else -> Color.Transparent to MaterialTheme.colorScheme.onSurface
                     }
                     Box(

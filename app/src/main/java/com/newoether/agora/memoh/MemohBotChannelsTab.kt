@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.newoether.agora.ui.common.LocalAgoraHaptics
 import kotlinx.coroutines.launch
@@ -182,11 +183,15 @@ internal fun MemohBotChannelsTab(
                     modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Server errors can be a paragraph; cap the banner so it cannot push the list
+                    // off screen.
                     Text(
                         error,
                         modifier = Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodySmall,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     TextButton(onClick = { refresh() }, enabled = !loading) {
                         Text(uiResources.getString(R.string.memoh_ui_retry))
