@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.newoether.agora.R
 import com.newoether.agora.data.SettingsManager
 import com.newoether.agora.data.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
@@ -29,6 +30,11 @@ internal const val MAX_SETTLEMENT_RETRIES = 7
 
 internal class MemohViewModel(application: Application) : AndroidViewModel(application) {
     internal val navigationScope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + kotlinx.coroutines.SupervisorJob(viewModelScope.coroutineContext[Job]))
+
+    /** User-facing text must follow the app language; a bare English literal cannot. */
+    internal fun text(id: Int, vararg args: Any): String =
+        if (args.isEmpty()) getApplication<Application>().getString(id)
+        else getApplication<Application>().getString(id, *args)
     private val prefs = application.getSharedPreferences("memoh_native", 0).also {
         // Hand the transport its cookie store before any Identity is built.
         MemohTransport.cookiePrefs = it
@@ -49,7 +55,13 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     internal val api = MemohApi()
     internal val workspaceApi: MemohApi get() = api
     internal val settings by lazy { SettingsRepository(SettingsManager(application), viewModelScope) }
-    internal var agentController = MemohAgentController(api); private set
+    internal var agentController = newAgentController(); private set
+
+    private fun newAgentController() = MemohAgentController(
+        api,
+        agentsFallback = { text(R.string.memoh_error_load_agents) },
+        profilesFallback = { text(R.string.memoh_error_acp_unavailable) },
+    )
     private val botConnections = mutableMapOf<String, MemohConnection>()
     private val idleConnection by lazy { createConnection("") }
     internal val connection: MemohConnection
@@ -74,13 +86,13 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             if (bot?.id == ownerBotId) {
                 resetCursor()
                 if (pendingControls.isNotEmpty()) {
-                    error = "Connection lost. A tool decision may have been applied; check the run before retrying."
+                    error = text(R.string.memoh_error_connection_lost_decision)
                     pendingControls.clear()
                     waitingForInteraction = emptySet()
                 }
             }
         },
-        onUnauthorized = { logout(); error = "Session expired. Sign in again." },
+        onUnauthorized = { logout(); error = text(R.string.memoh_error_session_expired) },
     )
     private val awaitingAdmission = linkedMapOf<String, JSONObject>()
     internal val admissionInvocations: MutableMap<String, JSONObject> get() = awaitingAdmission
@@ -231,7 +243,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         runtimeControlsJson = null; runtimeGoalJson = null; runtimeControlsBusy = false
         queueState = null; firstHistoryMessageId = null; olderMessagesAvailable = false
         consumeRestoredDraft()
-        bots = emptyList(); agentController.clear(); agentController = MemohAgentController(MemohApi(api)); bot = null
+        bots = emptyList(); agentController.clear(); agentController = newAgentController(); bot = null
         sessions = emptyList(); nextSessionCursor = null; olderSessionsAvailable = false
         session = null; turns = emptyList(); loadedHistorySessionId = null
         pendingUserText = null; pendingUserAttachments = emptyList()
@@ -258,7 +270,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             if (revision == authRevision) {
                 if (e.status == 401) {
                     logout()
-                    error = "Session expired. Sign in again."
+                    error = text(R.string.memoh_error_session_expired)
                 } else error = e.message.orEmpty()
             }
         } catch (cancelled: CancellationException) {
@@ -440,28 +452,32 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun setRuntimeMode(modeId: String, plan: Boolean) {
-        mutateRuntimeControls("set the runtime mode") { b, sid -> api.setRuntimeMode(b, sid, modeId, plan) }
+        mutateRuntimeControls(R.string.memoh_action_set_runtime_mode) { b, sid ->
+            api.setRuntimeMode(b, sid, modeId, plan)
+        }
     }
 
     fun pauseRuntimeGoal() {
-        mutateRuntimeControls("pause the goal") { b, sid -> api.pauseRuntimeGoal(b, sid) }
+        mutateRuntimeControls(R.string.memoh_action_pause_goal) { b, sid -> api.pauseRuntimeGoal(b, sid) }
     }
 
     fun clearRuntimeGoal() {
-        mutateRuntimeControls("clear the goal") { b, sid -> api.clearRuntimeGoal(b, sid) }
+        mutateRuntimeControls(R.string.memoh_action_clear_goal) { b, sid -> api.clearRuntimeGoal(b, sid) }
     }
 
     fun runRuntimeCommand(command: String) {
-        mutateRuntimeControls("run the command") { b, sid -> api.runRuntimeCommand(b, sid, command) }
+        mutateRuntimeControls(R.string.memoh_action_run_command) { b, sid ->
+            api.runRuntimeCommand(b, sid, command)
+        }
     }
 
     fun compactSession() {
-        if (running) { error = "Stop the run before compacting context."; return }
-        mutateRuntimeControls("compact the context") { b, sid -> api.compactSession(b, sid) }
+        if (running) { error = text(R.string.memoh_error_stop_before_compact); return }
+        mutateRuntimeControls(R.string.memoh_action_compact_context) { b, sid -> api.compactSession(b, sid) }
     }
 
     private inline fun mutateRuntimeControls(
-        action: String,
+        action: Int,
         noinline block: suspend MemohApi.(botId: String, sessionId: String) -> JSONObject?,
     ) {
         val b = bot?.id ?: return
@@ -476,7 +492,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (runtimeControlsRevision == revision) error = e.message ?: "Could not $action"
+                if (runtimeControlsRevision == revision) {
+                    error = e.message ?: text(R.string.memoh_error_action_failed, text(action))
+                }
             } finally {
                 if (runtimeControlsRevision == revision) runtimeControlsBusy = false
             }
@@ -502,7 +520,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (queueRevision == revision) error = e.message ?: "Failed to load message queues"
+                if (queueRevision == revision) error = e.message ?: text(R.string.memoh_error_queue_load)
             }
         }
     }
@@ -513,7 +531,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val value = text.trim()
         if (value.isBlank() || !running || queueBusy || type !in setOf("steer", "follow_up")) return false
         if (type == "steer" && queueState?.steerSupported != true) {
-            error = "Steering is not supported by this session."
+            error = text(R.string.memoh_error_steer_unsupported)
             return false
         }
         val revision = queueRevision
@@ -529,7 +547,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (e: Exception) {
                 if (queueRevision == revision) {
                     restoreDraft = value
-                    error = "Queue delivery is uncertain: ${e.message ?: "Request failed"}. Check the queue before resending."
+                    error = text(
+                        R.string.memoh_error_queue_uncertain,
+                        e.message ?: text(R.string.memoh_error_request_failed),
+                    )
                 }
             } finally {
                 if (queueRevision == revision) queueBusy = false
@@ -632,7 +653,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val sid = session?.id ?: return
         val revision = historyRevision
         if (running || hasCurrentAdmission) {
-            error = "Stop or finish the running Agent before deleting this conversation."
+            error = text(R.string.memoh_error_stop_before_delete)
             return
         }
         navigationScope.launch {
@@ -873,7 +894,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val sid = session?.id?.takeIf { it.isNotBlank() } ?: return false
         if (turnId.isBlank()) return false
         if (running || hasCurrentAdmission || pendingUserText != null) {
-            error = "Wait for the current run to finish before editing history."
+            error = text(R.string.memoh_error_wait_before_edit)
             return false
         }
         val payload = JSONObject().put("type", if (retry) "retry_message" else "edit_message")
@@ -895,7 +916,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (connected) {
             sendNow(payload)
         } else {
-            error = "Reconnecting to send your edit."
+            error = text(R.string.memoh_error_reconnecting_edit)
             ensureConnection(bot?.id ?: return false)
         }
         return true
@@ -1178,7 +1199,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 applyDelta(event.optJSONObject("delta") ?: JSONObject(), target)
             }
             "runtime_dropped" -> if (session?.id == target) {
-                error = "Live updates were dropped. Refreshing server state."
+                error = text(R.string.memoh_error_live_updates_dropped)
                 requestFreshSnapshot(target)
                 reloadHistory(target)
             }
@@ -1188,7 +1209,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 if (decisionId != null && !event.optBoolean("applied", false))
                     waitingForInteraction = waitingForInteraction - decisionId
                 if (decisionId != null && !event.optBoolean("applied", false))
-                    error = "Action not applied: ${event.optString("code")}"
+                    error = text(R.string.memoh_error_action_not_applied, event.optString("code"))
             }
         }
     }
@@ -1284,7 +1305,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     throw cancelled
                 } catch (e: Exception) {
                     if (bot?.id == botId && session?.id == sid && historyRevision == revision) {
-                        error = e.message ?: "Failed to load settled messages"
+                        error = e.message ?: text(R.string.memoh_error_load_settled)
                         if (runId == finishedRun && !running) {
                             retrySettlement(botId, sid, finishedRun, revision)
                         }
@@ -1315,9 +1336,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 pendingUserText = null
                 pendingUserAttachments = emptyList()
                 pendingUserTurnId = null
-                if (error.isBlank()) {
-                    error = "The server never confirmed this reply. Check the conversation before resending."
-                }
+                // This supersedes the repeated fetch error: the user needs to know the message is
+                // unconfirmed, not why the refresh failed.
+                error = text(R.string.memoh_error_unconfirmed_reply)
             }
             reloadHistory(sid)
             return

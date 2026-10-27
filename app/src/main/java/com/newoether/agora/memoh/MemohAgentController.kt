@@ -13,7 +13,15 @@ import org.json.JSONObject
  * Agent at creation time; changing Agent starts a new draft instead of
  * silently changing the runtime of an existing conversation.
  */
-internal class MemohAgentController(private val api: MemohApi) {
+/**
+ * [agentsFallback] / [profilesFallback] are the localized messages this controller shows when the
+ * server returns no text of its own; it has no Context of its own to look them up with.
+ */
+internal class MemohAgentController(
+    private val api: MemohApi,
+    private val agentsFallback: () -> String = { "Failed to load Agents" },
+    private val profilesFallback: () -> String = { "ACP Agent profiles are unavailable" },
+) {
     var agents by mutableStateOf<List<MemohAgent>>(emptyList())
         private set
     var profiles by mutableStateOf<List<MemohAgentProfile>>(emptyList())
@@ -129,7 +137,7 @@ internal class MemohAgentController(private val api: MemohApi) {
             throw e
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            if (current()) error = e.message ?: "Failed to load Agents"
+            if (current()) error = e.message ?: agentsFallback()
             throw e
         } finally {
             if (current()) loading = false
@@ -143,7 +151,7 @@ internal class MemohAgentController(private val api: MemohApi) {
             throw e
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            if (current() && profiles.isEmpty()) error = e.message ?: "ACP Agent profiles are unavailable"
+            if (current() && profiles.isEmpty()) error = e.message ?: profilesFallback()
         }
     }
 

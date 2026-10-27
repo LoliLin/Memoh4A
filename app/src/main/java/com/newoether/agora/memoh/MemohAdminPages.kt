@@ -78,6 +78,9 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     var error by remember(admin) { mutableStateOf("") }
     var selectedProviderId by rememberSaveable(admin) { mutableStateOf<String?>(null) }
     var adding by rememberSaveable(admin) { mutableStateOf(false) }
+    // A 403 means these routes are the administrator's, so write affordances are not offered:
+    // letting someone fill a form only to be refused wastes the whole attempt.
+    var canManage by remember(admin) { mutableStateOf(false) }
     val scrollState = rememberSettingsScrollState()
 
     suspend fun reload() {
@@ -86,12 +89,16 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
         try {
             providers = decodeProviders(admin.providers())
             models = decodeAdminModels(admin.models())
+            canManage = true
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            error = if (failure is MemohHttpException && failure.status == 403)
-                uiResources.getString(R.string.memoh_ui_providers_managed_by_admin)
-            else failure.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+            if (failure is MemohHttpException && failure.status == 403) {
+                canManage = false
+                error = uiResources.getString(R.string.memoh_ui_providers_managed_by_admin)
+            } else {
+                error = failure.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+            }
         } finally {
             loading = false
         }
@@ -124,6 +131,7 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                                 admin = admin,
                                 provider = provider,
                                 models = models.filter { it.providerId == provider.id },
+                                canManage = canManage,
                                 onBack = { selectedProviderId = null },
                                 onChanged = { scope.launch { reload() } },
                             )
@@ -214,11 +222,13 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                                         )
                                     }
                                 }
-                                add {
-                                    SettingsAddItem(
-                                        label = uiResources.getString(R.string.memoh_ui_add_provider),
-                                        onClick = { adding = true },
-                                    )
+                                if (canManage) {
+                                    add {
+                                        SettingsAddItem(
+                                            label = uiResources.getString(R.string.memoh_ui_add_provider),
+                                            onClick = { adding = true },
+                                        )
+                                    }
                                 }
                             },
                         )
@@ -263,6 +273,7 @@ internal fun MemohProviderDetailPage(
     admin: MemohAdminApi,
     provider: MemohProvider,
     models: List<MemohAdminModel>,
+    canManage: Boolean = true,
     onBack: () -> Unit,
     onChanged: () -> Unit,
 ) {
@@ -277,6 +288,7 @@ internal fun MemohProviderDetailPage(
     var error by remember { mutableStateOf("") }
     var editSaving by remember { mutableStateOf(false) }
     var editError by remember { mutableStateOf("") }
+    var modelToDelete by remember { mutableStateOf<MemohAdminModel?>(null) }
     val scrollState = rememberSettingsScrollState()
 
     CollapsingSettingsScaffold(title = provider.name, onBack = onBack, scrollState = scrollState) {
@@ -467,50 +479,50 @@ internal fun MemohProviderDetailPage(
                                                     }
                                                 },
                                             )
-                                            AgoraDropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        if (model.enabled) uiResources.getString(R.string.memoh_ui_disable)
-                                                        else uiResources.getString(R.string.memoh_ui_enable),
-                                                    )
-                                                },
-                                                leadingIcon = { Icon(Icons.Default.Edit, null) },
-                                                onClick = {
-                                                    showMenu = false
-                                                    scope.launch {
-                                                        runCatching {
-                                                            admin.updateModel(
-                                                                model.id,
-                                                                JSONObject().put("enable", !model.enabled),
-                                                            )
-                                                        }.onFailure { error = it.message.orEmpty() }
-                                                            .onSuccess { onChanged() }
-                                                    }
-                                                },
-                                            )
-                                            AgoraDropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        uiResources.getString(R.string.memoh_ui_remove),
-                                                        color = MaterialTheme.colorScheme.error,
-                                                    )
-                                                },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        Icons.Default.Delete,
-                                                        null,
-                                                        tint = MaterialTheme.colorScheme.error,
-                                                    )
-                                                },
-                                                onClick = {
-                                                    showMenu = false
-                                                    scope.launch {
-                                                        runCatching { admin.deleteModel(model.id) }
-                                                            .onFailure { error = it.message.orEmpty() }
-                                                            .onSuccess { onChanged() }
-                                                    }
-                                                },
-                                            )
+                                            if (canManage) {
+                                                AgoraDropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (model.enabled) uiResources.getString(R.string.memoh_ui_disable)
+                                                            else uiResources.getString(R.string.memoh_ui_enable),
+                                                        )
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                                    onClick = {
+                                                        showMenu = false
+                                                        scope.launch {
+                                                            runCatching {
+                                                                admin.updateModel(
+                                                                    model.id,
+                                                                    JSONObject().put("enable", !model.enabled),
+                                                                )
+                                                            }.onFailure { error = it.message.orEmpty() }
+                                                                .onSuccess { onChanged() }
+                                                        }
+                                                    },
+                                                )
+                                                AgoraDropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            uiResources.getString(R.string.memoh_ui_remove),
+                                                            color = MaterialTheme.colorScheme.error,
+                                                        )
+                                                    },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            Icons.Default.Delete,
+                                                            null,
+                                                            tint = MaterialTheme.colorScheme.error,
+                                                        )
+                                                    },
+                                                    // Removing a model breaks every session pinned to
+                                                    // it, so it must not be one tap away from "Disable".
+                                                    onClick = {
+                                                        showMenu = false
+                                                        modelToDelete = model
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                                 },
@@ -518,48 +530,65 @@ internal fun MemohProviderDetailPage(
                             )
                         }
                     }
-                    add {
-                        SettingsAddItem(
-                            label = uiResources.getString(R.string.models_add_custom),
-                            onClick = { addingModel = true },
-                        )
+                    if (canManage) {
+                        add {
+                            SettingsAddItem(
+                                label = uiResources.getString(R.string.models_add_custom),
+                                onClick = { addingModel = true },
+                            )
+                        }
                     }
                 },
             )
 
-            SettingsGroup(
-                title = uiResources.getString(R.string.memoh_ui_provider_actions),
-                items = listOf(
-                    {
-                        SettingsItem(
-                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_edit_provider)) },
-                            leadingContent = { Icon(Icons.Default.Edit, null) },
-                            modifier = Modifier
-                                .heightIn(min = 56.dp)
-                                .clickable { editing = true },
-                        )
-                    },
-                    {
+            if (canManage) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_provider_actions),
+                    items = listOf(
+                        {
+                            SettingsItem(
+                                headlineContent = { Text(uiResources.getString(R.string.memoh_ui_edit_provider)) },
+                                leadingContent = { Icon(Icons.Default.Edit, null) },
+                                modifier = Modifier
+                                    .heightIn(min = 56.dp)
+                                    .clickable { editing = true },
+                            )
+                        },
+                        {
+                            SettingsItem(
+                                headlineContent = {
+                                    Text(
+                                        uiResources.getString(R.string.memoh_ui_remove_provider),
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(uiResources.getString(R.string.memoh_ui_remove_provider_desc))
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+                                },
+                                modifier = Modifier
+                                    .heightIn(min = 64.dp)
+                                    .clickable { deleting = true },
+                            )
+                        },
+                    ),
+                )
+            } else {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_provider_actions),
+                    items = listOf({
                         SettingsItem(
                             headlineContent = {
-                                Text(
-                                    uiResources.getString(R.string.memoh_ui_remove_provider),
-                                    color = MaterialTheme.colorScheme.error,
-                                )
+                                Text(uiResources.getString(R.string.memoh_ui_providers_managed_hint))
                             },
-                            supportingContent = {
-                                Text(uiResources.getString(R.string.memoh_ui_remove_provider_desc))
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
-                            },
-                            modifier = Modifier
-                                .heightIn(min = 64.dp)
-                                .clickable { deleting = true },
+                            leadingContent = { Icon(Icons.Default.Cloud, null) },
+                            modifier = Modifier.heightIn(min = 64.dp),
                         )
-                    },
-                ),
-            )
+                    }),
+                )
+            }
 
             if (error.isNotBlank()) {
                 SettingsGroup(
@@ -574,6 +603,31 @@ internal fun MemohProviderDetailPage(
                 )
             }
         }
+    }
+
+    modelToDelete?.let { model ->
+        AlertDialog(
+            onDismissRequest = { modelToDelete = null },
+            title = { Text(uiResources.getString(R.string.memoh_ui_remove_model)) },
+            text = { Text(uiResources.getString(R.string.memoh_ui_remove_model_confirm, model.label)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    modelToDelete = null
+                    scope.launch {
+                        runCatching { admin.deleteModel(model.id) }
+                            .onFailure { error = it.message.orEmpty() }
+                            .onSuccess { onChanged() }
+                    }
+                }) {
+                    Text(uiResources.getString(R.string.memoh_ui_remove), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { modelToDelete = null }) {
+                    Text(uiResources.getString(R.string.memoh_ui_cancel))
+                }
+            },
+        )
     }
 
     if (addingModel) {
@@ -884,20 +938,24 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
     val uiResources = LocalContext.current.resources
     var rangeDays by rememberSaveable { mutableStateOf(30) }
     val botId = viewModel.bot?.id
-    var days by remember(botId, rangeDays) { mutableStateOf<List<MemohTokenUsageDay>>(emptyList()) }
-    var models by remember(botId, rangeDays) { mutableStateOf<List<MemohModelUsage>>(emptyList()) }
-    var loading by remember(botId, rangeDays) { mutableStateOf(true) }
-    var error by remember(botId, rangeDays) { mutableStateOf("") }
+    // Keyed on the bot only: changing the range keeps the previous numbers on screen, so the page
+    // shows "updating" instead of blanking out for the length of the request.
+    var days by remember(botId) { mutableStateOf<List<MemohTokenUsageDay>>(emptyList()) }
+    var models by remember(botId) { mutableStateOf<List<MemohModelUsage>>(emptyList()) }
+    var loading by remember(botId) { mutableStateOf(true) }
+    var error by remember(botId) { mutableStateOf("") }
     var refresh by remember { mutableStateOf(0) }
     var rangeMenu by remember { mutableStateOf(false) }
+    // Which window the numbers currently on screen belong to; lags rangeDays while a fetch runs.
+    var shownRangeDays by remember(botId) { mutableStateOf(rangeDays) }
     val scrollState = rememberSettingsScrollState()
 
     LaunchedEffect(botId, rangeDays, refresh) {
         loading = true
         error = ""
-        days = emptyList()
-        models = emptyList()
         if (botId.isNullOrBlank()) {
+            days = emptyList()
+            models = emptyList()
             error = uiResources.getString(R.string.memoh_ui_no_accessible_bots_yet)
             loading = false
             return@LaunchedEffect
@@ -907,6 +965,7 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
             val response = viewModel.api.tokenUsage(botId, range.from, range.to)
             days = decodeTokenUsage(response)
             models = decodeModelUsage(response)
+            shownRangeDays = rangeDays
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -932,13 +991,23 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
                             },
                             supportingContent = {
                                 Text(
-                                    if (loading) uiResources.getString(R.string.memoh_ui_loading)
+                                    // Keep the row honest about what is on screen: only claim
+                                    // "loading" when there is nothing to show yet.
+                                    if (loading && days.isEmpty()) uiResources.getString(R.string.memoh_ui_loading)
                                     else uiResources.getString(R.string.memoh_ui_days_recorded, days.size),
                                 )
                             },
                             trailingContent = {
-                                TextButton(onClick = { refresh++ }, enabled = !loading) {
-                                    Text(uiResources.getString(R.string.memoh_ui_refresh))
+                                // A small spinner next to Refresh, so re-fetching is visible while
+                                // the previous numbers stay readable.
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (loading) {
+                                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    TextButton(onClick = { refresh++ }, enabled = !loading) {
+                                        Text(uiResources.getString(R.string.memoh_ui_refresh))
+                                    }
                                 }
                             },
                         )
@@ -946,7 +1015,14 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
                     {
                         SettingsItem(
                             headlineContent = { Text(uiResources.getString(R.string.memoh_ui_range)) },
-                            supportingContent = { Text("UTC") },
+                            supportingContent = {
+                                Text(
+                                    uiResources.getString(
+                                        R.string.memoh_ui_range_now_showing,
+                                        uiResources.getString(R.string.memoh_ui_range_desc, shownRangeDays),
+                                    ),
+                                )
+                            },
                             trailingContent = {
                                 Box {
                                     TextButton(onClick = { rangeMenu = true }) {
