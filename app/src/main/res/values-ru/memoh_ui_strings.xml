@@ -716,4 +716,7 @@
     <string name="memoh_terminal_closed">Shell closed · reconnect to open a new one</string>
     <string name="memoh_error_terminal_lost">Connection lost · tap reconnect to open a new shell</string>
     <string name="memoh_error_terminal_http">Terminal connection failed · HTTP %1$d</string>
+    <string name="memoh_ui_language_coverage">Translation coverage</string>
+    <string name="memoh_ui_language_coverage_desc">Only Chinese is fully translated. Other languages follow the rest of the app, so Memoh-specific screens may still show English.</string>
+    <string name="memoh_ui_language_partial">Partial translation</string>
 </resources>

@@ -174,12 +174,20 @@ internal fun MemohBotAppsTab(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
             ) {
-                Text(
-                    text = error,
-                    modifier = Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
+                Row(
+                    modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = error,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    TextButton(onClick = { refresh() }, enabled = !loading) {
+                        Text(uiResources.getString(R.string.memoh_ui_retry))
+                    }
+                }
             }
         }
 

@@ -716,4 +716,7 @@
     <string name="memoh_terminal_closed">終端機已關閉 · 重新連線可新開一個</string>
     <string name="memoh_error_terminal_lost">連線已中斷 · 點重新連線新開終端機</string>
     <string name="memoh_error_terminal_http">終端機連線失敗 · HTTP %1$d</string>
+    <string name="memoh_ui_language_coverage">翻譯涵蓋範圍</string>
+    <string name="memoh_ui_language_coverage_desc">目前只有中文是完整翻譯。其他語言跟隨應用程式其餘部分，Memoh 專屬介面可能仍顯示英文。</string>
+    <string name="memoh_ui_language_partial">部分翻譯</string>
 </resources>

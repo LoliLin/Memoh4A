@@ -176,7 +176,22 @@ internal fun MemohBotChannelsTab(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
             ) {
-                Text(error, modifier = Modifier.padding(10.dp), color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall)
+                // Recover in place: a failed first load otherwise leaves an empty list with no
+                // obvious way back.
+                Row(
+                    modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        error,
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = { refresh() }, enabled = !loading) {
+                        Text(uiResources.getString(R.string.memoh_ui_retry))
+                    }
+                }
             }
         }
 
