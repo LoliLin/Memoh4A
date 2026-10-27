@@ -776,8 +776,22 @@ internal fun MemohLanguagePage(
         )
     }
 
+    // The Memoh screens are only fully translated into Chinese; the other languages are inherited
+    // from Agora's own resources. Saying so is better than letting someone pick Japanese and find
+    // this half of the app still in English.
+    val fullyTranslated = setOf("system", "en", "zh", "zh-Hant")
+
     CollapsingSettingsScaffold(title = stringResource(R.string.language_title), onBack = onBack) {
         SettingsGroupColumn {
+            SettingsGroup(
+                title = stringResource(R.string.memoh_ui_language_coverage),
+                items = listOf({
+                    SettingsItem(
+                        headlineContent = { Text(stringResource(R.string.memoh_ui_language_coverage_desc)) },
+                        modifier = Modifier.heightIn(min = 64.dp),
+                    )
+                }),
+            )
             SettingsGroup(
                 title = stringResource(R.string.language_title),
                 items = options.map { (code, label) ->
@@ -808,6 +822,13 @@ internal fun MemohLanguagePage(
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = if (selected == code) FontWeight.Bold else FontWeight.Normal,
                                 )
+                                if (code !in fullyTranslated) {
+                                    Text(
+                                        stringResource(R.string.memoh_ui_language_partial),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                     }

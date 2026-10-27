@@ -716,4 +716,7 @@
     <string name="memoh_terminal_closed">终端已关闭 · 重连可新开一个</string>
     <string name="memoh_error_terminal_lost">连接已断开 · 点重连新开终端</string>
     <string name="memoh_error_terminal_http">终端连接失败 · HTTP %1$d</string>
+    <string name="memoh_ui_language_coverage">翻译覆盖范围</string>
+    <string name="memoh_ui_language_coverage_desc">目前只有中文是完整翻译。其他语言跟随应用其余部分，Memoh 专有界面可能仍显示英文。</string>
+    <string name="memoh_ui_language_partial">部分翻译</string>
 </resources>

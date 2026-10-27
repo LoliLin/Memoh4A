@@ -101,7 +101,19 @@ internal fun MemohMarketDialog(api: MemohApi, botId: String, onDismiss: () -> Un
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (error.isNotBlank()) {
-                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    // The only way back was to close and reopen the dialog; a stale first load
+                    // would otherwise leave the list empty with no recovery.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { scope.launch { reload() } }, enabled = !loading) {
+                            Text(uiResources.getString(R.string.memoh_ui_retry))
+                        }
+                    }
                 }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp),
