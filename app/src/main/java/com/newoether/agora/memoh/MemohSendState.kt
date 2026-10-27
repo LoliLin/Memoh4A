@@ -9,6 +9,8 @@ internal data class MemohSendState(
     val agentId: String = "",
     val navigationRevision: Int = -1,
     var accepted: Boolean = false,
+    var serverTurnId: String = "",
+    var serverRunId: String = "",
     var failure: String = "",
     var draftDelivered: Boolean = false,
 ) {

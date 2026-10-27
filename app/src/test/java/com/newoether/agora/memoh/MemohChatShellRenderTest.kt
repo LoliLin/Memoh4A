@@ -1,12 +1,23 @@
 package com.newoether.agora.memoh
 
 import android.app.Application
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
+import com.newoether.agora.model.StableMessageList
+import com.newoether.agora.ui.chat.MessageList
 import com.newoether.agora.ui.motion.AgoraMotionPolicy
 import com.newoether.agora.ui.motion.LocalAgoraMotionPolicy
 import com.newoether.agora.ui.theme.AgoraTheme
@@ -107,5 +118,55 @@ class MemohChatShellRenderTest {
             "title capsule starts below the top edge",
             title.boundsInRoot.top > 0f,
         )
+    }
+
+    @Test
+    fun liveTurnAndSettledTurnRenderOnceInTheSharedMessageList() {
+        val user = MemohTurn("user-row", "user", "A unique question", turnId = "turn-1", turnPosition = 1)
+        val oldAnswer = MemohTurn("old-answer", "assistant", "Stale answer", turnId = "turn-1", turnPosition = 1)
+        val finalAnswer = MemohTurn("answer-row", "assistant", "A unique answer", turnId = "turn-1", turnPosition = 1)
+        val activeRows = memohTranscriptRows(listOf(user, oldAnswer), listOf(user), "A unique question",
+            emptyList(), "turn-1", "turn-1", true, null)
+        val settledRows = memohTranscriptRows(listOf(user, finalAnswer), emptyList(), null,
+            emptyList(), null, "", false, null)
+        val liveMessage = memohMessages(emptyList(), null, emptyList(),
+            listOf(MemohBlock(1, "text", "A unique answer")), true).single()
+        var settled by mutableStateOf(false)
+
+        compose.setContent {
+            val rows = if (settled) settledRows else activeRows
+            val stable = StableMessageList(rows)
+            AgoraTheme {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalAgoraMotionPolicy provides AgoraMotionPolicy(reduceMotion = true),
+                ) {
+                    MessageList(
+                        messages = stable,
+                        authoritativeMessages = stable,
+                        allMessages = stable,
+                        conversationId = "chat",
+                        modifier = Modifier.width(360.dp).height(700.dp),
+                        viewportHeight = 700,
+                        isLoading = !settled,
+                        streamingMessage = if (settled) null else liveMessage,
+                        streamingAutoFollowEnabled = false,
+                        messageActionsEnabled = false,
+                        initialMessage = { id -> rows.firstOrNull { it.id == id } },
+                        observeMessage = { id -> kotlinx.coroutines.flow.flowOf(rows.firstOrNull { it.id == id }) },
+                    )
+                }
+            }
+        }
+        compose.onAllNodesWithText("A unique question").assertCountEquals(1)
+        compose.onAllNodesWithText("A unique answer").assertCountEquals(1)
+        compose.onAllNodesWithText("Stale answer").assertCountEquals(0)
+        val question = compose.onNodeWithText("A unique question").fetchSemanticsNode()
+        val answer = compose.onNodeWithText("A unique answer").fetchSemanticsNode()
+        assertTrue("the answer should be below its question", question.boundsInRoot.bottom <= answer.boundsInRoot.top)
+
+        compose.runOnIdle { settled = true }
+        compose.onAllNodesWithText("A unique question").assertCountEquals(1)
+        compose.onAllNodesWithText("A unique answer").assertCountEquals(1)
+        compose.onAllNodesWithText("Stale answer").assertCountEquals(0)
     }
 }

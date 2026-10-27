@@ -598,7 +598,7 @@
     <string name="memoh_ui_usage">Usage</string>
     <string name="memoh_ui_bot_usage">Token usage</string>
     <string name="memoh_ui_daily_tokens">Daily tokens</string>
-    <string name="memoh_ui_days_recorded">{0} days recorded</string>
+    <string name="memoh_ui_days_recorded">%1$d days recorded</string>
     <string name="memoh_ui_no_usage">No usage</string>
     <string name="memoh_ui_providers_models_desc">LLM providers, models and connectivity tests</string>
     <string name="memoh_ui_usage_desc">Token consumption for the current Bot</string>
@@ -622,4 +622,7 @@
     <string name="memoh_ui_enable">Enable</string>
     <string name="memoh_ui_disable">Disable</string>
     <string name="memoh_ui_options">Options</string>
+    <string name="memoh_ui_range">Range</string>
+    <string name="memoh_ui_range_desc">Last %1$d days</string>
+    <string name="memoh_ui_by_model">By model</string>
 </resources>

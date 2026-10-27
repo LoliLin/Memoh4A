@@ -598,7 +598,7 @@
     <string name="memoh_ui_usage">用量</string>
     <string name="memoh_ui_bot_usage">Token 用量</string>
     <string name="memoh_ui_daily_tokens">每日 Token</string>
-    <string name="memoh_ui_days_recorded">已记录 {0} 天</string>
+    <string name="memoh_ui_days_recorded">已记录 %1$d 天</string>
     <string name="memoh_ui_no_usage">无用量</string>
     <string name="memoh_ui_providers_models_desc">LLM 供应商、模型与连通性测试</string>
     <string name="memoh_ui_usage_desc">当前 Bot 的 Token 消耗</string>
@@ -622,4 +622,7 @@
     <string name="memoh_ui_enable">启用</string>
     <string name="memoh_ui_disable">停用</string>
     <string name="memoh_ui_options">更多</string>
+    <string name="memoh_ui_range">时间范围</string>
+    <string name="memoh_ui_range_desc">最近 %1$d 天</string>
+    <string name="memoh_ui_by_model">按模型</string>
 </resources>

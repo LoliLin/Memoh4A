@@ -717,23 +717,31 @@ private fun FieldRow(
 @Composable
 internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
     val uiResources = LocalContext.current.resources
-    val scope = rememberCoroutineScope()
-    var days by remember { mutableStateOf<List<MemohTokenUsageDay>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf("") }
+    var rangeDays by rememberSaveable { mutableStateOf(30) }
+    val botId = viewModel.bot?.id
+    var days by remember(botId, rangeDays) { mutableStateOf<List<MemohTokenUsageDay>>(emptyList()) }
+    var models by remember(botId, rangeDays) { mutableStateOf<List<MemohModelUsage>>(emptyList()) }
+    var loading by remember(botId, rangeDays) { mutableStateOf(true) }
+    var error by remember(botId, rangeDays) { mutableStateOf("") }
+    var refresh by remember { mutableStateOf(0) }
+    var rangeMenu by remember { mutableStateOf(false) }
     val scrollState = rememberSettingsScrollState()
 
-    suspend fun reload() {
+    LaunchedEffect(botId, rangeDays, refresh) {
         loading = true
         error = ""
-        val botId = viewModel.bot?.id
+        days = emptyList()
+        models = emptyList()
         if (botId.isNullOrBlank()) {
             error = uiResources.getString(R.string.memoh_ui_no_accessible_bots_yet)
             loading = false
-            return
+            return@LaunchedEffect
         }
+        val range = memohUsageRange(rangeDays)
         try {
-            days = decodeTokenUsage(viewModel.api.tokenUsage(botId))
+            val response = viewModel.api.tokenUsage(botId, range.from, range.to)
+            days = decodeTokenUsage(response)
+            models = decodeModelUsage(response)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -743,8 +751,6 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(viewModel.bot?.id) { reload() }
-
     CollapsingSettingsScaffold(
         title = uiResources.getString(R.string.memoh_ui_usage),
         onBack = onBack,
@@ -753,24 +759,47 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
         SettingsGroupColumn {
             SettingsGroup(
                 title = uiResources.getString(R.string.memoh_ui_bot_usage),
-                items = listOf({
-                    SettingsItem(
-                        headlineContent = {
-                            Text(viewModel.bot?.title ?: uiResources.getString(R.string.memoh_settings_no_bots))
-                        },
-                        supportingContent = {
-                            Text(
-                                if (loading) uiResources.getString(R.string.memoh_ui_loading)
-                                else uiResources.getString(R.string.memoh_ui_days_recorded, days.size),
-                            )
-                        },
-                        trailingContent = {
-                            TextButton(onClick = { scope.launch { reload() } }, enabled = !loading) {
-                                Text(uiResources.getString(R.string.memoh_ui_refresh))
-                            }
-                        },
-                    )
-                }),
+                items = listOf(
+                    {
+                        SettingsItem(
+                            headlineContent = {
+                                Text(viewModel.bot?.title ?: uiResources.getString(R.string.memoh_settings_no_bots))
+                            },
+                            supportingContent = {
+                                Text(
+                                    if (loading) uiResources.getString(R.string.memoh_ui_loading)
+                                    else uiResources.getString(R.string.memoh_ui_days_recorded, days.size),
+                                )
+                            },
+                            trailingContent = {
+                                TextButton(onClick = { refresh++ }, enabled = !loading) {
+                                    Text(uiResources.getString(R.string.memoh_ui_refresh))
+                                }
+                            },
+                        )
+                    },
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_range)) },
+                            supportingContent = { Text("UTC") },
+                            trailingContent = {
+                                Box {
+                                    TextButton(onClick = { rangeMenu = true }) {
+                                        Text(uiResources.getString(R.string.memoh_ui_range_desc, rangeDays))
+                                    }
+                                    AgoraDropdownMenu(expanded = rangeMenu, onDismissRequest = { rangeMenu = false }) {
+                                        listOf(7, 30, 90).forEach { option ->
+                                            AgoraDropdownMenuItem(
+                                                text = { Text(uiResources.getString(R.string.memoh_ui_range_desc, option)) },
+                                                onClick = { rangeDays = option; rangeMenu = false },
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                        )
+                    },
+                ),
             )
             if (error.isNotBlank()) {
                 SettingsGroup(
@@ -780,17 +809,44 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
                     }),
                 )
             }
+            if (models.isNotEmpty()) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_by_model),
+                    items = models.map { model ->
+                        {
+                            SettingsItem(
+                                headlineContent = {
+                                    Text(model.modelName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                },
+                                supportingContent = {
+                                    Text(
+                                        listOfNotNull(
+                                            model.providerName.takeIf { it.isNotBlank() },
+                                            uiResources.getString(R.string.input_tokens_with_label, formatTokens(model.input)),
+                                            uiResources.getString(R.string.output_tokens_with_label, formatTokens(model.output)),
+                                        ).joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                },
+                                trailingContent = {
+                                    Text(formatTokens(model.total), fontWeight = FontWeight.SemiBold)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
             if (days.isNotEmpty()) {
                 SettingsGroup(
                     title = uiResources.getString(R.string.memoh_ui_daily_tokens),
-                    items = days.take(30).map { day ->
+                    items = days.map { day ->
                         {
                             SettingsItem(
                                 headlineContent = { Text(day.date) },
                                 supportingContent = {
                                     Text(
-                                        day.channels.entries.joinToString(" · ") { (channel, tokens) ->
-                                            "${channelLabel(channel)} ${formatTokens(tokens)}"
+                                        day.channels.entries.joinToString(" · ") { (channel, usage) ->
+                                            "${channelLabel(channel)} ${formatTokens(usage.total)}"
                                         }.ifBlank { uiResources.getString(R.string.memoh_ui_no_usage) },
                                         style = MaterialTheme.typography.bodySmall,
                                     )
@@ -801,6 +857,20 @@ internal fun MemohUsagePage(viewModel: MemohViewModel, onBack: () -> Unit) {
                             )
                         }
                     },
+                )
+            } else if (!loading && error.isBlank()) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_daily_tokens),
+                    items = listOf({
+                        SettingsItem(
+                            headlineContent = {
+                                Text(
+                                    uiResources.getString(R.string.memoh_ui_no_usage),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        )
+                    }),
                 )
             }
         }

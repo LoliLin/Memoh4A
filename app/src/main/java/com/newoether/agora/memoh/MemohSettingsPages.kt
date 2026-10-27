@@ -753,7 +753,7 @@ internal fun buildDiagnosticsReport(
 internal fun MemohLanguagePage(
     settings: com.newoether.agora.data.repository.SettingsRepository,
     onBack: () -> Unit,
-    onRestartNeeded: () -> Unit,
+    onRestartNeeded: (String) -> Unit,
 ) {
     val uiResources = LocalContext.current.resources
     val current by settings.appLanguage.collectAsState()
@@ -788,8 +788,7 @@ internal fun MemohLanguagePage(
                                 .clickable {
                                     selected = code
                                     if (code != current) {
-                                        settings.setAppLanguage(code)
-                                        onRestartNeeded()
+                                        onRestartNeeded(code)
                                     }
                                 }
                                 .padding(horizontal = 16.dp, vertical = 12.dp),

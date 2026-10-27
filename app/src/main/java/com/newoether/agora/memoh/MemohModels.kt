@@ -171,7 +171,17 @@ internal data class MemohTurn(
     val attachments: List<MemohAttachment> = emptyList(),
     /** Server turn_id used by retry_message/edit_message; may differ from the row identity. */
     val turnId: String = "",
+    /** Server-assigned order, shared by the user and assistant rows of a turn. */
+    val turnPosition: Long? = null,
 )
+
+/** Keep legacy server order when any row lacks a position. Kotlin's sort is stable for equal keys. */
+internal fun memohOrderTurns(turns: List<MemohTurn>): List<MemohTurn> {
+    if (turns.any { it.turnPosition == null }) return turns
+    return turns.sortedWith(compareBy<MemohTurn> { it.turnPosition }.thenBy {
+        when (it.role) { "user" -> 0; "assistant" -> 1; else -> 2 }
+    })
+}
 
 /**
  * Undo state for an optimistic retry/edit: the transcript as it was, and the index the mutation
@@ -296,6 +306,7 @@ internal fun decodeTurn(obj: JSONObject): MemohTurn {
         blocks = decodeBlocks(obj.optJSONArray("messages")),
         attachments = decodeAttachments(obj.optJSONArray("attachments")),
         turnId = obj.optString("turn_id"),
+        turnPosition = (obj.opt("turn_position") as? Number)?.toLong(),
     )
 }
 

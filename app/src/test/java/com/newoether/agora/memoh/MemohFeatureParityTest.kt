@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -28,8 +29,21 @@ class MemohFeatureParityTest {
         withTimeout(10_000) { while (!predicate()) delay(10) }
     }
 
-    private fun withCloud(test: suspend (MemohViewModel, MemohCloudServer) -> Unit) {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+    private suspend fun awaitWithRetries(dispatcher: TestDispatcher, predicate: () -> Boolean) {
+        withTimeout(10_000) {
+            while (!predicate()) {
+                dispatcher.scheduler.advanceTimeBy(1_000)
+                dispatcher.scheduler.runCurrent()
+                delay(10)
+            }
+        }
+    }
+
+    private fun withCloud(
+        dispatcher: TestDispatcher = UnconfinedTestDispatcher(),
+        test: suspend (MemohViewModel, MemohCloudServer) -> Unit,
+    ) {
+        Dispatchers.setMain(dispatcher)
         val app = RuntimeEnvironment.getApplication()
         val prefs = app.getSharedPreferences("memoh_native", 0)
         try {
@@ -186,9 +200,163 @@ class MemohFeatureParityTest {
                 .put("tool_call_id", "call-9").put("content", "finished"))
             val merged = vm.liveJson
             assertEquals(1, merged.length())
+            assertEquals(1, merged.optJSONObject(0).getInt("id"))
             assertEquals("finished", merged.optJSONObject(0).getString("content"))
             assertEquals("call-9", merged.optJSONObject(0).getString("tool_call_id"))
+            vm.applyRuntimeDelta(JSONObject().put("message_appends", JSONArray()
+                .put(JSONObject().put("id", 1).put("content", " updated"))), "chat")
+            assertEquals(1, vm.liveJson.length())
+            assertEquals("finished updated", vm.liveJson.getJSONObject(0).getString("content"))
         } finally { vm.logout(); prefs.edit().clear().commit() }
+    }
+
+    @Test
+    fun `runtime delta keeps authoritative upserts and sorts blocks`() = withCloud { vm, _ ->
+        vm.applyRunView(JSONObject().put("run_id", "run-1").put("turn_id", "turn-1")
+            .put("status", "running")
+            .put("request_user_turn", JSONObject().put("turn_id", "turn-1").put("text", "Question"))
+            .put("messages", JSONArray().put(JSONObject().put("id", 2).put("type", "text").put("content", "old"))))
+        vm.applyRuntimeDelta(JSONObject()
+            .put("message_appends", JSONArray().put(JSONObject().put("id", 2).put("content", " append")))
+            .put("message_upserts", JSONArray()
+                .put(JSONObject().put("id", 2).put("type", "text").put("content", "authoritative"))
+                .put(JSONObject().put("id", 1).put("type", "text").put("content", "first"))), "chat")
+        assertEquals(listOf("first", "authoritative"), vm.liveBlocks.map { it.text })
+        assertEquals("turn-1", vm.liveTurnId)
+        assertEquals("Question", vm.liveUserTurns.single().text)
+        vm.applyRuntimeDelta(JSONObject().put("run", JSONObject().put("status", "completed")), "chat")
+        assertFalse(vm.running)
+    }
+
+    @Test
+    fun `transient history failure retries the terminal handoff`() {
+        val dispatcher = UnconfinedTestDispatcher()
+        withCloud(dispatcher) { vm, server ->
+            val failuresRemaining = java.util.concurrent.atomic.AtomicInteger(0)
+            val failedRequests = java.util.concurrent.atomic.AtomicInteger(0)
+            server.handler = { exchange, seen ->
+                if (seen.path.endsWith("/messages")) {
+                    if (failuresRemaining.getAndSet(0) > 0) {
+                        failedRequests.incrementAndGet()
+                        server.reply(exchange, "{\"message\":\"temporary failure\"}", 500)
+                    } else {
+                        val items = JSONArray()
+                        if (failedRequests.get() > 0) {
+                            items.put(JSONObject().put("id", "user-row").put("turn_id", "turn-1")
+                                .put("role", "user").put("text", "hello"))
+                            items.put(JSONObject().put("id", "answer-row").put("turn_id", "turn-1")
+                                .put("role", "assistant").put("messages", JSONArray()
+                                    .put(JSONObject().put("id", 1).put("type", "text").put("content", "answer"))))
+                        }
+                        server.reply(exchange, JSONObject().put("items", items).toString())
+                    }
+                    true
+                } else false
+            }
+            login(vm)
+            vm.selectSession(MemohSession("chat", "Chat", "agent"))
+            awaitState { vm.loadedHistorySessionId == "chat" }
+            assertTrue(vm.send("hello"))
+            val invocation = vm.admissionInvocations.keys.single()
+            val receive = MemohViewModel::class.java.getDeclaredMethod("receive", JSONObject::class.java)
+                .apply { isAccessible = true }
+            receive.invoke(vm, JSONObject().put("type", "run_accepted").put("session_id", "chat")
+                .put("invocation_id", invocation).put("turn_id", "turn-1").put("run_id", "run-1"))
+            vm.applyRunView(JSONObject().put("run_id", "run-1").put("turn_id", "turn-1")
+                .put("status", "running").put("messages", JSONArray()
+                    .put(JSONObject().put("id", 1).put("type", "text").put("content", "answer"))))
+            failuresRemaining.set(1)
+            vm.applyRuntimeDelta(JSONObject().put("run", JSONObject().put("status", "completed")), "chat")
+            awaitState { failedRequests.get() == 1 }
+            assertEquals("answer", vm.liveBlocks.single().text)
+            awaitWithRetries(dispatcher) {
+                vm.turns.any { it.role == "assistant" && it.turnId == "turn-1" } &&
+                    vm.pendingUserText == null && vm.liveBlocks.isEmpty()
+            }
+            assertFalse(vm.sendStates.containsKey(invocation))
+        }
+    }
+
+    @Test
+    fun `stale successful history keeps the live answer until the assistant turn arrives`() {
+        val dispatcher = UnconfinedTestDispatcher()
+        withCloud(dispatcher) { vm, server ->
+            val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+            val assistantReady = java.util.concurrent.atomic.AtomicBoolean(false)
+            val staleResponses = java.util.concurrent.atomic.AtomicInteger(0)
+            server.handler = { exchange, seen ->
+                if (seen.path.endsWith("/messages")) {
+                    val items = JSONArray()
+                    if (finished.get()) {
+                        items.put(JSONObject().put("id", "user-row").put("turn_id", "turn-1")
+                            .put("role", "user").put("text", "hello"))
+                        if (assistantReady.get()) {
+                            items.put(JSONObject().put("id", "answer-row").put("turn_id", "turn-1")
+                                .put("role", "assistant").put("messages", JSONArray()
+                                    .put(JSONObject().put("id", 1).put("type", "text").put("content", "answer"))))
+                        } else staleResponses.incrementAndGet()
+                    }
+                    server.reply(exchange, JSONObject().put("items", items).toString())
+                    true
+                } else false
+            }
+            login(vm)
+            vm.selectSession(MemohSession("chat", "Chat", "agent"))
+            awaitState { vm.loadedHistorySessionId == "chat" }
+            assertTrue(vm.send("hello"))
+            val invocation = vm.admissionInvocations.keys.single()
+            val receive = MemohViewModel::class.java.getDeclaredMethod("receive", JSONObject::class.java)
+                .apply { isAccessible = true }
+            receive.invoke(vm, JSONObject().put("type", "run_accepted").put("session_id", "chat")
+                .put("invocation_id", invocation).put("turn_id", "turn-1").put("run_id", "run-1"))
+            vm.applyRunView(JSONObject().put("run_id", "run-1").put("turn_id", "turn-1")
+                .put("status", "running").put("messages", JSONArray()
+                    .put(JSONObject().put("id", 1).put("type", "text").put("content", "answer"))))
+            finished.set(true)
+            vm.applyRuntimeDelta(JSONObject().put("run", JSONObject().put("status", "completed")), "chat")
+            awaitState { staleResponses.get() > 0 && vm.turns.any { it.role == "user" } && vm.pendingUserText == null }
+            assertEquals("answer", vm.liveBlocks.single().text)
+            val rows = memohTranscriptRows(vm.turns, vm.liveUserTurns, vm.pendingUserText,
+                vm.pendingUserAttachments, vm.pendingUserTurnId, vm.liveTurnId, true, null)
+            assertEquals(listOf("hello", ""), rows.map { it.text })
+            assertEquals(MEMOH_LIVE_MESSAGE_ID, rows.last().id)
+
+            assistantReady.set(true)
+            awaitWithRetries(dispatcher) {
+                vm.turns.any { it.role == "assistant" && it.turnId == "turn-1" } && vm.liveBlocks.isEmpty()
+            }
+            assertFalse(vm.sendStates.containsKey(invocation))
+        }
+    }
+
+    @Test
+    fun `settled user is not restored as pending after returning to a session`() = withCloud { vm, server ->
+        val ready = java.util.concurrent.atomic.AtomicBoolean(false)
+        server.handler = { exchange, seen ->
+            if (seen.path.endsWith("/messages")) {
+                val items = JSONArray()
+                if (ready.get()) items.put(JSONObject().put("id", "server-row")
+                    .put("turn_id", "turn-1").put("role", "user").put("text", "hello"))
+                server.reply(exchange, JSONObject().put("items", items).toString()); true
+            } else false
+        }
+        login(vm)
+        val conversation = MemohSession("chat", "Chat", "agent")
+        vm.selectSession(conversation)
+        assertTrue(vm.send("hello"))
+        val invocation = vm.admissionInvocations.keys.single()
+        val receive = MemohViewModel::class.java.getDeclaredMethod("receive", JSONObject::class.java)
+            .apply { isAccessible = true }
+        receive.invoke(vm, JSONObject().put("type", "run_accepted").put("session_id", "chat")
+            .put("invocation_id", invocation).put("turn_id", "turn-1").put("run_id", "run-1"))
+        vm.newChat()
+        ready.set(true)
+        vm.selectSession(conversation)
+        awaitState { vm.turns.any { it.turnId == "turn-1" } && vm.pendingUserText == null }
+        assertFalse(vm.sendStates.containsKey(invocation))
+        vm.newChat()
+        vm.selectSession(conversation)
+        assertNull(vm.pendingUserText)
     }
 
     @Test
