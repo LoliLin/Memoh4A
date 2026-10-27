@@ -1,5 +1,6 @@
 package com.newoether.agora.memoh
 
+import com.newoether.agora.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -10,12 +11,11 @@ internal fun MemohViewModel.armAdmissionTimeout(invocation: String, draft: Strin
         delay(ADMISSION_TIMEOUT_MS)
         if (admissionInvocations.containsKey(invocation)) {
             val mutation = admissionInvocations[invocation]?.optString("type") != "message"
+            val seconds = (ADMISSION_TIMEOUT_MS / 1000).toInt()
             val message = if (mutation) {
-                "The server has not acknowledged this edit within ${ADMISSION_TIMEOUT_MS / 1000} seconds. " +
-                    "It may still have been applied; check the conversation before retrying."
+                text(R.string.memoh_error_admission_timeout_edit, seconds)
             } else {
-                "The server has not acknowledged this message within ${ADMISSION_TIMEOUT_MS / 1000} seconds. " +
-                    "The draft was restored. It may still have been accepted; check the conversation before sending again."
+                text(R.string.memoh_error_admission_timeout_message, seconds)
             }
             failAdmission(invocation, message)
         }

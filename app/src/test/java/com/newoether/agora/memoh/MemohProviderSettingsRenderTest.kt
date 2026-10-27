@@ -70,7 +70,14 @@ class MemohProviderSettingsRenderTest {
             val res = ApplicationProvider.getApplicationContext<Application>().resources
             compose.setContent {
                 AgoraTheme {
-                    MemohProviderDetailPage(MemohAdminApi(api), provider, listOf(model), {}, { changes.incrementAndGet() })
+                    MemohProviderDetailPage(
+                        admin = MemohAdminApi(api),
+                        provider = provider,
+                        models = listOf(model),
+                        canManage = true,
+                        onBack = {},
+                        onChanged = { changes.incrementAndGet() },
+                    )
                 }
             }
 
@@ -101,6 +108,60 @@ class MemohProviderSettingsRenderTest {
         } finally {
             api.clearIdentity()
             server.stop(0)
+        }
+    }
+
+    @Test
+    fun aMemberWithoutManagePermissionIsNotOfferedEditOrDelete() {
+        val api = MemohApi().apply {
+            configure("http://127.0.0.1:1/api", "local-test-token")
+            selectTeam("team-1")
+        }
+        try {
+            val provider = MemohProvider(
+                id = "provider-1", name = "Test provider", clientType = "openai",
+                icon = "", enabled = true, managed = false, config = JSONObject(),
+                baseUrl = "https://provider.test", hasApiKey = true,
+            )
+            val model = MemohAdminModel(
+                id = "model-1", modelId = "old-model", name = "Old model", providerId = "provider-1",
+                type = "chat", enabled = true, contextWindow = 0, reasoningEfforts = emptyList(),
+            )
+            val res = ApplicationProvider.getApplicationContext<Application>().resources
+            compose.setContent {
+                AgoraTheme {
+                    MemohProviderDetailPage(
+                        admin = MemohAdminApi(api),
+                        provider = provider,
+                        models = listOf(model),
+                        canManage = false,
+                        onBack = {},
+                        onChanged = {},
+                    )
+                }
+            }
+
+            // Read-only surfaces stay, writes disappear.
+            compose.onNodeWithText(res.getString(R.string.memoh_ui_models)).assertIsDisplayed()
+            compose.onAllNodesWithText(res.getString(R.string.models_add_custom)).assertCountEquals(0)
+            compose.onAllNodesWithText(res.getString(R.string.memoh_ui_edit_provider)).assertCountEquals(0)
+            compose.onAllNodesWithText(res.getString(R.string.memoh_ui_remove_provider)).assertCountEquals(0)
+            compose.onNodeWithText(res.getString(R.string.memoh_ui_providers_managed_hint)).assertIsDisplayed()
+
+            // The per-model menu keeps its read-only test action but drops disable and remove.
+            compose.onNodeWithContentDescription(res.getString(R.string.memoh_ui_options))
+                .performScrollTo().performClick()
+            // "Test connection" is both the group title and the menu entry; the open menu adds one.
+            assertEquals(
+                2,
+                compose.onAllNodesWithText(res.getString(R.string.memoh_ui_test_connection))
+                    .fetchSemanticsNodes().size,
+            )
+            compose.onAllNodesWithText(res.getString(R.string.memoh_ui_remove)).assertCountEquals(0)
+            compose.onAllNodesWithText(res.getString(R.string.memoh_ui_disable)).assertCountEquals(0)
+            compose.onAllNodesWithText(res.getString(R.string.memoh_ui_enable)).assertCountEquals(0)
+        } finally {
+            api.clearIdentity()
         }
     }
 }

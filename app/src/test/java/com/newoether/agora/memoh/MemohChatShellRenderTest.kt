@@ -157,6 +157,11 @@ class MemohChatShellRenderTest {
                 }
             }
         }
+        // The streaming overlay arrives through a state channel, so give composition a chance to
+        // settle instead of asserting on the first frame.
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("A unique answer").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onAllNodesWithText("A unique question").assertCountEquals(1)
         compose.onAllNodesWithText("A unique answer").assertCountEquals(1)
         compose.onAllNodesWithText("Stale answer").assertCountEquals(0)
@@ -165,6 +170,9 @@ class MemohChatShellRenderTest {
         assertTrue("the answer should be below its question", question.boundsInRoot.bottom <= answer.boundsInRoot.top)
 
         compose.runOnIdle { settled = true }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("A unique answer").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onAllNodesWithText("A unique question").assertCountEquals(1)
         compose.onAllNodesWithText("A unique answer").assertCountEquals(1)
         compose.onAllNodesWithText("Stale answer").assertCountEquals(0)
