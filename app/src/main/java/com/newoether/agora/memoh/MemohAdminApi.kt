@@ -29,13 +29,19 @@ internal class MemohAdminApi(parent: MemohTransport) : MemohTransport(parent) {
 
     suspend fun providerModels(id: String): JSONObject = request("/providers/${Uri.encode(id)}/models")
 
-    suspend fun importProviderModels(id: String): JSONObject =
-        request("/providers/${Uri.encode(id)}/import-models", JSONObject(), method = "POST")
+    suspend fun importProviderModels(id: String, defaults: List<String> = emptyList()): JSONObject =
+        request("/providers/${Uri.encode(id)}/import-models", JSONObject().apply {
+            if (defaults.isNotEmpty()) put("default_compatibilities", org.json.JSONArray(defaults))
+        }, method = "POST")
+
+    suspend fun importProviderCatalogModels(id: String): JSONObject =
+        request("/providers/${Uri.encode(id)}/import-catalog-models", JSONObject(), method = "POST")
 
     suspend fun testProvider(id: String): JSONObject =
         request("/providers/${Uri.encode(id)}/test", JSONObject(), method = "POST")
 
-    suspend fun providerTemplates(): JSONObject = request("/provider-templates")
+    suspend fun providerTemplates(domain: String = "llm"): JSONObject =
+        request("/provider-templates?domain=${Uri.encode(domain)}")
 
     suspend fun providerTemplate(id: String): JSONObject = request("/provider-templates/${Uri.encode(id)}")
 

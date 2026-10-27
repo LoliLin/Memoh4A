@@ -185,7 +185,7 @@ internal fun MemohBotAppsTab(
                         color = MaterialTheme.colorScheme.onErrorContainer
                     )
                     TextButton(onClick = { refresh() }, enabled = !loading) {
-                        Text(uiResources.getString(R.string.memoh_ui_retry))
+                        Text(uiResources.getString(R.string.memoh_ui_refresh))
                     }
                 }
             }

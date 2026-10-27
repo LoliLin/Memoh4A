@@ -498,6 +498,41 @@ class MemohFeatureParityTest {
     }
 
     @Test
+    fun `late initial session page retains a newly forked session`() = withCloud { vm, server ->
+        val pageStarted = java.util.concurrent.CountDownLatch(1)
+        val releasePage = java.util.concurrent.CountDownLatch(1)
+        server.handler = { exchange, seen ->
+            when {
+                seen.method == "GET" && seen.path.endsWith("/sessions") -> {
+                    pageStarted.countDown()
+                    releasePage.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                    server.reply(exchange, """{"items":[]}""")
+                    true
+                }
+                seen.path.endsWith("/fork") -> {
+                    server.reply(exchange, """{"id":"fork-late","title":"Forked","bot_agent_id":"agent"}""")
+                    true
+                }
+                else -> false
+            }
+        }
+        try {
+            vm.login.email = "user@example.com"
+            vm.login.code = "123456"
+            vm.loginWithCode()
+            awaitState { vm.signedIn && vm.bot != null && pageStarted.count == 0L }
+            vm.selectSession(MemohSession("chat", "Chat", "agent"))
+            vm.forkFromTurn("srv-turn-3")
+            awaitState { vm.session?.id == "fork-late" }
+            releasePage.countDown()
+            awaitState { !vm.loadingSessions }
+            assertTrue(vm.sessions.any { it.id == "fork-late" })
+        } finally {
+            releasePage.countDown()
+        }
+    }
+
+    @Test
     fun `forking from a turn posts turn_id and navigates to the forked session`() = withCloud { vm, server ->
         var forkBody: String? = null
         server.handler = { exchange, seen ->

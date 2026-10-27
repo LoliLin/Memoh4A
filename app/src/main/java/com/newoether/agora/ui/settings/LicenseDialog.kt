@@ -32,9 +32,10 @@ private const val LICENSE_URL = "https://github.com/newo-ether/Agora/blob/master
 internal fun LicenseDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val licenseText = remember {
-        runCatching {
-            context.assets.open(LICENSE_ASSET).bufferedReader().use { it.readText() }
-        }.getOrDefault("")
+        listOf("licenses/NOTICE-MEMOH.txt", LICENSE_ASSET, "licenses/LICENSE-AGPL-3.0.txt")
+            .mapNotNull { path ->
+                runCatching { context.assets.open(path).bufferedReader().use { it.readText() } }.getOrNull()
+            }.joinToString("\n\n")
     }
 
     AlertDialog(
@@ -43,7 +44,7 @@ internal fun LicenseDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = stringResource(R.string.about_license_desc),
+                text = stringResource(R.string.about_license),
                 fontWeight = FontWeight.Bold
             )
         },

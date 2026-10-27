@@ -139,6 +139,25 @@ class MemohModelPreferenceTest {
         }
     }
 
+    @Test fun catalogRetainsServerResolvedReasoningOptionsForTheComposer() = runBlocking {
+        MemohCloudServer().use { server ->
+            server.handler = { exchange, seen ->
+                server.reply(exchange, if (seen.path.endsWith("/models"))
+                    """{"items":[{"id":"record","model_id":"model","type":"chat","enable":true,
+                    "config":{"context_window":8192,"reasoning_efforts":["low"]},
+                    "reasoning":{"supported":true,"can_disable":true,"default_off":false,
+                                 "default_effort":"high","efforts":["minimal","high"]}}]}"""
+                else """{"items":[]}""")
+                true
+            }
+            val model = MemohApi().apply { configure(server.origin) }.teamChatModels()
+                .getJSONArray("models").getJSONObject(0)
+            assertEquals(8192, model.getJSONObject("config").getInt("context_window"))
+            assertEquals(listOf("disable", "minimal", "high"), model.reasoningEfforts())
+            assertEquals("high", model.reasoningDefault())
+        }
+    }
+
     @Test fun creationOnlyRemembersExplicitPickerPair() = runBlocking {
         MemohCloudServer().use { server ->
             server.handler = { exchange, _ -> server.reply(exchange, """{"id":"chat","title":"Chat"}"""); true }
@@ -169,6 +188,45 @@ class MemohModelPreferenceTest {
             assertEquals("r8", updated.modelPreferenceRevision)
             assertEquals("chat/1", updated.id)
         }
+    }
+
+    @Test fun newChatSeedsTheLatestPairThenFallsBackToTheBotDefault() = runTest {
+        val api = api()
+        coEvery { api.teamChatModels() } returns catalog()
+        val controller = MemohAgentController(api)
+        controller.loadModels()
+        controller.setBotDefault("model-record", "medium")
+        controller.setWelcomeSeed("seeded-record", "high", apply = true)
+        assertEquals("seeded-record", controller.preferredModelId)
+        assertEquals("high", controller.preferredReasoningEffort)
+        // A seed with no effort still lands on the bot's own effort, not on an empty override.
+        controller.setWelcomeSeed("seeded-record", "", apply = true)
+        assertEquals("medium", controller.preferredReasoningEffort)
+        // No seed: the composer shows the bot default but carries no override, so the next
+        // new conversation still follows a changed bot default.
+        controller.setWelcomeSeed("", "", apply = true)
+        assertEquals("", controller.preferredModelId)
+        assertEquals("model-record", controller.currentModelId)
+        // Opening a real conversation restores that conversation's pair, never the seed.
+        controller.beginConversation(MemohSession("chat", "Chat", preferredReasoningEffort = "low"))
+        assertEquals("", controller.preferredModelId)
+        assertEquals("low", controller.preferredReasoningEffort)
+    }
+
+    @Test fun switchingModelsReconcilesAStrandedEffortLikeTheWebComposer() {
+        val model = JSONObject("""{"reasoning":{"supported":true,"can_disable":true,
+                         "efforts":["minimal","high"],"default_effort":"high"}}""")
+        assertEquals("high", model.reconcileComposerReasoningEffort("xhigh"))
+        assertEquals("disable", model.reconcileComposerReasoningEffort("none"))
+        assertEquals("minimal", model.reconcileComposerReasoningEffort("minimal"))
+        // An empty override means "inherit", so it must stay empty.
+        assertEquals("", model.reconcileComposerReasoningEffort(""))
+        val offUnavailable = JSONObject("""{"reasoning":{"supported":true,"can_disable":false,
+                         "efforts":["low"],"default_effort":"low"}}""")
+        assertEquals("low", offUnavailable.reconcileComposerReasoningEffort("disable"))
+        // A model without thinking keeps the dormant preference instead of erasing it.
+        val thinkingFree = JSONObject("""{"reasoning":{"supported":false}}""")
+        assertEquals("high", thinkingFree.reconcileComposerReasoningEffort("high"))
     }
 
     @Test fun resourcePickerUsesUserIdsAndNamesInsteadOfRequiringTypedIdentifiers() {

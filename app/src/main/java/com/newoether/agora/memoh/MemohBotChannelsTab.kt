@@ -194,7 +194,7 @@ internal fun MemohBotChannelsTab(
                         overflow = TextOverflow.Ellipsis,
                     )
                     TextButton(onClick = { refresh() }, enabled = !loading) {
-                        Text(uiResources.getString(R.string.memoh_ui_retry))
+                        Text(uiResources.getString(R.string.memoh_ui_refresh))
                     }
                 }
             }

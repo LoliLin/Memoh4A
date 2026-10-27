@@ -41,6 +41,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
     private var authRevision = 0
     private var botRevision = 0
+    private var welcomeSeedRevision = 0
     private val modelPreferenceMutex = Mutex()
     internal var attachmentDraftRevision by mutableStateOf(0); private set
     internal var historyRevision = 0; private set
@@ -321,18 +322,17 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             runCatching { agentController.refresh(value.id) }
         }
         navigationScope.launch { agentController.loadModels() }
-        navigationScope.launch {
-            runCatching { api.modelPreferenceSeed(value.id) }.onSuccess { seed ->
-                if (revision == botRevision && bot?.id == value.id)
-                    agentController.setBotDefault(seed.optString("model_id"))
-            }
-        }
+        // One request, not two: the default pair and the welcome seed feed the same picker,
+        // and reading them back to back keeps the new-chat composer settled in one step.
+        refreshWelcomePreferences(value.id)
         navigationScope.launch {
             loadingSessions = true
             try {
                 val page = api.sessionsPage(value.id)
                 if (revision == botRevision && bot?.id == value.id) {
-                    sessions = page.items
+                    // A new or forked conversation may have been added while this initial page
+                    // was in flight. Keep those local rows and append only unseen server rows.
+                    sessions = (sessions + page.items).distinctBy { it.id }
                     nextSessionCursor = page.nextCursor
                     olderSessionsAvailable = page.nextCursor != null
                 }
@@ -348,8 +348,59 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         connectSocket(value.id)
     }
 
+    /**
+     * The bot's own default pair plus the latest native session's pair.
+     *
+     * Both feed one picker: the default is what a new conversation follows, and the seed is
+     * what the composer carries on send. Each is optional on its own (an older server has no
+     * seed route, a restricted account may not read settings), so a failure in one must not
+     * hide the other.
+     */
+    private fun refreshWelcomePreferences(botId: String) {
+        val revision = botRevision
+        val requestRevision = ++welcomeSeedRevision
+        val preferenceRevision = agentController.preferenceRevision
+        navigationScope.launch {
+            var seed: String? = null
+            var seedEffort: String? = null
+            try {
+                val settings = api.botSettings(botId)
+                if (revision != botRevision || bot?.id != botId) return@launch
+                agentController.setBotDefault(
+                    settings.optString("chat_model_id"),
+                    settings.optString("reasoning_effort"),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep whatever default the composer already follows.
+            }
+            try {
+                val response = api.modelPreferenceSeed(botId)
+                seed = response.optString("model_id")
+                seedEffort = response.optString("reasoning_effort")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Servers before the seed route simply keep the bot default.
+            }
+            if (revision != botRevision || requestRevision != welcomeSeedRevision || bot?.id != botId) {
+                return@launch
+            }
+            val apply = session == null && !hasCurrentAdmission &&
+                agentController.preferenceRevision == preferenceRevision
+            when {
+                seed != null -> agentController.setWelcomeSeed(seed, seedEffort.orEmpty(), apply)
+                // No seed route: the bot default is still what a new chat should follow.
+                apply -> agentController.applyWelcomeSeed()
+            }
+        }
+    }
+
     fun selectModel(modelId: String, effort: String) {
+        val previousModel = agentController.currentModelId
         agentController.setModelPreference(modelId, effort)
+        if (modelId != previousModel) agentController.reconcileComposerPreference()
         val owner = bot ?: return
         val selected = session ?: return
         val identity = api.scope
@@ -501,7 +552,10 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun newChat() = selectSession(null)
+    fun newChat() {
+        selectSession(null)
+        bot?.id?.let(::refreshWelcomePreferences)
+    }
 
     fun selectAgentForNewChat(agentId: String) {
         agentController.select(agentId)

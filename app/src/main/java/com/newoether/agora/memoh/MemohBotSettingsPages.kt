@@ -79,6 +79,7 @@ internal fun MemohBotSectionPage(
     val uiResources = LocalContext.current.resources
     val title = when (section) {
         MemohBotSectionKey.GENERAL -> uiResources.getString(R.string.memoh_ui_general)
+        MemohBotSectionKey.MODELS -> uiResources.getString(R.string.memoh_ui_models_and_behavior)
         MemohBotSectionKey.AGENTS -> uiResources.getString(R.string.memoh_ui_agents)
         MemohBotSectionKey.CHANNELS -> uiResources.getString(R.string.memoh_ui_channels)
         MemohBotSectionKey.RUNTIME -> uiResources.getString(R.string.memoh_ui_runtime)
@@ -101,6 +102,13 @@ internal fun MemohBotSectionPage(
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 when (section) {
                     MemohBotSectionKey.GENERAL -> BotGeneralSection(api, bot, canManage, onBotUpdated, reportError)
+                    MemohBotSectionKey.MODELS -> MemohBotModelSettingsPage(
+                        api = api,
+                        bot = bot,
+                        canManage = canManage,
+                        onBack = onBack,
+                        onSaved = { onNotice(uiResources.getString(R.string.memoh_ui_saved), false) },
+                    )
                     MemohBotSectionKey.AGENTS -> BotAgentsTab(api, bot.id, agentController, canManage, reportError)
                     MemohBotSectionKey.CHANNELS -> MemohBotChannelsTab(api, bot.id, canManage)
                     MemohBotSectionKey.RUNTIME -> MemohBotRuntimeTab(api, bot.id, canManage)

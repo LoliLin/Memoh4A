@@ -699,7 +699,11 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
                 .put("provider_id", providerId)
                 .put("provider_name", providerNames[providerId] ?: "")
                 .put("default_reasoning_effort", item.optString("default_reasoning_effort"))
-                .put("configured_model_id", modelResponse.optString("configured_model_id")))
+                .put("configured_model_id", modelResponse.optString("configured_model_id"))
+                .apply {
+                    item.optJSONObject("config")?.let { put("config", JSONObject(it.toString())) }
+                    item.optJSONObject("reasoning")?.let { put("reasoning", JSONObject(it.toString())) }
+                })
         }
         return JSONObject().put("models", models)
     }

@@ -98,6 +98,31 @@ class MemohMediaAndMarketTest {
         assertEquals(listOf("low", "high", "max"), model.reasoningEfforts())
     }
 
+    @Test fun resolvedReasoningOptionsTakePrecedenceAndKeepTheServerDefault() {
+        val model = JSONObject("""{
+            "config":{"reasoning_efforts":["low","high"]},
+            "reasoning":{"supported":true,"can_disable":true,"default_off":true,
+                         "default_effort":"high","efforts":["minimal","high"]}
+        }""")
+        assertEquals(listOf("disable", "minimal", "high"), model.reasoningEfforts())
+        assertEquals("disable", model.reasoningDefault())
+        model.getJSONObject("reasoning").put("default_off", false)
+        assertEquals("high", model.reasoningDefault())
+        model.getJSONObject("reasoning").put("supported", false)
+        assertTrue(model.reasoningEfforts().isEmpty())
+        assertEquals("", model.reasoningDefault())
+    }
+
+    @Test fun toggleOnlyAndUnknownServerReasoningOptionsRemainSelectable() {
+        val model = JSONObject("""{"reasoning":{"supported":true,"can_disable":true,
+                         "efforts":["enabled","future-option"],"default_effort":"enabled"}}""")
+        assertEquals(listOf("disable", "enabled", "future-option"), model.reasoningEfforts())
+        assertEquals("enabled", model.reasoningDefault())
+        val nested = JSONObject("""{"config":{"reasoning":{"toggle":true,"efforts":["minimal"]}}}""")
+        assertTrue(nested.reasoningThinkingToggle())
+        assertEquals(listOf("minimal"), nested.reasoningEfforts())
+    }
+
     @Test fun modelWithoutThinkingSupportOffersNoEffortChoices() {
         assertEquals(emptyList<String>(), JSONObject().put("config", JSONObject()).reasoningEfforts())
         assertEquals(emptyList<String>(), JSONObject().reasoningEfforts())
