@@ -321,11 +321,9 @@ internal fun AttachmentDraftStrip(
                             )
                         }
                     }
-                    Spacer(Modifier.width(4.dp))
-                    IconButton(
-                        onClick = { onRemove(att) },
-                        modifier = Modifier.size(24.dp)
-                    ) {
+                    // Removing a draft attachment was a 24dp target wedged beside "Send"; the
+                    // default IconButton size restores the 48dp minimum.
+                    IconButton(onClick = { onRemove(att) }) {
                         Icon(
                             Icons.Default.Close,
                             contentDescription = uiResources.getString(R.string.memoh_ui_remove),

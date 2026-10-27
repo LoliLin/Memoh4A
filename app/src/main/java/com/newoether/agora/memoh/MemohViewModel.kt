@@ -210,11 +210,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     fun retrySessionRestore() {
         if (restoringSession || signedIn || login.signingIn || login.sendingCode) return
         try {
-            val endpoints = MemohEndpoints.fromInput(login.server)
+            val endpoints = MemohEndpoints.fromInput(login.server, MemohServerMessages.from(::text))
             if (api.scope.identity.endpoints != endpoints) api.configure(endpoints)
             navigationScope.launch { resumeCookieSession() }
         } catch (failure: IllegalArgumentException) {
-            error = failure.message ?: "Enter a valid Memoh server address"
+            error = failure.message ?: text(R.string.memoh_error_server_address)
         }
     }
 
@@ -276,7 +276,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: Exception) {
-            if (revision == authRevision) error = e.message ?: "Failed to load bots"
+            if (revision == authRevision) error = e.message ?: text(R.string.memoh_error_load_bots)
         }
     }
 
@@ -340,7 +340,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 throw cancelled
             } catch (e: Exception) {
                 if (revision == botRevision && bot?.id == value.id)
-                    error = e.message ?: "Failed to load sessions"
+                    error = e.message ?: text(R.string.memoh_error_load_sessions)
             } finally {
                 if (revision == botRevision) loadingSessions = false
             }
@@ -446,7 +446,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 throw cancelled
             } catch (e: Exception) {
                 if (runtimeControlsRevision == revision)
-                    error = e.message ?: "Failed to load runtime controls"
+                    error = e.message ?: text(R.string.memoh_error_load_runtime_controls)
             }
         }
     }
@@ -560,28 +560,28 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun cancelQueued(item: MemohQueueItem) {
-        mutateQueue("remove the queued message") { b, sid -> api.cancelQueueItem(b, sid, item) }
+        mutateQueue(R.string.memoh_error_remove_queued) { b, sid -> api.cancelQueueItem(b, sid, item) }
     }
 
     fun editQueued(item: MemohQueueItem, text: String) {
         val value = text.trim()
         if (value.isBlank()) return
-        mutateQueue("edit the queued message") { b, sid -> api.editQueueItem(b, sid, item, value) }
+        mutateQueue(R.string.memoh_error_edit_queued) { b, sid -> api.editQueueItem(b, sid, item, value) }
     }
 
     /** Move [item] above [beforeId] within its queue; null moves it to the end. */
     fun reorderQueued(item: MemohQueueItem, beforeId: String?) {
-        mutateQueue("reorder the queue") { b, sid -> api.reorderQueue(b, sid, item.type, item, beforeId) }
+        mutateQueue(R.string.memoh_error_reorder_queue) { b, sid -> api.reorderQueue(b, sid, item.type, item, beforeId) }
     }
 
     /** Promote an accepted follow-up to steer the active run. */
     fun promoteQueued(item: MemohQueueItem) {
         if (item.type != "follow_up") return
-        mutateQueue("promote the message to steering") { b, sid -> api.promoteQueueItem(b, sid, item) }
+        mutateQueue(R.string.memoh_error_promote_queue) { b, sid -> api.promoteQueueItem(b, sid, item) }
     }
 
     private inline fun mutateQueue(
-        action: String,
+        action: Int,
         noinline block: suspend MemohApi.(botId: String, sessionId: String) -> Unit,
     ) {
         val b = bot?.id ?: return
@@ -596,7 +596,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (revision == queueRevision) error = e.message ?: "Could not $action"
+                if (revision == queueRevision) error = e.message ?: text(R.string.memoh_error_action_failed, text(action))
             } finally {
                 if (revision == queueRevision) queueBusy = false
             }
@@ -620,7 +620,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (revision == botRevision) error = e.message ?: "Failed to load sessions"
+                if (revision == botRevision) error = e.message ?: text(R.string.memoh_error_load_sessions)
             } finally {
                 if (revision == botRevision) loadingSessions = false
             }
@@ -643,7 +643,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (revision == historyRevision) error = e.message ?: "Unable to rename conversation"
+                if (revision == historyRevision) error = e.message ?: text(R.string.memoh_error_rename_session)
             }
         }
     }
@@ -666,7 +666,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                if (revision == historyRevision) error = e.message ?: "Unable to delete conversation"
+                if (revision == historyRevision) error = e.message ?: text(R.string.memoh_error_delete_session)
             }
         }
     }
@@ -690,7 +690,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 throw cancelled
             } catch (e: Exception) {
                 if (revision == historyRevision)
-                    error = e.message ?: "Failed to load earlier messages"
+                    error = e.message ?: text(R.string.memoh_error_load_earlier)
             } finally {
                 if (revision == historyRevision) loadingOlderMessages = false
             }
@@ -788,11 +788,11 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     /** One-line health summary used by both the settings home rows and diagnostics. */
     internal fun connectionSummary(): String = when (connection.state) {
-        MemohConnectionState.Connected -> "Connected"
-        MemohConnectionState.Connecting -> "Connecting…"
-        MemohConnectionState.Retrying -> "Reconnecting…"
-        MemohConnectionState.Blocked -> "Connection failed"
-        MemohConnectionState.Idle -> "Disconnected"
+        MemohConnectionState.Connected -> text(R.string.memoh_status_connected)
+        MemohConnectionState.Connecting -> text(R.string.memoh_status_connecting)
+        MemohConnectionState.Retrying -> text(R.string.memoh_status_reconnecting)
+        MemohConnectionState.Blocked -> text(R.string.memoh_status_failed)
+        MemohConnectionState.Idle -> text(R.string.memoh_status_disconnected)
     }
 
     /** Surface a rejected attachment in the send-error banner instead of dropping it. */
@@ -869,7 +869,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     throw cancelled
                 } catch (e: Exception) {
                     if (authRevisionAtSend == authRevision)
-                        failAdmission(invocation, e.message ?: "Failed to create conversation")
+                        failAdmission(invocation, e.message ?: text(R.string.memoh_error_create_session))
                 }
             }
         }
@@ -980,7 +980,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                error = e.message ?: "Could not fork the conversation"
+                error = e.message ?: text(R.string.memoh_error_fork_session)
             }
         }
     }
@@ -1080,7 +1080,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 throw cancelled
             } catch (e: Exception) {
                 if (session?.id == sid && revision == historyRevision)
-                    error = e.message ?: "Failed to load history"
+                    error = e.message ?: text(R.string.memoh_error_load_history)
             }
         }
     }

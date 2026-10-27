@@ -98,11 +98,14 @@ private class MemohTerminalController(
     private val api: MemohApi,
     private val botId: String,
     private val deliver: (TerminalOutput) -> Unit,
+    /** Resolves a string id; the controller lives outside composition and has no Context. */
+    private val text: (Int, Array<out Any>) -> String,
 ) {
+    private fun label(id: Int, vararg args: Any): String = text(id, args)
     private val mainHandler = Handler(Looper.getMainLooper())
     var state by mutableStateOf(TerminalConnectionState.Idle)
         private set
-    var message by mutableStateOf("Connect to open a shell")
+    var message by mutableStateOf(label(R.string.memoh_terminal_idle))
         private set
 
     @Volatile private var generation = 0
@@ -153,11 +156,11 @@ private class MemohTerminalController(
                     if (generation == currentGeneration) {
                         state = TerminalConnectionState.Failed
                         message = when (code) {
-                            401 -> "Sign-in expired · reconnect after signing in again"
-                            403 -> "This bot does not allow terminal access"
-                            404 -> "Terminal is unavailable for this bot"
-                            null -> "Connection lost · tap reconnect to open a new shell"
-                            else -> "Terminal connection failed · HTTP $code"
+                            401 -> label(R.string.memoh_error_terminal_expired)
+                            403 -> label(R.string.memoh_error_terminal_denied)
+                            404 -> label(R.string.memoh_error_terminal_unavailable)
+                            null -> label(R.string.memoh_error_terminal_lost)
+                            else -> label(R.string.memoh_error_terminal_http, code)
                         }
                     }
                 }
@@ -172,7 +175,7 @@ private class MemohTerminalController(
                 mainHandler.post {
                     if (generation == currentGeneration && state == TerminalConnectionState.Connected) {
                         state = TerminalConnectionState.Idle
-                        message = "Shell closed · reconnect to open a new one"
+                        message = label(R.string.memoh_terminal_closed)
                     }
                 }
             }
@@ -188,14 +191,14 @@ private class MemohTerminalController(
             } catch (failure: Exception) {
                 if (generation == currentGeneration) {
                     state = TerminalConnectionState.Failed
-                    message = when (failure) {
+                        message = when (failure) {
                         is MemohHttpException -> when (failure.status) {
-                            401 -> "Sign-in expired · reconnect after signing in again"
-                            403 -> "This bot does not allow terminal access"
-                            404 -> "Terminal is unavailable for this bot"
-                            else -> "Terminal connection failed · HTTP ${failure.status}"
+                            401 -> label(R.string.memoh_error_terminal_expired)
+                            403 -> label(R.string.memoh_error_terminal_denied)
+                            404 -> label(R.string.memoh_error_terminal_unavailable)
+                            else -> label(R.string.memoh_error_terminal_http, failure.status)
                         }
-                        else -> "Could not open terminal · tap reconnect to try again"
+                        else -> label(R.string.memoh_error_terminal_open)
                     }
                 }
             }
@@ -270,20 +273,25 @@ internal fun MemohTerminalDialog(api: MemohApi, botId: String, onDismiss: () -> 
     var moreKeysExpanded by remember { mutableStateOf(false) }
 
     val controller = remember(api, botId) {
-        MemohTerminalController(api, botId) { output ->
-            webViewRef.get()?.post {
-                val webView = webViewRef.get() ?: return@post
-                when (output) {
-                    is TerminalOutput.Text -> webView.evaluateJavascript(
-                        "window.writeTerminalText(${JSONObject.quote(output.value)})", null,
-                    )
-                    is TerminalOutput.Bytes -> {
-                        val encoded = Base64.encodeToString(output.value.toByteArray(), Base64.NO_WRAP)
-                        webView.evaluateJavascript("window.writeTerminalBase64('$encoded')", null)
+        MemohTerminalController(
+            api = api,
+            botId = botId,
+            text = { id, args -> uiResources.getString(id, *args) },
+            deliver = { output ->
+                webViewRef.get()?.post {
+                    val webView = webViewRef.get() ?: return@post
+                    when (output) {
+                        is TerminalOutput.Text -> webView.evaluateJavascript(
+                            "window.writeTerminalText(${JSONObject.quote(output.value)})", null,
+                        )
+                        is TerminalOutput.Bytes -> {
+                            val encoded = Base64.encodeToString(output.value.toByteArray(), Base64.NO_WRAP)
+                            webView.evaluateJavascript("window.writeTerminalBase64('$encoded')", null)
+                        }
                     }
                 }
-            }
-        }
+            },
+        )
     }
     val assetLoader = remember(context) {
         WebViewAssetLoader.Builder()
