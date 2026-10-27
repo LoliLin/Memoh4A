@@ -582,7 +582,7 @@
     <string name="memoh_ui_add_provider">添加供应商</string>
     <string name="memoh_ui_edit_provider">编辑供应商</string>
     <string name="memoh_ui_remove_provider">移除供应商</string>
-    <string name="memoh_ui_remove_provider_confirm">移除 {0}？它下面的模型会停止工作。</string>
+    <string name="memoh_ui_remove_provider_confirm">移除 %1$s？其下的模型将无法继续使用。</string>
     <string name="memoh_ui_client_type">客户端类型</string>
     <string name="memoh_ui_base_url">接口地址</string>
     <string name="memoh_ui_api_key">API 密钥</string>

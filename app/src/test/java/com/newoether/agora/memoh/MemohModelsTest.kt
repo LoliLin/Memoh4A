@@ -112,6 +112,26 @@ class MemohModelsTest {
     }
 
     @Test
+    fun `runtime user without a position inherits its answer's position`() {
+        // The runtime echo of a user turn carries no turn_position; the persisted answer does.
+        val answer = MemohTurn("a1", "assistant", "answer", turnId = "t1", turnPosition = 5)
+        val echo = MemohTurn("u1", "user", "question", turnId = "t1")
+        val laterUser = MemohTurn("u2", "user", "next", turnId = "t2", turnPosition = 6)
+        val rows = memohTranscriptRows(
+            listOf(answer, laterUser), listOf(echo), null, emptyList(), null, "t1", true, null,
+        )
+        assertEquals(listOf("question", "", "next"), rows.map { it.text })
+    }
+
+    @Test
+    fun `an unresolvable row keeps server order instead of being moved`() {
+        val placed = MemohTurn("a", "assistant", turnPosition = 9)
+        val orphan = MemohTurn("b", "user", "unknown turn", turnId = "missing")
+        val earlier = MemohTurn("c", "user", "earlier", turnPosition = 1)
+        assertEquals(listOf(placed, orphan, earlier), memohOrderTurns(listOf(placed, orphan, earlier)))
+    }
+
+    @Test
     fun `history summary does not repeat assistant text blocks around a tool`() {
         val reply = MemohTurn("a", "assistant", "Before after", listOf(
             MemohBlock(0, "text", "Before"),

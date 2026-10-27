@@ -582,7 +582,7 @@
     <string name="memoh_ui_add_provider">Add provider</string>
     <string name="memoh_ui_edit_provider">Edit provider</string>
     <string name="memoh_ui_remove_provider">Remove provider</string>
-    <string name="memoh_ui_remove_provider_confirm">Remove {0}? Models created under it stop working.</string>
+    <string name="memoh_ui_remove_provider_confirm">Supprimer %1$s ? Les modèles qui en dépendent cesseront de fonctionner.</string>
     <string name="memoh_ui_client_type">Client type</string>
     <string name="memoh_ui_base_url">Base URL</string>
     <string name="memoh_ui_api_key">API key</string>

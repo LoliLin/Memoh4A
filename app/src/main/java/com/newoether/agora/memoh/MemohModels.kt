@@ -175,10 +175,27 @@ internal data class MemohTurn(
     val turnPosition: Long? = null,
 )
 
-/** Keep legacy server order when any row lacks a position. Kotlin's sort is stable for equal keys. */
+/**
+ * Order rows by the server's immutable `turn_position`.
+ *
+ * Runtime user turns arrive without a position, so a missing value is filled from its sibling row
+ * of the same turn (user and assistant share one position). If nothing carries a position, or any
+ * row still cannot be resolved, the incoming order is kept: that is a server which is not ordering
+ * the transcript, and guessing would move rows the server already placed.
+ */
 internal fun memohOrderTurns(turns: List<MemohTurn>): List<MemohTurn> {
-    if (turns.any { it.turnPosition == null }) return turns
-    return turns.sortedWith(compareBy<MemohTurn> { it.turnPosition }.thenBy {
+    if (turns.none { it.turnPosition != null }) return turns
+    val positionByTurn = turns.asSequence()
+        .filter { it.turnPosition != null && it.turnId.isNotBlank() }
+        .associate { it.turnId to it.turnPosition!! }
+    val resolved = turns.map { turn ->
+        if (turn.turnPosition != null) turn
+        else positionByTurn[turn.turnId]?.let { turn.copy(turnPosition = it) } ?: turn
+    }
+    // One unresolvable row means the server is not ordering this transcript; guessing would move
+    // rows the server already placed, so keep the incoming order instead.
+    if (resolved.any { it.turnPosition == null }) return turns
+    return resolved.sortedWith(compareBy<MemohTurn> { it.turnPosition }.thenBy {
         when (it.role) { "user" -> 0; "assistant" -> 1; else -> 2 }
     })
 }

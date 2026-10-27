@@ -21,6 +21,12 @@ import java.util.UUID
 /** How long a sent message may wait for run_accepted/run_rejected before being restored. */
 internal const val ADMISSION_TIMEOUT_MS = 30_000L
 
+/**
+ * ~2 minutes of handoff retries (1+2+4+8+16+30+30s). Long enough to absorb a slow history write,
+ * short enough that a server which never records the turn does not retry for the whole session.
+ */
+internal const val MAX_SETTLEMENT_RETRIES = 7
+
 internal class MemohViewModel(application: Application) : AndroidViewModel(application) {
     internal val navigationScope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + kotlinx.coroutines.SupervisorJob(viewModelScope.coroutineContext[Job]))
     private val prefs = application.getSharedPreferences("memoh_native", 0).also {
@@ -37,6 +43,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var seq = -1L
     private var awaitingSnapshot = true
     private var settlementRetryDelayMillis = 1_000L
+    /** Counts consecutive handoffs for one finished run so a lagging server cannot retry forever. */
+    private var settlementAttempts = 0
 
     internal val api = MemohApi()
     internal val workspaceApi: MemohApi get() = api
@@ -1009,11 +1017,14 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val current = sendStates.entries.lastOrNull {
             it.value.belongsTo(botId, sid) && it.value.text != null && it.value.failure.isBlank()
         }?.key
+        // This runs from reloadHistory too, where liveTurnId may already belong to a newer run.
+        // Only trust it when the handoff is settling the run that produced it.
+        val liveTurnConfirmed = completedRunId.isNotBlank() && liveTurnId.isNotBlank() && liveTurnId in userIds
         val confirmed = sendStates.filter { (_, state) ->
             state.belongsTo(botId, sid) && state.accepted && (
                 (state.serverTurnId.isNotBlank() && state.serverTurnId in userIds) ||
-                    (state.serverTurnId.isBlank() && completedRunId.isNotBlank() &&
-                        state.serverRunId == completedRunId && liveTurnId.isNotBlank() && liveTurnId in userIds)
+                    (state.serverTurnId.isBlank() && liveTurnConfirmed &&
+                        state.serverRunId == completedRunId)
                 )
         }.keys.toSet()
         if (bot?.id == botId && session?.id == sid &&
@@ -1115,6 +1126,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                     refreshQueue()
                     settlingRunId = ""
                     settlementRetryDelayMillis = 1_000L
+                    settlementAttempts = 0
                     runId = event.optString("run_id")
                     running = true
                 }
@@ -1283,6 +1295,33 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private suspend fun retrySettlement(botId: String, sid: String, finishedRun: String, revision: Int) {
+        // A permanently lagging server must not leave the observer retrying forever. The live
+        // transcript is already on screen, so give up and let the next refresh reconcile.
+        if (++settlementAttempts > MAX_SETTLEMENT_RETRIES) {
+            settlingRunId = ""
+            settlementAttempts = 0
+            settlementRetryDelayMillis = 1_000L
+            clearRun()
+            // The optimistic row and its send state would otherwise keep `send()` locked forever,
+            // because only a history page containing the turn can release them. Hand the text back
+            // as a draft and say plainly that the server never confirmed it.
+            if (bot?.id == botId && session?.id == sid) {
+                val stuck = sendStates.entries.lastOrNull { it.value.belongsTo(botId, sid) }
+                stuck?.let { entry ->
+                    restoreDraft = entry.value.text
+                    restoreAttachments = entry.value.attachments
+                    sendStates.remove(entry.key)
+                }
+                pendingUserText = null
+                pendingUserAttachments = emptyList()
+                pendingUserTurnId = null
+                if (error.isBlank()) {
+                    error = "The server never confirmed this reply. Check the conversation before resending."
+                }
+            }
+            reloadHistory(sid)
+            return
+        }
         val retryDelay = settlementRetryDelayMillis
         settlementRetryDelayMillis = (retryDelay * 2).coerceAtMost(30_000L)
         kotlinx.coroutines.delay(retryDelay)
@@ -1303,6 +1342,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         currentRunStatus = ""
         settlingRunId = ""
         settlementRetryDelayMillis = 1_000L
+        settlementAttempts = 0
         waitingForInteraction = emptySet()
         pendingControls.clear()
     }
