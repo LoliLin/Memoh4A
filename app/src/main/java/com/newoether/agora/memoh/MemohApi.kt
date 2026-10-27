@@ -340,9 +340,9 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
         val path = "/bots/${Uri.encode(botId)}/messages?session_id=${Uri.encode(sessionId)}&limit=$HISTORY_PAGE_SIZE" +
             if (beforeMessageId.isBlank()) "" else "&before_message_id=${Uri.encode(beforeMessageId)}"
         val array = request(path).optJSONArray("items") ?: JSONArray()
-        return (0 until array.length()).mapNotNull { i ->
+        return memohOrderTurns((0 until array.length()).mapNotNull { i ->
             array.optJSONObject(i)?.let(::decodeTurn)
-        }
+        })
     }
 
 
@@ -832,11 +832,22 @@ internal class MemohApi(parent: MemohTransport? = null) : MemohTransport(parent)
 
     // ---- Token usage ----
 
-    suspend fun tokenUsage(botId: String): JSONObject =
-        request("/bots/${Uri.encode(botId)}/token-usage")
+    /**
+     * `from`/`to` are required and must be plain `YYYY-MM-DD`; an RFC-3339 timestamp is rejected
+     * with request.field_invalid. Verified against app.memoh.net.
+     */
+    suspend fun tokenUsage(botId: String, from: String, to: String): JSONObject =
+        request("/bots/${Uri.encode(botId)}/token-usage?from=${Uri.encode(from)}&to=${Uri.encode(to)}")
 
-    suspend fun tokenUsageRecords(botId: String, limit: Int = 50, offset: Int = 0): JSONObject =
-        request("/bots/${Uri.encode(botId)}/token-usage/records?limit=$limit&offset=$offset")
+    suspend fun tokenUsageRecords(
+        botId: String,
+        from: String,
+        to: String,
+        limit: Int = 50,
+        offset: Int = 0,
+    ): JSONObject =
+        request("/bots/${Uri.encode(botId)}/token-usage/records" +
+            "?from=${Uri.encode(from)}&to=${Uri.encode(to)}&limit=$limit&offset=$offset")
 
     // ---- Skills catalog (chat-time skill selection) ----
 

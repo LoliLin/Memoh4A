@@ -31,6 +31,12 @@ internal fun MemohViewModel.cancelAdmissionTimeout(invocation: String? = null) {
 }
 
 /** Records the server turn_id that confirms the optimistic user turn. */
-internal fun MemohViewModel.recordPendingUserTurnId(turnId: String) {
-    if (pendingUserTurnId == null && pendingUserText != null) pendingUserTurnId = turnId
+internal fun MemohViewModel.recordPendingUserTurnId(turnId: String, echoedText: String) {
+    if (turnId.isBlank() || echoedText.isBlank() || pendingUserTurnId != null || pendingUserText != echoedText) return
+    val matchingSend = sendStates.values.lastOrNull {
+        it.belongsTo(bot?.id, session?.id) && it.accepted && it.serverRunId.isNotBlank() &&
+            it.serverRunId == runId && it.text == echoedText
+    } ?: return
+    matchingSend.serverTurnId = turnId
+    pendingUserTurnId = turnId
 }

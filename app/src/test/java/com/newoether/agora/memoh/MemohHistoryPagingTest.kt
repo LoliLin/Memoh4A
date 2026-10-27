@@ -73,6 +73,25 @@ class MemohHistoryPagingTest {
     }
 
     @Test
+    fun `history pages use server turn positions when present`() = runBlocking {
+        MemohCloudServer().use { server ->
+            server.handler = { exchange, request ->
+                if (request.path.endsWith("/messages")) {
+                    server.reply(exchange, """{"items":[
+                        {"id":"later","role":"user","turn_id":"two","turn_position":2},
+                        {"id":"answer","role":"assistant","turn_id":"one","turn_position":1},
+                        {"id":"question","role":"user","turn_id":"one","turn_position":1}
+                    ]}""")
+                    true
+                } else false
+            }
+            val api = MemohApi().apply { configure(server.gateway) }
+            api.selectTeam("a")
+            assertEquals(listOf("question", "answer", "later"), api.history("shared", "chat").map { it.id })
+        }
+    }
+
+    @Test
     fun `the request asks for exactly one page`() = runBlocking {
         MemohCloudServer().use { server ->
             val api = MemohApi().apply { configure(server.gateway) }

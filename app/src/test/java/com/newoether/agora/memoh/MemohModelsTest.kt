@@ -62,6 +62,74 @@ class MemohModelsTest {
     }
 
     @Test
+    fun `live reply replaces matching history row without duplicating its user`() {
+        val history = listOf(
+            MemohTurn("u1", "user", "First", turnId = "turn-1"),
+            MemohTurn("a1", "assistant", "Old answer", turnId = "turn-1"),
+            MemohTurn("u2", "user", "Later", turnId = "turn-2"),
+        )
+        val rows = memohTranscriptRows(
+            history, listOf(MemohTurn("runtime-u1", "user", "First", turnId = "turn-1")),
+            "First", emptyList(), "turn-1", "turn-1", true, null,
+        )
+        assertEquals(3, rows.size)
+        assertEquals("First", rows[0].text)
+        assertEquals(MEMOH_LIVE_MESSAGE_ID, rows[1].id)
+        assertEquals("Later", rows[2].text)
+    }
+
+    @Test
+    fun `remote run user appears before its historical assistant`() {
+        val rows = memohTranscriptRows(
+            listOf(MemohTurn("a", "assistant", "answer", turnId = "turn")),
+            listOf(MemohTurn("u", "user", "question", turnId = "turn")),
+            null, emptyList(), null, "turn", true, null,
+        )
+        assertEquals(listOf("question", ""), rows.map { it.text })
+        assertEquals(MEMOH_LIVE_MESSAGE_ID, rows.last().id)
+    }
+
+    @Test
+    fun `server turn positions order history and runtime users before their answers`() {
+        val earlierUser = decodeTurn(JSONObject("""{"id":"u1","role":"user","turn_id":"one","turn_position":1,"text":"first"}"""))
+        val earlierAnswer = decodeTurn(JSONObject("""{"id":"a1","role":"assistant","turn_id":"one","turn_position":1,"text":"answer one"}"""))
+        val laterUser = decodeTurn(JSONObject("""{"id":"u2","role":"user","turn_id":"two","turn_position":2,"text":"second"}"""))
+        val laterAnswer = decodeTurn(JSONObject("""{"id":"a2","role":"assistant","turn_id":"two","turn_position":2,"text":"answer two"}"""))
+        val rows = memohTranscriptRows(
+            listOf(laterAnswer, earlierAnswer, earlierUser), listOf(laterUser),
+            null, emptyList(), null, "two", true, null,
+        )
+        assertEquals(listOf("first", "answer one", "second", ""), rows.map { it.text })
+        assertEquals(MEMOH_LIVE_MESSAGE_ID, rows.last().id)
+    }
+
+    @Test
+    fun `legacy history without complete positions keeps server order`() {
+        val first = MemohTurn("a", "assistant", turnPosition = 2)
+        val legacy = MemohTurn("b", "user")
+        val last = MemohTurn("c", "user", turnPosition = 1)
+        assertEquals(listOf(first, legacy, last), memohOrderTurns(listOf(first, legacy, last)))
+    }
+
+    @Test
+    fun `history summary does not repeat assistant text blocks around a tool`() {
+        val reply = MemohTurn("a", "assistant", "Before after", listOf(
+            MemohBlock(0, "text", "Before"),
+            MemohBlock(1, "tool", "Completed", toolName = "search"),
+            MemohBlock(2, "text", "after"),
+        ))
+        val row = memohMessages(listOf(reply), null, emptyList(), emptyList(), false).single()
+        assertEquals(listOf("Before", "after"), row.segments!!.filter { it.type == "answer" }.map { it.content })
+    }
+
+    @Test
+    fun `text-only historical answers still render`() {
+        val reply = MemohTurn("a", "assistant", "The answer")
+        val row = memohMessages(listOf(reply), null, emptyList(), emptyList(), false).single()
+        assertEquals("The answer", row.segments!!.single().content)
+    }
+
+    @Test
     fun `bot canManage requires manage permission when list is non-empty`() {
         val implicit = MemohBot("b1", "Bot 1")
         assertTrue(implicit.canManage)

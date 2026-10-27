@@ -16,11 +16,8 @@ import org.json.JSONObject
  */
 internal fun MemohViewModel.applyRuntimeDelta(delta: JSONObject, sid: String) {
     val replacement = delta.optJSONObject("current_run_view")
-    if (replacement != null) { applyRunView(replacement); return }
+    if (replacement != null) applyRunView(replacement, settle = false)
     if (delta.optBoolean("reset_messages", false)) liveJson = JSONArray()
-    delta.optJSONArray("message_upserts")?.let { upserts ->
-        for (i in 0 until upserts.length()) upserts.optJSONObject(i)?.let(::upsertBlock)
-    }
     delta.optJSONArray("message_appends")?.let { appends ->
         for (i in 0 until appends.length()) {
             val update = appends.optJSONObject(i) ?: continue
@@ -47,34 +44,76 @@ internal fun MemohViewModel.applyRuntimeDelta(delta: JSONObject, sid: String) {
             update.opt("input")?.takeIf { it != JSONObject.NULL }?.let { existing.put("input", it) }
         }
     }
-    delta.optJSONArray("user_turn_upserts")?.let { upserts ->
-        for (i in 0 until upserts.length()) {
-            val turn = upserts.optJSONObject(i) ?: continue
-            val turnId = turn.optString("turn_id")
-            if (turnId.isNotBlank()) {
-                recordPendingUserTurnId(turnId)
-                break
-            }
-        }
+    // Full upserts are authoritative, including when this same delta contains an append.
+    delta.optJSONArray("message_upserts")?.let { upserts ->
+        for (i in 0 until upserts.length()) upserts.optJSONObject(i)?.let(::upsertBlock)
     }
+    liveJson = sortedRuntimeBlocks(liveJson)
+    applyRuntimeUserUpserts(delta.optJSONArray("user_turn_upserts"))
+    applyRuntimeUserRemovals(delta.optJSONArray("user_turn_removals"))
     applyRequestUserTurn(delta.optJSONObject("request_user_turn"))
     applySteerTurnUpserts(delta.optJSONArray("steer_turn_upserts"))
     applySteerTurnRemovals(delta.optJSONArray("steer_turn_removals"))
     delta.optJSONObject("run")?.let { patch ->
-        if (patch.optString("run_id") == runId && patch.has("status"))
-            currentRunStatus = patch.optString("status")
+        val patchRun = patch.optString("run_id")
+        if (patchRun.isBlank() || patchRun == runId) {
+            if (patch.has("status")) currentRunStatus = patch.optString("status")
+            if (patch.has("turn_id")) liveTurnId = patch.optString("turn_id")
+            applyRequestUserTurn(patch.optJSONObject("request_user_turn"))
+        }
     }
     liveBlocks = decodeBlocks(liveJson)
     pruneResolvedDecisions()
     settleIfTerminal(sid)
 }
 
-/** Queued steering text the server mirrors back; shown as a live "steering" notice row. */
+internal fun MemohViewModel.applyRuntimeUsers(view: JSONObject) {
+    liveUserTurns = emptyList()
+    val users = view.optJSONArray("user_turns")
+    if (users != null && users.length() > 0) applyRuntimeUserUpserts(users)
+    else applyRequestUserTurn(view.optJSONObject("request_user_turn"))
+}
+
+private fun runtimeUser(obj: JSONObject): MemohTurn? {
+    if (obj.optString("turn_id").isBlank()) return null
+    return decodeTurn(JSONObject(obj.toString()).put("role", "user"))
+}
+
+private fun MemohViewModel.applyRuntimeUserUpserts(upserts: JSONArray?) {
+    if (upserts == null) return
+    val users = liveUserTurns.toMutableList()
+    for (i in 0 until upserts.length()) {
+        val turn = upserts.optJSONObject(i)?.let(::runtimeUser) ?: continue
+        val index = users.indexOfFirst { it.turnId == turn.turnId }
+        if (index < 0) users.add(turn) else users[index] = turn
+        recordPendingUserTurnId(turn.turnId, turn.text)
+    }
+    liveUserTurns = users
+}
+
+private fun MemohViewModel.applyRuntimeUserRemovals(removals: JSONArray?) {
+    if (removals == null) return
+    val ids = (0 until removals.length()).mapNotNull { index ->
+        when (val item = removals.opt(index)) {
+            is JSONObject -> item.optString("turn_id").takeIf { it.isNotBlank() }
+            is String -> item.takeIf { it.isNotBlank() }
+            else -> null
+        }
+    }.toSet()
+    liveUserTurns = liveUserTurns.filterNot { it.turnId in ids }
+}
+
+private fun sortedRuntimeBlocks(blocks: JSONArray): JSONArray {
+    val entries = (0 until blocks.length()).mapNotNull { blocks.optJSONObject(it) }
+    return JSONArray().also { sorted ->
+        entries.sortedBy { it.optInt("id", Int.MAX_VALUE) }.forEach { sorted.put(it) }
+    }
+}
+
 private fun MemohViewModel.applyRequestUserTurn(request: JSONObject?) {
-    // Homem folds run.request_user_turn into the visible user turns when user_turns is
-    // empty: it is the confirmed echo of the optimistic pending row.
-    if (request == null || request.optString("turn_id").isBlank()) return
-    recordPendingUserTurnId(request.optString("turn_id"))
+    val turn = request?.let(::runtimeUser) ?: return
+    if (liveUserTurns.isEmpty()) liveUserTurns = listOf(turn)
+    recordPendingUserTurnId(turn.turnId, turn.text)
 }
 private fun MemohViewModel.applySteerTurnUpserts(upserts: JSONArray?) {
     if (upserts == null) return

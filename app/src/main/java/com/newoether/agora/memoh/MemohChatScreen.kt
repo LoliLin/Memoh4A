@@ -149,10 +149,7 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     var deleteDialog by remember { mutableStateOf(false) }
     var filesOpen by remember { mutableStateOf(false) }
     var schedulesOpen by remember { mutableStateOf(false) }
-    var queueOpen by remember { mutableStateOf(false) }
-    var compactConfirm by remember { mutableStateOf(false) }
     var terminalOpen by remember { mutableStateOf(false) }
-    var marketOpen by remember { mutableStateOf(false) }
     var botSettingsOpen by remember { mutableStateOf(false) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
     var backupStatus by remember { mutableStateOf("") }
@@ -198,8 +195,8 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     // never touch this list; they only replace the streamingMessage overlay (matched by id).
     // Attachment files are pre-materialized off the main thread; composition only reads cache hits.
     var attachmentCacheRevision by remember { mutableStateOf(0) }
-    val pendingAttachments = remember(vm.turns, vm.pendingUserAttachments) {
-        vm.pendingUserAttachments + vm.turns.flatMap { it.attachments }
+    val pendingAttachments = remember(vm.turns, vm.liveUserTurns, vm.pendingUserAttachments) {
+        vm.pendingUserAttachments + (vm.turns + vm.liveUserTurns).flatMap { it.attachments }
     }
     LaunchedEffect(pendingAttachments) {
         val cacheDir = context.cacheDir
@@ -223,15 +220,21 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             attachmentCacheRevision++
         }
     }
-    val messages = remember(vm.turns, vm.pendingUserText, vm.pendingUserAttachments, vm.running, attachmentCacheRevision) {
-        memohMessages(
+    val hasLive = vm.liveBlocks.isNotEmpty() || vm.running
+    val messages = remember(
+        vm.turns, vm.liveUserTurns, vm.pendingUserText, vm.pendingUserAttachments,
+        vm.pendingUserTurnId, vm.liveTurnId, hasLive, attachmentCacheRevision,
+    ) {
+        memohTranscriptRows(
             turns = vm.turns,
+            runtimeUsers = vm.liveUserTurns,
             pendingText = vm.pendingUserText,
             pendingAttachments = vm.pendingUserAttachments,
-            liveBlocks = emptyList(),
-            running = false,
+            pendingTurnId = vm.pendingUserTurnId,
+            liveTurnId = vm.liveTurnId,
+            hasLive = hasLive,
             cacheDir = context.cacheDir,
-        ) + if (vm.liveBlocks.isNotEmpty() || vm.running) listOf(memohLiveStub()) else emptyList()
+        )
     }
     // The live assistant run rides Agora's streaming channel: auto-follow, in-place growth,
     // and none of the whole-list rebuilds that made streaming text jitter.
@@ -509,9 +512,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                             MemohAccountAction.Files -> filesOpen = true
                             MemohAccountAction.Schedules -> schedulesOpen = true
                             MemohAccountAction.Terminal -> terminalOpen = true
-                            MemohAccountAction.Queue -> { queueOpen = true; vm.refreshQueue() }
-                            MemohAccountAction.Compact -> compactConfirm = true
-                            MemohAccountAction.Market -> marketOpen = true
                             MemohAccountAction.ManageBots -> settingsOpen = true
                         }
                     } },
@@ -914,16 +914,13 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
         renameDialog = renameDialog, newTitle = newTitle,
         deleteDialog = deleteDialog,
         botSettingsOpen = botSettingsOpen,
-        filesOpen = filesOpen, schedulesOpen = schedulesOpen, queueOpen = queueOpen,
-        compactConfirm = compactConfirm,
+        filesOpen = filesOpen, schedulesOpen = schedulesOpen,
         importUri = importUri, backupStatus = backupStatus,
         onRenameDismiss = { renameDialog = false },
         onDeleteDismiss = { deleteDialog = false },
         onBotSettingsDismiss = { botSettingsOpen = false },
         onFilesDismiss = { filesOpen = false },
         onSchedulesDismiss = { schedulesOpen = false },
-        onQueueDismiss = { queueOpen = false },
-        onCompactDismiss = { compactConfirm = false },
         onImportConsumed = { importUri = null },
         onBackupExport = { sections, passphrase ->
             pendingBackupSections = sections
@@ -940,9 +937,6 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
 
     vm.bot?.takeIf { terminalOpen }?.let { selectedBot ->
         MemohTerminalDialog(api = api, botId = selectedBot.id, onDismiss = { terminalOpen = false })
-    }
-    vm.bot?.takeIf { marketOpen }?.let { selectedBot ->
-        MemohMarketDialog(api = api, botId = selectedBot.id, onDismiss = { marketOpen = false })
     }
 }
 

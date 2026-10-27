@@ -77,7 +77,7 @@ import com.newoether.agora.util.verticalEdgeFade
 
 /** Account menu actions that the top bar's overflow surfaces. */
 internal enum class MemohAccountAction {
-    Search, Files, Schedules, Terminal, Market, Queue, Compact, ManageBots,
+    Search, Files, Schedules, Terminal, ManageBots,
 }
 
 /** Memoh's server-backed drawer using Agora's shared shell and conversation row. */
@@ -344,11 +344,6 @@ internal fun MemohAccountMenu(
             onClick = { dismiss(); onAction(MemohAccountAction.Terminal) },
         )
         AgoraDropdownMenuItem(
-            text = { Text(uiResources.getString(R.string.memoh_ui_market)) },
-            leadingIcon = { Icon(Icons.Default.ShoppingBag, null) },
-            onClick = { dismiss(); onAction(MemohAccountAction.Market) },
-        )
-        AgoraDropdownMenuItem(
             text = { Text(uiResources.getString(R.string.memoh_ui_schedules)) },
             leadingIcon = { Icon(Icons.Default.CalendarMonth, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Schedules) },
@@ -362,14 +357,6 @@ internal fun MemohAccountMenu(
             text = { Text(uiResources.getString(R.string.memoh_ui_search_in_conversation)) },
             leadingIcon = { Icon(Icons.Default.Search, null) },
             onClick = { dismiss(); onAction(MemohAccountAction.Search) },
-        )
-        AgoraDropdownMenuItem(
-            text = { Text(uiResources.getString(R.string.memoh_ui_message_queue)) },
-            onClick = { dismiss(); onAction(MemohAccountAction.Queue) },
-        )
-        AgoraDropdownMenuItem(
-            text = { Text(uiResources.getString(R.string.memoh_ui_compact_context)) },
-            onClick = { dismiss(); onAction(MemohAccountAction.Compact) },
         )
     }
 
@@ -389,8 +376,6 @@ internal fun MemohDialogs(
     botSettingsOpen: Boolean,
     filesOpen: Boolean,
     schedulesOpen: Boolean,
-    queueOpen: Boolean,
-    compactConfirm: Boolean,
     importUri: Uri?,
     backupStatus: String,
     onRenameDismiss: () -> Unit,
@@ -398,8 +383,6 @@ internal fun MemohDialogs(
     onBotSettingsDismiss: () -> Unit,
     onFilesDismiss: () -> Unit,
     onSchedulesDismiss: () -> Unit,
-    onQueueDismiss: () -> Unit,
-    onCompactDismiss: () -> Unit,
     onImportConsumed: () -> Unit,
     onBackupExport: (List<String>, String) -> Unit,
     onBackupImport: () -> Unit,
@@ -430,22 +413,6 @@ internal fun MemohDialogs(
                 onSchedulesDismiss()
                 vm.openSessionById(sessionId)
             },
-        )
-    }
-    if (queueOpen && vm.session != null) {
-        MemohQueueDialog(vm, onDismiss = onQueueDismiss)
-    }
-    if (compactConfirm) {
-        AlertDialog(
-            onDismissRequest = onCompactDismiss,
-            title = { Text(uiResources.getString(R.string.memoh_ui_compact_context)) },
-            text = { Text(uiResources.getString(R.string.memoh_ui_ask_the_server_to_compact_this_conversation_s_context_now) +
-                uiResources.getString(R.string.memoh_ui_the_conversation_stays_on_the_server_compaction_summarizes_older_turns)) },
-            confirmButton = {
-                TextButton(onClick = { vm.compactSession(); onCompactDismiss() },
-                    enabled = !vm.runtimeControlsBusy) { Text(uiResources.getString(R.string.memoh_ui_compact)) }
-            },
-            dismissButton = { TextButton(onClick = onCompactDismiss) { Text(uiResources.getString(R.string.memoh_ui_cancel)) } },
         )
     }
     if (renameDialog) {

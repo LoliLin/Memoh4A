@@ -97,33 +97,60 @@ class MemohAdminModelsTest {
         assertFalse(config.has("context_window"))
     }
 
-    @Test fun usageDecodesDailyRowsPerChannel() {
+    @Test fun usageDecodesTheChannelArraysTheServerActuallyReturns() {
         val response = JSONObject()
-            .put("chat", JSONObject().put("items", JSONArray().put(
-                JSONObject().put("date", "2026-10-25").put("total_tokens", 1200),
-            )))
-            .put("memory", JSONObject().put("items", JSONArray().put(
-                JSONObject().put("date", "2026-10-25").put("total_tokens", 300),
-            )))
+            .put("chat", JSONArray().put(
+                JSONObject()
+                    .put("day", "2026-10-25")
+                    .put("input_tokens", 12_858_479)
+                    .put("output_tokens", 51_072)
+                    .put("cache_read_tokens", 12_164_224)
+                    .put("reasoning_tokens", 23_880),
+            ))
+            .put("memory", JSONArray().put(
+                JSONObject().put("day", "2026-10-25").put("input_tokens", 300),
+            ))
         val day = decodeTokenUsage(response).single()
         assertEquals("2026-10-25", day.date)
-        assertEquals(1200L, day.channels["chat"])
-        assertEquals(300L, day.channels["memory"])
-        assertEquals(1500L, day.total)
+        val chat = requireNotNull(day.channels["chat"])
+        assertEquals(12_858_479L, chat.input)
+        assertEquals(51_072L, chat.output)
+        assertEquals(12_164_224L, chat.cacheRead)
+        assertEquals(23_880L, chat.reasoning)
+        assertEquals(12_858_479L + 51_072, chat.total)
+        assertEquals(chat.total + 300, day.total)
     }
 
-    @Test fun usageAcceptsAFlatChannelObjectToo() {
-        val response = JSONObject().put("chat", JSONObject().put("date", "2026-10-24").put("tokens", 42))
-        assertEquals(42L, decodeTokenUsage(response).single().total)
+    @Test fun usageRangeUsesUtcAndIncludesTodayAcrossLeapDay() {
+        val now = java.time.Instant.parse("2024-03-01T23:50:00Z")
+        assertEquals(MemohUsageRange("2024-02-24", "2024-03-02"), memohUsageRange(7, now))
+        assertEquals(MemohUsageRange("2024-03-01", "2024-03-02"), memohUsageRange(1, now))
     }
 
     @Test fun usageDaysAreNewestFirstAndEmptyResponsesYieldNothing() {
-        val response = JSONObject()
-            .put("chat", JSONObject().put("items", JSONArray()
-                .put(JSONObject().put("date", "2026-10-20").put("total_tokens", 1))
-                .put(JSONObject().put("date", "2026-10-25").put("total_tokens", 2))))
+        val response = JSONObject().put("chat", JSONArray()
+            .put(JSONObject().put("day", "2026-10-20").put("input_tokens", 1))
+            .put(JSONObject().put("day", "2026-10-25").put("input_tokens", 2)))
         assertEquals(listOf("2026-10-25", "2026-10-20"), decodeTokenUsage(response).map { it.date })
         assertTrue(decodeTokenUsage(JSONObject()).isEmpty())
+    }
+
+    @Test fun modelBreakdownIsSortedByTotalAndKeepsProviderNames() {
+        val response = JSONObject().put("by_model", JSONArray()
+            .put(JSONObject().put("model_name", "Small").put("provider_name", "A")
+                .put("input_tokens", 10).put("output_tokens", 1))
+            .put(JSONObject().put("model_name", "Large").put("provider_name", "B")
+                .put("input_tokens", 1000).put("output_tokens", 500)))
+        val models = decodeModelUsage(response)
+        assertEquals(listOf("Large", "Small"), models.map { it.modelName })
+        assertEquals(1500L, models.first().total)
+        assertEquals("B", models.first().providerName)
+    }
+
+    @Test fun modelBreakdownFallsBackToTheSlugWhenNoNameIsGiven() {
+        val response = JSONObject().put("by_model", JSONArray()
+            .put(JSONObject().put("model_slug", "deepseek-v4").put("input_tokens", 5)))
+        assertEquals("deepseek-v4", decodeModelUsage(response).single().modelName)
     }
 
     @Test fun tokenFormattingStaysReadableAtEveryMagnitude() {

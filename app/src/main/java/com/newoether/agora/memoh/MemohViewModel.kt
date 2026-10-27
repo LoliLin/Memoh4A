@@ -36,6 +36,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var epoch = ""
     private var seq = -1L
     private var awaitingSnapshot = true
+    private var settlementRetryDelayMillis = 1_000L
 
     internal val api = MemohApi()
     internal val workspaceApi: MemohApi get() = api
@@ -82,7 +83,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             sendStates[id]?.belongsTo(bot?.id, session?.id)
                 ?: (payload.optString("session_id") == session?.id.orEmpty())
         }
-    internal var pendingUserTurnId: String? = null
+    internal var pendingUserTurnId by mutableStateOf<String?>(null)
     private val pendingControls = mutableMapOf<String, String>()
     var waitingForInteraction by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -91,6 +92,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     internal var liveJson = JSONArray()
     internal var currentRunStatus = ""
     internal var liveBlocks by mutableStateOf<List<MemohBlock>>(emptyList())
+    internal var liveTurnId by mutableStateOf("")
+    internal var liveUserTurns by mutableStateOf<List<MemohTurn>>(emptyList())
     internal var settlingRunId = ""
     /** Rows removed for an in-flight retry/edit, so a rejection can restore the transcript. */
     private var historyMutationSnapshot: HistoryMutationSnapshot? = null
@@ -650,7 +653,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val page = api.history(b, sid, firstId)
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
-                    turns = (page + turns).distinctBy { it.id }
+                    turns = memohOrderTurns((page + turns).distinctBy(::memohTurnIdentity))
                     firstHistoryMessageId = page.firstOrNull()?.id ?: firstId
                     olderMessagesAvailable = page.size >= HISTORY_PAGE_SIZE && firstHistoryMessageId != firstId
                 }
@@ -682,6 +685,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         } else if (state.text != null) {
             pendingUserText = state.text
             pendingUserAttachments = state.attachments
+            pendingUserTurnId = state.serverTurnId.takeIf { it.isNotBlank() }
         }
     }
 
@@ -696,7 +700,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             if (state?.text != null) {
                 restoreDraft = state.text
                 restoreAttachments = state.attachments
-                pendingUserText = null; pendingUserAttachments = emptyList()
+                pendingUserText = null; pendingUserAttachments = emptyList(); pendingUserTurnId = null
             } else if (state == null && pendingUserText != null) restorePendingDraft()
             restoreHistoryMutation(invocation)
             error = message
@@ -716,6 +720,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         restoreAttachments = pendingUserAttachments
         pendingUserText = null
         pendingUserAttachments = emptyList()
+        pendingUserTurnId = null
     }
 
     fun dismissError() { error = "" }
@@ -728,7 +733,21 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     internal var languageRestartPending by mutableStateOf(false)
         private set
 
-    fun requestAppLanguageRestart() { languageRestartPending = true }
+    private var languageChangeInProgress = false
+
+    fun requestAppLanguageRestart(language: String) {
+        if (languageChangeInProgress || languageRestartPending) return
+        languageChangeInProgress = true
+        viewModelScope.launch {
+            try {
+                // Persist before recreation so attachBaseContext reads the new value.
+                settings.setAppLanguage(language).join()
+                languageRestartPending = true
+            } finally {
+                languageChangeInProgress = false
+            }
+        }
+    }
 
     fun consumeAppLanguageRestart() { languageRestartPending = false }
 
@@ -784,6 +803,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             agentController.selectedAgentId, navigationRevision = historyRevision)
         pendingUserText = value
         pendingUserAttachments = attachments
+        pendingUserTurnId = null
         attachmentDraftRevision++
         armAdmissionTimeout(invocation, value)
         if (existingSession != null) {
@@ -983,6 +1003,28 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         submitInteraction(block.userInputId, payload)
     }
 
+    private fun reconcileAcceptedTurns(botId: String, sid: String, history: List<MemohTurn>, completedRunId: String = "") {
+        val userIds = history.asSequence().filter { it.role == "user" }.map { it.turnId }
+            .filter { it.isNotBlank() }.toSet()
+        val current = sendStates.entries.lastOrNull {
+            it.value.belongsTo(botId, sid) && it.value.text != null && it.value.failure.isBlank()
+        }?.key
+        val confirmed = sendStates.filter { (_, state) ->
+            state.belongsTo(botId, sid) && state.accepted && (
+                (state.serverTurnId.isNotBlank() && state.serverTurnId in userIds) ||
+                    (state.serverTurnId.isBlank() && completedRunId.isNotBlank() &&
+                        state.serverRunId == completedRunId && liveTurnId.isNotBlank() && liveTurnId in userIds)
+                )
+        }.keys.toSet()
+        if (bot?.id == botId && session?.id == sid &&
+            ((current != null && current in confirmed) || pendingUserTurnId?.let { it in userIds } == true)) {
+            pendingUserText = null
+            pendingUserAttachments = emptyList()
+            pendingUserTurnId = null
+        }
+        confirmed.forEach { sendStates.remove(it) }
+    }
+
     private fun reloadHistory(sid: String) {
         val b = bot?.id ?: return
         val revision = historyRevision
@@ -991,17 +1033,15 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 val result = api.history(b, sid)
                 if (bot?.id == b && session?.id == sid && revision == historyRevision) {
                     val older = turns
-                    val updatedIds = result.mapTo(HashSet()) { it.id }
-                    turns = (older.filterNot { it.id in updatedIds } + result).distinctBy { it.id }
+                    val updatedIds = result.mapTo(HashSet(), ::memohTurnIdentity)
+                    turns = memohOrderTurns((older.filterNot { memohTurnIdentity(it) in updatedIds } + result)
+                        .distinctBy(::memohTurnIdentity))
+                    reconcileAcceptedTurns(b, sid, result)
                     loadedHistorySessionId = sid
                     if (firstHistoryMessageId == null) {
                         firstHistoryMessageId = result.firstOrNull()?.id
                         // A short page is the only proof that this is the start of history.
                         olderMessagesAvailable = result.size >= HISTORY_PAGE_SIZE
-                    }
-                    if (!running && !hasCurrentAdmission) {
-                        pendingUserText = null
-                        pendingUserAttachments = emptyList()
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -1059,7 +1099,14 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             }
             "run_accepted" -> {
                 if (awaitingAdmission.remove(invocation) != null) cancelAdmissionTimeout(invocation)
-                pending?.accepted = true
+                pending?.apply {
+                    accepted = true
+                    serverTurnId = event.optString("turn_id")
+                    serverRunId = event.optString("run_id")
+                }
+                if (pending?.belongsTo(bot?.id, session?.id) == true && pending.text != null && pending.serverTurnId.isNotBlank()) {
+                    pendingUserTurnId = pending.serverTurnId
+                }
                 // The mutation is now the server's own history; the trimmed transcript stands.
                 if (invocation.isNotBlank() && invocation == pendingHistoryMutationInvocation) {
                     commitHistoryMutation()
@@ -1067,6 +1114,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 if (visibleBot && session?.id == target) {
                     refreshQueue()
                     settlingRunId = ""
+                    settlementRetryDelayMillis = 1_000L
                     runId = event.optString("run_id")
                     running = true
                 }
@@ -1091,14 +1139,15 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 }
             }
             "runtime_snapshot" -> if (session?.id == target) {
-                val nextEpoch = event.optString("epoch")
-                val nextSeq = event.optLong("seq", -1L)
+                val snapshot = event.optJSONObject("snapshot")
+                val nextEpoch = snapshot?.optString("epoch").orEmpty().ifBlank { event.optString("epoch") }
+                val nextSeq = if (snapshot != null && snapshot.has("seq")) snapshot.optLong("seq", -1L)
+                    else event.optLong("seq", -1L)
                 if (nextEpoch.isBlank() || nextSeq < 0L) return
                 if (!awaitingSnapshot && nextEpoch == epoch && nextSeq <= seq) return
                 epoch = nextEpoch
                 seq = nextSeq
                 awaitingSnapshot = false
-                val snapshot = event.optJSONObject("snapshot")
                 val view = snapshot?.optJSONObject("current_run_view")
                 if (view == null) {
                     clearRun()
@@ -1144,13 +1193,15 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         sendNow(JSONObject().put("type", "runtime_subscribe").put("session_id", sid))
     }
 
-    internal fun applyRunView(view: JSONObject) {
+    internal fun applyRunView(view: JSONObject, settle: Boolean = true) {
         runId = view.optString("run_id")
         currentRunStatus = view.optString("status")
+        liveTurnId = view.optString("turn_id")
         liveJson = view.optJSONArray("messages") ?: JSONArray()
         liveBlocks = decodeBlocks(liveJson)
+        applyRuntimeUsers(view)
         pruneResolvedDecisions()
-        settleIfTerminal()
+        if (settle) settleIfTerminal()
     }
 
     /** Delta merge is owned by MemohLiveTranscript.kt. */
@@ -1177,7 +1228,8 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 (toolCallId.isNotBlank() && row.optString("tool_call_id") == toolCallId)
         }
         if (existing != null) {
-            if (id >= 0) block.put("id", liveJson.optJSONObject(existing)!!.optInt("id", id))
+            val previousId = liveJson.optJSONObject(existing)!!.optInt("id", -1)
+            if (previousId >= 0) block.put("id", previousId)
             liveJson.put(existing, block)
         } else liveJson.put(block)
     }
@@ -1187,14 +1239,24 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         if (!running && currentRunStatus.isNotEmpty() && sid.isNotBlank() && settlingRunId != runId) {
             val finishedRun = runId
             val botId = bot?.id ?: return
+            val revision = historyRevision
             settlingRunId = finishedRun
             navigationScope.launch {
                 try {
                     val settled = api.history(botId, sid)
-                    if (bot?.id == botId && session?.id == sid && runId == finishedRun && !running) {
-                        val updatedIds = settled.mapTo(HashSet()) { it.id }
-                        turns = (turns.filterNot { it.id in updatedIds } + settled).distinctBy { it.id }
-                        pendingUserText = null; pendingUserAttachments = emptyList()
+                    if (bot?.id == botId && session?.id == sid && historyRevision == revision &&
+                        runId == finishedRun && !running) {
+                        val updatedIds = settled.mapTo(HashSet(), ::memohTurnIdentity)
+                        turns = memohOrderTurns((turns.filterNot { memohTurnIdentity(it) in updatedIds } + settled)
+                            .distinctBy(::memohTurnIdentity))
+                        reconcileAcceptedTurns(botId, sid, settled, finishedRun)
+                        // A successful response can still lag the runtime. Do not discard its answer
+                        // until history contains the corresponding assistant turn.
+                        if (liveTurnId.isNotBlank() && liveBlocks.isNotEmpty() &&
+                            settled.none { it.role == "assistant" && it.turnId == liveTurnId }) {
+                            retrySettlement(botId, sid, finishedRun, revision)
+                            return@launch
+                        }
                         // The run that carried the retry/edit completed, so the trim is final even
                         // if the acceptance frame was lost.
                         commitHistoryMutation()
@@ -1209,19 +1271,38 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (e: Exception) {
-                    if (session?.id == sid) error = e.message ?: "Failed to load settled messages"
+                    if (bot?.id == botId && session?.id == sid && historyRevision == revision) {
+                        error = e.message ?: "Failed to load settled messages"
+                        if (runId == finishedRun && !running) {
+                            retrySettlement(botId, sid, finishedRun, revision)
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private suspend fun retrySettlement(botId: String, sid: String, finishedRun: String, revision: Int) {
+        val retryDelay = settlementRetryDelayMillis
+        settlementRetryDelayMillis = (retryDelay * 2).coerceAtMost(30_000L)
+        kotlinx.coroutines.delay(retryDelay)
+        if (bot?.id == botId && session?.id == sid && historyRevision == revision &&
+            runId == finishedRun && !running && settlingRunId == finishedRun) {
+            settlingRunId = ""
+            settleIfTerminal(sid)
         }
     }
 
     private fun clearRun() {
         liveJson = JSONArray()
         liveBlocks = emptyList()
+        liveTurnId = ""
+        liveUserTurns = emptyList()
         running = false
         runId = ""
         currentRunStatus = ""
         settlingRunId = ""
+        settlementRetryDelayMillis = 1_000L
         waitingForInteraction = emptySet()
         pendingControls.clear()
     }

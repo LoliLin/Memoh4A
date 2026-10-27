@@ -44,6 +44,50 @@ internal fun memohMessages(
     }
 }
 
+internal fun memohTranscriptRows(
+    turns: List<MemohTurn>,
+    runtimeUsers: List<MemohTurn>,
+    pendingText: String?,
+    pendingAttachments: List<MemohAttachment>,
+    pendingTurnId: String?,
+    liveTurnId: String,
+    hasLive: Boolean,
+    cacheDir: java.io.File?,
+): List<ChatMessage> {
+    val merged = turns.distinctBy(::memohTurnIdentity).toMutableList()
+    fun addUserIfMissing(user: MemohTurn) {
+        if (user.turnId.isNotBlank() && merged.any { it.role == "user" && it.turnId == user.turnId }) return
+        val answer = merged.indexOfFirst { it.role == "assistant" && user.turnId.isNotBlank() && it.turnId == user.turnId }
+        if (answer >= 0) merged.add(answer, user) else merged.add(user)
+    }
+    runtimeUsers.forEach(::addUserIfMissing)
+    // History and runtime users may arrive in different orders; position is server-owned.
+    val ordered = memohOrderTurns(merged).toList()
+    merged.clear()
+    merged.addAll(ordered)
+    if (pendingText != null) {
+        addUserIfMissing(MemohTurn(
+            MEMOH_PENDING_MESSAGE_ID, "user", pendingText,
+            attachments = pendingAttachments, turnId = pendingTurnId.orEmpty(),
+        ))
+    }
+    var livePlaced = false
+    val projected = merged.mapIndexed { index, turn ->
+        if (hasLive && !livePlaced && liveTurnId.isNotBlank() &&
+            turn.role == "assistant" && turn.turnId == liveTurnId) {
+            livePlaced = true
+            memohLiveStub()
+        } else {
+            val id = if (turn.id == MEMOH_PENDING_MESSAGE_ID) MEMOH_PENDING_MESSAGE_ID else memohMessageId(turn, index)
+            turn.toChatMessage(id, cacheDir = cacheDir)
+        }
+    }
+    return if (hasLive && !livePlaced) projected + memohLiveStub() else projected
+}
+
+internal fun memohTurnIdentity(turn: MemohTurn): Pair<String, String> =
+    turn.role to turn.turnId.ifBlank { turn.id }
+
 /**
  * A payload-free placeholder for the live assistant row. The full streaming payload arrives
  * through MessageList's streamingMessage overlay channel (matched by id), so each runtime
@@ -144,7 +188,7 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
             else -> block.text.takeIf(String::isNotBlank)?.let { MessageSegment("answer", it) }
         }
     }.let { mapped ->
-        if (text.isNotBlank() && mapped.none { it.type == "answer" && it.content == text }) {
+        if (text.isNotBlank() && mapped.none { it.type == "answer" }) {
             listOf(MessageSegment("answer", text)) + mapped
         } else {
             mapped

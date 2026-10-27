@@ -2,6 +2,8 @@ package com.newoether.agora.memoh
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.ZoneOffset
 
 /** One LLM provider the team has configured (server shape: providers.GetResponse). */
 internal data class MemohProvider(
@@ -122,41 +124,76 @@ internal fun modelRequestBody(
     return body
 }
 
-/** Daily usage as the web renders it: one row per day, per channel. */
+/** The server accepts UTC date-only boundaries, with an exclusive upper bound. */
+internal data class MemohUsageRange(val from: String, val to: String)
+
+internal fun memohUsageRange(days: Int, now: Instant = Instant.now()): MemohUsageRange {
+    require(days > 0)
+    val today = now.atZone(ZoneOffset.UTC).toLocalDate()
+    return MemohUsageRange(
+        from = today.minusDays(days.toLong() - 1).toString(),
+        to = today.plusDays(1).toString(),
+    )
+}
+
+/** Cache reads and reasoning are breakdowns, not extra tokens to add to input/output. */
 internal data class MemohTokenUsageDay(
     val date: String,
-    val channels: Map<String, Long>,
+    val channels: Map<String, MemohChannelUsage>,
 ) {
-    val total: Long get() = channels.values.sum()
+    val total: Long get() = channels.values.sumOf { it.total }
+}
+
+internal data class MemohChannelUsage(
+    val input: Long = 0,
+    val output: Long = 0,
+    val cacheRead: Long = 0,
+    val reasoning: Long = 0,
+) {
+    val total: Long get() = input + output
 }
 
 internal fun decodeTokenUsage(response: JSONObject): List<MemohTokenUsageDay> {
-    val channels = linkedMapOf<String, JSONObject>()
-    listOf("chat", "discuss", "schedule", "memory", "acp_agent").forEach { key ->
-        response.optJSONObject(key)?.let { channels[key] = it }
-    }
-    // Some builds return channel arrays instead of objects keyed by channel.
-    val byDate = linkedMapOf<String, MutableMap<String, Long>>()
-    channels.forEach { (channel, value) ->
-        val rows = value.optJSONArray("items") ?: value.optJSONArray("data")
-        if (rows == null) {
-            val date = value.optString("date").ifBlank { value.optString("day") }
-            if (date.isNotBlank()) {
-                byDate.getOrPut(date) { linkedMapOf() }[channel] =
-                    value.optLong("total_tokens").let { if (it > 0) it else value.optLong("tokens") }
-            }
-        } else {
-            for (index in 0 until rows.length()) {
-                val row = rows.optJSONObject(index) ?: continue
-                val date = row.optString("date").ifBlank { row.optString("day") }
-                if (date.isBlank()) continue
-                val tokens = row.optLong("total_tokens").let { if (it > 0) it else row.optLong("tokens") }
-                byDate.getOrPut(date) { linkedMapOf() }[channel] = tokens
-            }
+    val byDate = sortedMapOf<String, MutableMap<String, MemohChannelUsage>>()
+    listOf("chat", "discuss", "schedule", "memory", "acp_agent").forEach { channel ->
+        val rows = response.optJSONArray(channel) ?: return@forEach
+        for (index in 0 until rows.length()) {
+            val row = rows.optJSONObject(index) ?: continue
+            val day = row.optString("day").ifBlank { row.optString("date") }
+            if (day.isBlank()) continue
+            byDate.getOrPut(day) { linkedMapOf() }[channel] = MemohChannelUsage(
+                input = row.optLong("input_tokens"),
+                output = row.optLong("output_tokens"),
+                cacheRead = row.optLong("cache_read_tokens"),
+                reasoning = row.optLong("reasoning_tokens"),
+            )
         }
     }
     return byDate.entries.sortedByDescending { it.key }
         .map { (date, values) -> MemohTokenUsageDay(date, values.toMap()) }
 }
 
-internal fun MemohTokenUsageDay.channelTotal(): Long = channels.values.sum()
+/** Per-model totals for the same window; the web renders this as the breakdown table. */
+internal data class MemohModelUsage(
+    val modelName: String,
+    val providerName: String,
+    val input: Long,
+    val output: Long,
+) {
+    val total: Long get() = input + output
+}
+
+internal fun decodeModelUsage(response: JSONObject): List<MemohModelUsage> {
+    val rows = response.optJSONArray("by_model") ?: return emptyList()
+    return (0 until rows.length()).mapNotNull { index ->
+        val row = rows.optJSONObject(index) ?: return@mapNotNull null
+        val name = row.optString("model_name").ifBlank { row.optString("model_slug") }
+        if (name.isBlank()) return@mapNotNull null
+        MemohModelUsage(
+            modelName = name,
+            providerName = row.optString("provider_name"),
+            input = row.optLong("input_tokens"),
+            output = row.optLong("output_tokens"),
+        )
+    }.sortedByDescending { it.total }
+}
