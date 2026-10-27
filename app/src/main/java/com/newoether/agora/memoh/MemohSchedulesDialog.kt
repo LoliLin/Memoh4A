@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,8 +87,19 @@ internal fun MemohSchedulesDialog(
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.85f), shape = MaterialTheme.shapes.large) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // A fixed 85% height would sit under the keyboard while editing a schedule; the IME
+        // padding is what keeps the fields and the editor visible.
+        Surface(
+            Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.85f),
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(
+                Modifier
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.memoh_schedules_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { Text(stringResource(R.string.memoh_close)) }
@@ -116,10 +129,17 @@ internal fun MemohSchedulesDialog(
                             busy = pendingId.isNotBlank(),
                             onToggle = { enabled ->
                                 pendingId = task.id
+                                // Resolved outside the coroutine; uiResources is a plain lookup,
+                                // not a composable call.
+                                val toggled = uiResources.getString(
+                                    if (enabled) R.string.memoh_error_schedule_toggled_on
+                                    else R.string.memoh_error_schedule_toggled_off,
+                                    task.name,
+                                )
                                 scope.launch {
                                     try {
                                         api.setScheduleEnabled(botId, task.id, enabled)
-                                        notify("${task.name} ${if (enabled) "enabled" else "disabled"}.", false)
+                                        notify(toggled, false)
                                         reloadKey++
                                     } catch (e: Exception) {
                                         notify(e.message ?: uiResources.getString(R.string.memoh_ui_unable_to_update_schedule), true)

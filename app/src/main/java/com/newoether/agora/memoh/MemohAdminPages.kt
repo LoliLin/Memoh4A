@@ -435,14 +435,13 @@ internal fun MemohProviderDetailPage(
                                         if (modelTesting) {
                                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                         } else {
-                                            IconButton(
-                                                onClick = { showMenu = true },
-                                                modifier = Modifier.size(24.dp),
-                                            ) {
+                                            // 48dp touch target with a 18dp glyph: a 24dp button is
+                                            // half the accessible minimum and sits next to Delete.
+                                            IconButton(onClick = { showMenu = true }) {
                                                 Icon(
                                                     Icons.Default.MoreVert,
                                                     uiResources.getString(R.string.memoh_ui_options),
-                                                    modifier = Modifier.size(18.dp),
+                                                    modifier = Modifier.size(20.dp),
                                                 )
                                             }
                                         }
