@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -129,7 +130,13 @@ internal fun MemohMemoryDialog(api: MemohApi, botId: String, onDismiss: () -> Un
                             Text(uiResources.getString(R.string.memoh_ui_you_can_view_bot_memory_but_your_account_cannot_read_the_team_configurat),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         } else if (configLoadError.isNotBlank()) {
-                            Text(configLoadError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            Text(
+                                configLoadError,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         MemohResourceField(
                             api, "/models", uiResources.getString(R.string.memoh_ui_embedding_model), embeddingModelId, { embeddingModelId = it },
