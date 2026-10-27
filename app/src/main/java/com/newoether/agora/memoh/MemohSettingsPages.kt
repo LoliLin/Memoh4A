@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.newoether.agora.ui.settings.LicenseDialog
 import com.newoether.agora.ui.settings.rememberSettingsScrollState
 import com.newoether.agora.ui.settings.GuardedAnimatedContent
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -632,6 +633,8 @@ internal fun MemohDiagnosticsPage(
     val packageInfo = remember(context) {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
     }
+    var showLicense by rememberSaveable { mutableStateOf(false) }
+    if (showLicense) LicenseDialog(onDismiss = { showLicense = false })
     val version = packageInfo?.versionName.orEmpty().ifBlank { "?" }
     val versionCode = packageInfo?.let {
         @Suppress("DEPRECATION")
@@ -719,6 +722,12 @@ internal fun MemohDiagnosticsPage(
                             },
                         )
                     },
+                    {
+                        SettingsItem(
+                            headlineContent = { Text(stringResource(R.string.about_license)) },
+                            modifier = Modifier.clickable { showLicense = true },
+                        )
+                    },
                 ),
             )
         }
@@ -776,10 +785,9 @@ internal fun MemohLanguagePage(
         )
     }
 
-    // The Memoh screens are only fully translated into Chinese; the other languages are inherited
-    // from Agora's own resources. Saying so is better than letting someone pick Japanese and find
-    // this half of the app still in English.
-    val fullyTranslated = setOf("system", "en", "zh", "zh-Hant")
+    // The system choice depends on the device language; Traditional Chinese and the other
+    // inherited translations still fall back to English on some Memoh-specific screens.
+    val fullyTranslated = setOf("en", "zh")
 
     CollapsingSettingsScaffold(title = stringResource(R.string.language_title), onBack = onBack) {
         SettingsGroupColumn {

@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -76,6 +79,7 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     var models by remember(admin) { mutableStateOf<List<MemohAdminModel>>(emptyList()) }
     var loading by remember(admin) { mutableStateOf(true) }
     var error by remember(admin) { mutableStateOf("") }
+    var notice by remember(admin) { mutableStateOf("") }
     var selectedProviderId by rememberSaveable(admin) { mutableStateOf<String?>(null) }
     var adding by rememberSaveable(admin) { mutableStateOf(false) }
     // A 403 means these routes are the administrator's, so write affordances are not offered:
@@ -117,7 +121,15 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                     MemohNewProviderPage(
                         admin = admin,
                         onBack = { adding = false },
-                        onCreated = { adding = false; scope.launch { reload() } },
+                        existingNames = providers.map { it.name },
+                        onCreated = { message, providerId, openDetail ->
+                            adding = false
+                            notice = message
+                            scope.launch {
+                                reload()
+                                if (openDetail && providers.any { it.id == providerId }) selectedProviderId = providerId
+                            }
+                        },
                     )
                 }
                 providerId != null -> {
@@ -144,6 +156,21 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                     scrollState = scrollState,
                 ) {
                     SettingsGroupColumn {
+                        if (notice.isNotBlank()) {
+                            SettingsGroup(
+                                title = uiResources.getString(R.string.memoh_ui_status),
+                                items = listOf({
+                                    SettingsItem(
+                                        headlineContent = { Text(notice) },
+                                        trailingContent = {
+                                            TextButton(onClick = { notice = "" }) {
+                                                Text(uiResources.getString(R.string.memoh_ui_close))
+                                            }
+                                        },
+                                    )
+                                }),
+                            )
+                        }
                         if (error.isNotBlank()) {
                             SettingsGroup(
                                 title = uiResources.getString(R.string.memoh_ui_status),
@@ -179,15 +206,17 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                                 }
                                 providers.forEach { provider ->
                                     add {
+                                        val managedOAuth = provider.clientType == "openai-codex" || provider.clientType == "github-copilot"
                                         val configured = provider.hasApiKey || provider.baseUrl.isNotBlank()
-                                        val tint = if (configured) MaterialTheme.colorScheme.primary
+                                        val tint = if (managedOAuth) MaterialTheme.colorScheme.onSurfaceVariant
+                                        else if (configured) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                         SettingsItem(
                                             headlineContent = { Text(provider.name, fontWeight = FontWeight.Medium) },
                                             supportingContent = {
                                                 Text(
                                                     provider.baseUrl.ifBlank {
-                                                        uiResources.getString(R.string.memoh_ui_not_configured)
+                                                        uiResources.getString(if (managedOAuth) R.string.memoh_ui_oauth_account else R.string.memoh_ui_not_configured)
                                                     },
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
@@ -289,14 +318,27 @@ internal fun MemohProviderDetailPage(
     var editSaving by remember { mutableStateOf(false) }
     var editError by remember { mutableStateOf("") }
     var modelToDelete by remember { mutableStateOf<MemohAdminModel?>(null) }
+    var importing by remember(provider.id) { mutableStateOf(false) }
+    var importMessage by remember(provider.id) { mutableStateOf("") }
+    var importFailed by remember(provider.id) { mutableStateOf(false) }
+    val context = LocalContext.current
+    val modelSources = remember {
+        context.assets.open("memoh_model_sources.json").bufferedReader().use {
+            decodeMemohModelSources(JSONObject(it.readText()))
+        }
+    }
     val scrollState = rememberSettingsScrollState()
 
     CollapsingSettingsScaffold(title = provider.name, onBack = onBack, scrollState = scrollState) {
         SettingsGroupColumn {
+            val managedOAuth = provider.clientType == "openai-codex" || provider.clientType == "github-copilot"
+            if (managedOAuth) {
+                MemohProviderOAuthSection(admin, provider, canManage, onChanged)
+            }
             SettingsGroup(
                 title = uiResources.getString(R.string.memoh_ui_connection),
-                items = listOf(
-                    {
+                items = buildList {
+                    if (!managedOAuth) add {
                         SettingsItem(
                             headlineContent = { Text(uiResources.getString(R.string.memoh_ui_api_key)) },
                             supportingContent = {
@@ -307,8 +349,8 @@ internal fun MemohProviderDetailPage(
                             },
                             modifier = Modifier.heightIn(min = 64.dp),
                         )
-                    },
-                    {
+                    }
+                    if (provider.clientType != "github-copilot") add {
                         SettingsItem(
                             headlineContent = { Text(uiResources.getString(R.string.memoh_ui_base_url)) },
                             supportingContent = {
@@ -320,8 +362,8 @@ internal fun MemohProviderDetailPage(
                             },
                             modifier = Modifier.heightIn(min = 64.dp),
                         )
-                    },
-                    {
+                    }
+                    add {
                         SettingsItem(
                             headlineContent = { Text(uiResources.getString(R.string.memoh_ui_test_connection)) },
                             supportingContent = {
@@ -364,13 +406,56 @@ internal fun MemohProviderDetailPage(
                             },
                             modifier = Modifier.heightIn(min = 64.dp),
                         )
-                    },
-                ),
+                    }
+                },
             )
 
             SettingsGroup(
                 title = uiResources.getString(R.string.memoh_ui_models),
                 items = buildList {
+                    if (canManage) {
+                        add {
+                            SettingsItem(
+                                headlineContent = { Text(uiResources.getString(R.string.memoh_ui_import_models)) },
+                                supportingContent = {
+                                    Text(
+                                        importMessage.ifBlank { uiResources.getString(R.string.memoh_ui_import_models_hint) },
+                                        color = if (importFailed) MaterialTheme.colorScheme.error
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                trailingContent = {
+                                    if (importing) {
+                                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        TextButton(onClick = {
+                                            importing = true
+                                            importMessage = ""
+                                            importFailed = false
+                                            scope.launch {
+                                                try {
+                                                    val result = if (memohProviderCatalogSource(provider.metadata, modelSources) != null) {
+                                                        admin.importProviderCatalogModels(provider.id)
+                                                    } else {
+                                                        admin.importProviderModels(provider.id, memohSuggestedModelCompatibilities(provider.clientType))
+                                                    }
+                                                    importMessage = memohModelImportSummary(uiResources, result)
+                                                    onChanged()
+                                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                                    throw cancelled
+                                                } catch (failure: Exception) {
+                                                    importFailed = true
+                                                    importMessage = failure.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+                                                } finally {
+                                                    importing = false
+                                                }
+                                            }
+                                        }) { Text(uiResources.getString(R.string.memoh_ui_import)) }
+                                    }
+                                },
+                            )
+                        }
+                    }
                     if (models.isEmpty()) {
                         add {
                             SettingsItem(
@@ -646,7 +731,7 @@ internal fun MemohProviderDetailPage(
             // The form covers the detail page, so its own banner is the only place an error shows.
             error = editError,
             onBack = { editing = false },
-            onSave = { name, clientType, baseUrl, apiKey ->
+            onSave = { name, clientType, baseUrl, apiKey, _, _, _ ->
                 editSaving = true
                 editError = ""
                 scope.launch {
@@ -778,29 +863,89 @@ private fun MemohCreateModelDialog(
 
 /** New-provider page: full settings page, not a dialog, so the form gets room and a title bar. */
 @Composable
-private fun MemohNewProviderPage(admin: MemohAdminApi, onBack: () -> Unit, onCreated: () -> Unit) {
-    val uiResources = LocalContext.current.resources
+private fun MemohNewProviderPage(
+    admin: MemohAdminApi,
+    onBack: () -> Unit,
+    existingNames: List<String>,
+    onCreated: (message: String, providerId: String, openDetail: Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    val uiResources = context.resources
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
+    var templates by remember { mutableStateOf<List<MemohProviderTemplate>>(emptyList()) }
+    val sources = remember {
+        context.assets.open("memoh_model_sources.json").bufferedReader().use {
+            decodeMemohModelSources(JSONObject(it.readText()))
+        }
+    }
+    LaunchedEffect(admin) {
+        try {
+            templates = decodeProviderTemplates(admin.providerTemplates())
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Older servers can lack templates; the bundled Web catalog remains usable.
+            templates = emptyList()
+        }
+    }
 
     MemohProviderFormPage(
         title = uiResources.getString(R.string.memoh_ui_add_provider),
         existing = null,
+        choices = memohProviderChoices(sources, templates),
+        existingNames = existingNames,
         saving = saving,
         error = error,
         onBack = onBack,
-        onSave = { name, clientType, baseUrl, apiKey ->
+        onSave = { name, clientType, baseUrl, apiKey, preset, autoImport, extraConfig ->
             saving = true
             error = ""
             scope.launch {
-                runCatching {
-                    admin.createProviderFromRequest(
-                        providerRequestBody(name, clientType, baseUrl, apiKey, null, create = true),
-                    )
-                }.onFailure { error = it.message ?: uiResources.getString(R.string.memoh_ui_unknown_error) }
-                    .onSuccess { onCreated() }
-                saving = false
+                try {
+                    val created = if (preset?.templateId != null) {
+                        admin.createProviderFromTemplate(
+                            memohTemplateProviderBody(preset.templateId, name, baseUrl, apiKey, extraConfig),
+                        )
+                    } else {
+                        admin.createProviderFromRequest(
+                            memohCatalogProviderBody(preset, name, clientType, baseUrl, apiKey),
+                        )
+                    }
+                    val providerId = created.optString("id")
+                    var message = ""
+                    if (autoImport && clientType !in setOf("openai-codex", "github-copilot")) {
+                        if (providerId.isBlank()) {
+                            message = uiResources.getString(R.string.memoh_ui_import_no_provider_id)
+                        } else {
+                            try {
+                                val metadata = created.optJSONObject("metadata") ?: JSONObject()
+                                val result = if (memohProviderCatalogSource(metadata, sources) != null) {
+                                    admin.importProviderCatalogModels(providerId)
+                                } else {
+                                    val defaults = if (preset == null) memohSuggestedModelCompatibilities(clientType) else emptyList()
+                                    admin.importProviderModels(providerId, defaults)
+                                }
+                                message = memohModelImportSummary(uiResources, result)
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                message = uiResources.getString(
+                                    R.string.memoh_ui_import_after_create_failed,
+                                    failure.message ?: uiResources.getString(R.string.memoh_ui_unknown_error),
+                                )
+                            }
+                        }
+                    }
+                    onCreated(message, providerId, clientType == "openai-codex" || clientType == "github-copilot")
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    error = failure.message ?: uiResources.getString(R.string.memoh_ui_unknown_error)
+                } finally {
+                    saving = false
+                }
             }
         },
     )
@@ -811,19 +956,65 @@ private fun MemohProviderFormPage(
     title: String,
     existing: MemohProvider?,
     onBack: () -> Unit,
-    onSave: (name: String, clientType: String, baseUrl: String, apiKey: String) -> Unit,
+    onSave: (name: String, clientType: String, baseUrl: String, apiKey: String, preset: MemohProviderPreset?, autoImport: Boolean, extraConfig: JSONObject) -> Unit,
     saving: Boolean = false,
     error: String = "",
+    choices: List<MemohProviderPreset> = emptyList(),
+    existingNames: List<String> = emptyList(),
 ) {
     val uiResources = LocalContext.current.resources
-    var name by remember { mutableStateOf(existing?.name.orEmpty()) }
-    var clientType by remember { mutableStateOf(existing?.clientType.orEmpty()) }
-    var baseUrl by remember { mutableStateOf(existing?.baseUrl.orEmpty()) }
-    var apiKey by remember { mutableStateOf("") }
+    var selectedPresetId by rememberSaveable { mutableStateOf<String?>(null) }
+    val preset = choices.firstOrNull { it.id == selectedPresetId }
+    var name by rememberSaveable(existing?.id) { mutableStateOf(existing?.name.orEmpty()) }
+    var clientType by rememberSaveable(existing?.id) { mutableStateOf(existing?.clientType ?: "openai-completions") }
+    var baseUrl by rememberSaveable(existing?.id) { mutableStateOf(existing?.baseUrl.orEmpty()) }
+    // Do not place credentials in saved instance state.
+    var apiKey by remember(existing?.id) { mutableStateOf("") }
+    var autoImport by rememberSaveable { mutableStateOf(false) }
+    var presetMenu by remember { mutableStateOf(false) }
+    var protocolMenu by remember { mutableStateOf(false) }
+    var extraChoice by remember { mutableStateOf<MemohProviderConfigField?>(null) }
+    val extraFields = preset?.extraTemplateFields().orEmpty()
+    // Only non-secret inputs may survive recreation; credentials stay in memory only.
+    var extraValues by rememberSaveable(selectedPresetId) {
+        mutableStateOf(HashMap<String, String>().apply {
+            extraFields.filterNot { it.secret }.forEach { field ->
+                val default = preset?.templateDefaults?.opt(field.key)
+                if (default != null && default != JSONObject.NULL) put(field.key, default.toString())
+                else if (field.required && field.type.lowercase() in setOf("boolean", "bool")) put(field.key, "false")
+            }
+        })
+    }
+    var extraSecrets by remember(selectedPresetId) { mutableStateOf<HashMap<String, String>>(hashMapOf()) }
+    fun setExtra(field: MemohProviderConfigField, value: String) {
+        if (field.secret) extraSecrets = HashMap(extraSecrets).apply { put(field.key, value) }
+        else extraValues = HashMap(extraValues).apply { put(field.key, value) }
+    }
+    val extraInputs = extraValues + extraSecrets
+    val extraConfig = memohTemplateExtraConfig(preset, extraInputs)
     val scrollState = rememberSettingsScrollState()
+    val managedOAuth = clientType == "openai-codex" || clientType == "github-copilot"
+    val showBaseUrl = if (existing != null) clientType != "github-copilot" else preset?.showBaseUrl ?: (clientType != "github-copilot")
+    val showApiKey = if (existing != null) !managedOAuth else preset?.showApiKey ?: !managedOAuth
+    val requiresBaseUrl = preset?.requiresBaseUrl ?: (clientType != "github-copilot")
+    val requiresApiKey = preset?.requiresApiKey ?: !managedOAuth
 
     CollapsingSettingsScaffold(title = title, onBack = onBack, scrollState = scrollState) {
         SettingsGroupColumn {
+            if (existing == null) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_preset),
+                    items = listOf({
+                        MemohChoiceField(
+                            label = uiResources.getString(R.string.memoh_ui_preset),
+                            value = preset?.name ?: uiResources.getString(
+                                if (selectedPresetId == null) R.string.onboarding_custom_title else R.string.memoh_ui_loading,
+                            ),
+                            enabled = !saving,
+                        ) { presetMenu = true }
+                    }),
+                )
+            }
             SettingsGroup(
                 title = uiResources.getString(R.string.memoh_ui_identity),
                 items = listOf(
@@ -835,39 +1026,103 @@ private fun MemohProviderFormPage(
                         )
                     },
                     {
-                        FieldRow(
-                            value = clientType,
-                            onValueChange = { clientType = it },
-                            label = uiResources.getString(R.string.memoh_ui_client_type),
-                            enabled = existing == null,
-                        )
+                        if (existing == null && preset == null) {
+                            MemohChoiceField(
+                                label = uiResources.getString(R.string.memoh_ui_client_type),
+                                value = memohProviderClientTypes.firstOrNull { it.id == clientType }?.label ?: clientType,
+                                enabled = !saving,
+                            ) { protocolMenu = true }
+                        } else {
+                            FieldRow(
+                                value = clientType,
+                                onValueChange = {},
+                                label = uiResources.getString(R.string.memoh_ui_client_type),
+                                enabled = false,
+                            )
+                        }
                     },
                 ),
             )
-            SettingsGroup(
-                title = uiResources.getString(R.string.memoh_ui_credentials),
-                items = listOf(
-                    {
-                        FieldRow(
-                            value = baseUrl,
-                            onValueChange = { baseUrl = it },
-                            label = uiResources.getString(R.string.memoh_ui_base_url),
-                        )
+            if (showBaseUrl || showApiKey) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_credentials),
+                    items = buildList {
+                        if (showBaseUrl) add {
+                            FieldRow(
+                                value = baseUrl,
+                                onValueChange = { baseUrl = it },
+                                label = uiResources.getString(R.string.memoh_ui_base_url),
+                                enabled = !saving,
+                            )
+                        }
+                        if (showApiKey) add {
+                            FieldRow(
+                                value = apiKey,
+                                onValueChange = { apiKey = it },
+                                label = if (existing?.hasApiKey == true) {
+                                    uiResources.getString(R.string.memoh_ui_api_key_keep)
+                                } else {
+                                    uiResources.getString(R.string.memoh_ui_api_key)
+                                },
+                                secret = true,
+                                enabled = !saving,
+                            )
+                        }
                     },
-                    {
-                        FieldRow(
-                            value = apiKey,
-                            onValueChange = { apiKey = it },
-                            label = if (existing?.hasApiKey == true) {
-                                uiResources.getString(R.string.memoh_ui_api_key_keep)
-                            } else {
-                                uiResources.getString(R.string.memoh_ui_api_key)
+                )
+            }
+            if (extraFields.isNotEmpty()) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_template_configuration),
+                    items = buildList {
+                        extraFields.forEach { field ->
+                            add {
+                                val value = extraInputs[field.key].orEmpty()
+                                val label = field.title + if (field.required) " *" else ""
+                                when {
+                                    field.options.isNotEmpty() && !field.secret -> MemohChoiceField(
+                                        label = label,
+                                        value = value.ifBlank { uiResources.getString(R.string.memoh_ui_choose) },
+                                        enabled = !saving,
+                                    ) { extraChoice = field }
+                                    field.type.lowercase() in setOf("boolean", "bool") -> SettingsItem(
+                                        headlineContent = { Text(label) },
+                                        supportingContent = { if (field.description.isNotBlank()) Text(field.description) },
+                                        trailingContent = {
+                                            Switch(checked = value == "true", enabled = !saving, onCheckedChange = {
+                                                setExtra(field, it.toString())
+                                            })
+                                        },
+                                    )
+                                    else -> FieldRow(
+                                        value = value,
+                                        onValueChange = { setExtra(field, it) },
+                                        label = label,
+                                        enabled = !saving,
+                                        secret = field.secret,
+                                        supportingText = field.description,
+                                        invalid = value.isNotBlank() && field.key in extraConfig.invalidKeys,
+                                    )
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+            if (existing == null && !managedOAuth) {
+                SettingsGroup(
+                    title = uiResources.getString(R.string.memoh_ui_models),
+                    items = listOf({
+                        SettingsItem(
+                            headlineContent = { Text(uiResources.getString(R.string.memoh_ui_auto_import_models)) },
+                            supportingContent = { Text(uiResources.getString(R.string.memoh_ui_auto_import_models_hint)) },
+                            trailingContent = {
+                                Switch(checked = autoImport, enabled = !saving, onCheckedChange = { autoImport = it })
                             },
-                            secret = true,
                         )
-                    },
-                ),
-            )
+                    }),
+                )
+            }
             if (error.isNotBlank()) {
                 SettingsGroup(
                     title = uiResources.getString(R.string.memoh_ui_status),
@@ -896,14 +1151,142 @@ private fun MemohProviderFormPage(
                         modifier = Modifier
                             .heightIn(min = 56.dp)
                             .clickable(enabled = !saving && name.isNotBlank() &&
-                                (existing != null || clientType.isNotBlank())) {
-                                onSave(name, clientType, baseUrl, apiKey)
+                                (existing != null || ((selectedPresetId == null || preset != null) && clientType.isNotBlank() && extraConfig.invalidKeys.isEmpty() &&
+                                    (!requiresBaseUrl || baseUrl.isNotBlank()) &&
+                                    (!requiresApiKey || apiKey.isNotBlank())))) {
+                                onSave(name, clientType, baseUrl, apiKey, preset, autoImport, extraConfig.config)
                             },
                     )
                 }),
             )
         }
     }
+    if (presetMenu) {
+        MemohProviderPresetPicker(
+            choices = choices,
+            selectedId = selectedPresetId,
+            onDismiss = { presetMenu = false },
+            onSelected = { choice ->
+                selectedPresetId = choice?.id
+                name = choice?.let { suggestMemohProviderName(it.name, existingNames) }.orEmpty()
+                clientType = choice?.clientType ?: "openai-completions"
+                baseUrl = choice?.baseUrl.orEmpty()
+                apiKey = ""
+                autoImport = choice != null && !choice.managedOAuth
+                presetMenu = false
+            },
+        )
+    }
+    if (protocolMenu) {
+        MemohProviderValuePicker(
+            title = uiResources.getString(R.string.memoh_ui_client_type),
+            values = memohProviderClientTypes.map { it.id to it.label },
+            selected = clientType,
+            onDismiss = { protocolMenu = false },
+            onSelected = { selected ->
+                clientType = selected
+                if (selected == "github-copilot") baseUrl = ""
+                if (selected == "openai-codex" && baseUrl.isBlank()) baseUrl = "https://chatgpt.com/backend-api"
+                if (selected == "openai-codex" || selected == "github-copilot") autoImport = false
+                protocolMenu = false
+            },
+        )
+    }
+    extraChoice?.let { field ->
+        val default = preset?.templateDefaults?.opt(field.key)
+        val hasDefault = default != null && default != JSONObject.NULL && (default !is String || default.isNotBlank())
+        val optional = if (!field.required || hasDefault) listOf("" to uiResources.getString(R.string.memoh_ui_server_default)) else emptyList()
+        MemohProviderValuePicker(
+            title = field.title,
+            values = optional + field.options.map { it to it },
+            selected = extraInputs[field.key].orEmpty(),
+            onDismiss = { extraChoice = null },
+            onSelected = { setExtra(field, it); extraChoice = null },
+        )
+    }
+}
+
+@Composable
+private fun MemohProviderValuePicker(
+    title: String,
+    values: List<Pair<String, String>>,
+    selected: String,
+    onDismiss: () -> Unit,
+    onSelected: (String) -> Unit,
+) {
+    val resources = LocalContext.current.resources
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                items(values.size) { index ->
+                    val (value, label) = values[index]
+                    SettingsItem(
+                        headlineContent = { Text(label) },
+                        modifier = Modifier.fillMaxWidth().selectable(selected = value == selected) { onSelected(value) },
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(resources.getString(R.string.memoh_ui_cancel)) } },
+    )
+}
+
+@Composable
+internal fun MemohProviderPresetPicker(
+    choices: List<MemohProviderPreset>,
+    selectedId: String?,
+    onDismiss: () -> Unit,
+    onSelected: (MemohProviderPreset?) -> Unit,
+) {
+    val resources = LocalContext.current.resources
+    var search by rememberSaveable { mutableStateOf("") }
+    val custom = resources.getString(R.string.onboarding_custom_title)
+    val query = search.trim()
+    val filtered = remember(choices, query) {
+        choices.filter { choice ->
+            listOf(choice.name, choice.id, choice.clientType, choice.baseUrl, choice.source.orEmpty())
+                .any { it.contains(query, ignoreCase = true) }
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(resources.getString(R.string.memoh_ui_choose_a_preset)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = search, onValueChange = { search = it },
+                    label = { Text(resources.getString(R.string.memoh_ui_search)) },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                    if (query.isBlank() || custom.contains(query, ignoreCase = true) || "custom".contains(query, true)) {
+                        item(key = "custom") {
+                            SettingsItem(
+                                headlineContent = { Text(custom) },
+                                modifier = Modifier.fillMaxWidth().selectable(
+                                    selected = selectedId == null, onClick = { onSelected(null) },
+                                ),
+                            )
+                        }
+                    }
+                    items(filtered, key = { it.id }) { choice ->
+                        SettingsItem(
+                            headlineContent = { Text(choice.name) },
+                            supportingContent = { Text(choice.clientType, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            modifier = Modifier.fillMaxWidth().selectable(
+                                selected = selectedId == choice.id, onClick = { onSelected(choice) },
+                            ),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(resources.getString(R.string.memoh_ui_cancel)) }
+        },
+    )
 }
 
 /** A settings row that is a text field, keeping the row's own padding instead of a bare dialog. */
@@ -914,6 +1297,8 @@ private fun FieldRow(
     label: String,
     enabled: Boolean = true,
     secret: Boolean = false,
+    supportingText: String = "",
+    invalid: Boolean = false,
 ) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         OutlinedTextField(
@@ -922,6 +1307,10 @@ private fun FieldRow(
             label = { Text(label) },
             singleLine = true,
             enabled = enabled,
+            isError = invalid,
+            supportingText = if (invalid || supportingText.isNotBlank()) {
+                { Text(if (invalid) LocalContext.current.getString(R.string.memoh_ui_invalid_field_value) else supportingText) }
+            } else null,
             visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                 keyboardType = if (secret) KeyboardType.Password else KeyboardType.Text,

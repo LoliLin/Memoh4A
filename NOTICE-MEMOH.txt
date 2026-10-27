@@ -1,0 +1,12 @@
+Memoh provider gallery data
+
+The provider source list in app/src/main/assets/memoh_model_sources.json is adapted
+from apps/web/src/constants/model-sources.ts in the Memoh project by its contributors:
+https://github.com/felinics/Memoh
+Revision: 08c4320c7f2d4445361ee2a066d052b47d0d05dd
+
+The upstream work is distributed under the GNU Affero General Public License,
+version 3. The list has been converted from TypeScript to JSON for use by this
+Android client. A copy of that license is provided in
+app/src/main/assets/licenses/LICENSE-AGPL-3.0.txt. The existing Agora portions
+remain subject to their original GNU GPL version 3 license; see LICENSE.

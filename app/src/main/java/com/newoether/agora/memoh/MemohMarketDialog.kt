@@ -111,7 +111,7 @@ internal fun MemohMarketDialog(api: MemohApi, botId: String, onDismiss: () -> Un
                             modifier = Modifier.weight(1f),
                         )
                         TextButton(onClick = { scope.launch { reload() } }, enabled = !loading) {
-                            Text(uiResources.getString(R.string.memoh_ui_retry))
+                            Text(uiResources.getString(R.string.memoh_ui_refresh))
                         }
                     }
                 }

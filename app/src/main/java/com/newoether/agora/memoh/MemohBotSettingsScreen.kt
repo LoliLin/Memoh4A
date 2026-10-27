@@ -67,6 +67,7 @@ internal object MemohBotSectionKey {
     const val ACCESS = "access"
     const val ADVANCED = "advanced"
     const val BACKUP = "backup"
+    const val MODELS = "models"
 }
 
 private val botIdentitySections = listOf(
@@ -75,6 +76,7 @@ private val botIdentitySections = listOf(
 )
 
 private val botCapabilitySections = listOf(
+    MemohBotSection(MemohBotSectionKey.MODELS, R.string.memoh_ui_models_and_behavior, R.string.memoh_ui_default_model_reasoning_memory_and_media),
     MemohBotSection(MemohBotSectionKey.AGENTS, R.string.memoh_ui_agents, R.string.memoh_ui_sub_agents_this_bot_can_delegate_to),
     MemohBotSection(MemohBotSectionKey.CHANNELS, R.string.memoh_ui_channels, R.string.memoh_ui_telegram_discord_and_other_linked_chats),
     MemohBotSection(MemohBotSectionKey.RUNTIME, R.string.memoh_ui_runtime, R.string.memoh_ui_register_and_manage_remote_worker_nodes),

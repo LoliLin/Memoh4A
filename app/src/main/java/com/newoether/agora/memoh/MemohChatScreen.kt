@@ -802,9 +802,10 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                                                     displayText = label,
                                                     selected = id == currentId,
                                                     onClick = {
+                                                        // Pick the new model's own default tier,
+                                                        // then reconcile below against the catalog.
                                                         vm.selectModel(
-                                                            id, model.reasoningEfforts().firstOrNull()
-                                                                ?: model.optString("default_reasoning_effort"))
+                                                            id, model.reasoningDefault())
                                                         modelMenu = false
                                                     },
                                                 )

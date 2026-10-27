@@ -44,6 +44,10 @@ internal class MemohAgentController(
         private set
     var botDefaultModelId by mutableStateOf("")
         private set
+    var botDefaultReasoningEffort by mutableStateOf("")
+        private set
+    private var welcomeSeedModelId = ""
+    private var welcomeSeedEffort = ""
     private var modelLabelHint by mutableStateOf("")
     var preferenceRevision = 0
         private set
@@ -72,10 +76,39 @@ internal class MemohAgentController(
         preferredReasoningEffort = session?.preferredReasoningEffort.orEmpty()
         modelLabelHint = session?.preferredExternalModelId.orEmpty()
         settledModelId = ""
+        if (session == null) applyWelcomeSeed()
     }
 
-    fun setBotDefault(modelId: String) {
+    fun setBotDefault(modelId: String, effort: String = "") {
         botDefaultModelId = modelId
+        botDefaultReasoningEffort = effort
+    }
+
+    /** The server seed belongs to the latest native session, not to the bot settings. */
+    fun setWelcomeSeed(modelId: String, effort: String, apply: Boolean) {
+        welcomeSeedModelId = modelId
+        welcomeSeedEffort = effort
+        if (apply) applyWelcomeSeed()
+    }
+
+    fun applyWelcomeSeed() {
+        // The seed is a chat-model record id, so it only ever belongs on the native composer;
+        // an external ACP agent owns its own models.
+        if (selectedAgent?.runtime == "acp") return
+        // Without a seed the composer follows the bot default but carries nothing on send,
+        // so a later change to that default still reaches the next new conversation.
+        if (welcomeSeedModelId.isBlank()) {
+            preferredModelId = ""
+            preferredReasoningEffort = ""
+            modelLabelHint = ""
+            return
+        }
+        preferredModelId = welcomeSeedModelId
+        // Seeded pair first, then the bot's own effort, then the web composer's fallback.
+        preferredReasoningEffort = welcomeSeedEffort
+            .ifBlank { botDefaultReasoningEffort }
+            .ifBlank { "medium" }
+        modelLabelHint = ""
     }
 
     val selectedAgent: MemohAgent?
@@ -114,6 +147,9 @@ internal class MemohAgentController(
         preferredReasoningEffort = ""
         settledModelId = ""
         botDefaultModelId = ""
+        botDefaultReasoningEffort = ""
+        welcomeSeedModelId = ""
+        welcomeSeedEffort = ""
         modelLabelHint = ""
         preferenceRevision++
         catalogGeneration++
@@ -162,7 +198,12 @@ internal class MemohAgentController(
         modelsLoading = true
         try {
             val catalog = api.teamChatModels()
-            if (generation == catalogGeneration && api.scope === identity) models = catalog
+            if (generation == catalogGeneration && api.scope === identity) {
+                models = catalog
+                // The catalog carries each model's resolved efforts; a restored preference
+                // can only be checked once they are here.
+                reconcileComposerPreference()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -170,6 +211,23 @@ internal class MemohAgentController(
         } finally {
             if (generation == catalogGeneration && api.scope === identity) modelsLoading = false
         }
+    }
+
+    fun catalogModel(id: String): JSONObject? {
+        val entries = models?.optJSONArray("models") ?: return null
+        return (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
+            .firstOrNull { it.optString("id") == id || it.optString("model_id") == id }
+    }
+
+    /**
+     * Switching models can strand the composer on a tier the new model does not offer.
+     * An empty override means "inherit the bot default", so it is left alone.
+     */
+    fun reconcileComposerPreference() {
+        if (preferredReasoningEffort.isEmpty()) return
+        val model = catalogModel(currentModelId) ?: return
+        val next = model.reconcileComposerReasoningEffort(preferredReasoningEffort)
+        if (next.isNotEmpty() && next != preferredReasoningEffort) preferredReasoningEffort = next
     }
 
     fun setModelPreference(modelId: String, reasoningEffort: String) {

@@ -16,6 +16,7 @@ internal data class MemohProvider(
     val config: JSONObject,
     val baseUrl: String,
     val hasApiKey: Boolean,
+    val metadata: JSONObject = JSONObject(),
 ) {
     val displayType: String get() = clientType.ifBlank { "custom" }
 }
@@ -37,8 +38,53 @@ internal fun decodeProviders(response: JSONObject): List<MemohProvider> {
             config = JSONObject(config.toString()),
             baseUrl = config.optString("base_url"),
             hasApiKey = config.optString("api_key").isNotBlank(),
+            metadata = JSONObject((item.optJSONObject("metadata") ?: JSONObject()).toString()),
         )
     }
+}
+
+/**
+ * One entry of `/provider-templates`: the server's own preset for a provider vendor. Creating a
+ * provider by hand asks the user to guess `client_type` and `base_url`; the template fills both.
+ */
+internal data class MemohProviderTemplate(
+    val id: String,
+    val key: String,
+    val name: String,
+    val description: String,
+    val domain: String,
+    val driver: String,
+    val icon: String,
+    val defaultConfig: JSONObject,
+    val fields: List<MemohProviderConfigField>,
+    val sortOrder: Int,
+) {
+    val baseUrl: String get() = defaultConfig.optString("base_url")
+}
+
+internal fun decodeProviderTemplates(response: JSONObject): List<MemohProviderTemplate> {
+    // The endpoint declares a bare array, which the transport wraps as `items`.
+    val array = response.optJSONArray("items")
+        ?: response.optJSONArray("data")
+        ?: response.optJSONArray("templates")
+        ?: return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val id = item.optString("id")
+        if (id.isBlank()) return@mapNotNull null
+        MemohProviderTemplate(
+            id = id,
+            key = item.optString("key"),
+            name = item.optString("name").ifBlank { item.optString("key") },
+            description = item.optString("description"),
+            domain = item.optString("domain"),
+            driver = item.optString("driver"),
+            icon = item.optString("icon"),
+            defaultConfig = item.optJSONObject("default_config") ?: JSONObject(),
+            fields = decodeProviderConfigFields(item.optJSONObject("config_schema")),
+            sortOrder = item.optInt("sort_order", Int.MAX_VALUE),
+        )
+    }.sortedBy { it.sortOrder }
 }
 
 internal enum class MemohConnectivityStatus { PASSED, FAILED, UNVERIFIED }
@@ -80,9 +126,7 @@ internal fun decodeAdminModels(response: JSONObject): List<MemohAdminModel> {
             type = item.optString("type").ifBlank { "chat" },
             enabled = item.optBoolean("enable", true),
             contextWindow = item.optJSONObject("config")?.optLong("context_window") ?: 0L,
-            reasoningEfforts = item.optJSONObject("config")?.optJSONArray("reasoning_efforts")
-                ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf(String::isNotBlank) } }
-                .orEmpty(),
+            reasoningEfforts = item.reasoningEfforts().filterNot { it == "disable" },
         )
     }
 }
