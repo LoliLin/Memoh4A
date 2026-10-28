@@ -235,6 +235,30 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
             attachmentCacheRevision++
         }
     }
+    // A Bot's pictures are markdown references the server registered as assets; they need the
+    // same pre-materialization pass as ordinary attachments, keyed by content hash.
+    val pendingAssets = remember(vm.turns, vm.liveUserTurns) {
+        (vm.turns + vm.liveUserTurns).flatMap { it.assets }.distinctBy { it.contentHash }
+    }
+    LaunchedEffect(pendingAssets) {
+        val cacheDir = context.cacheDir
+        val botId = vm.bot?.id ?: return@LaunchedEffect
+        val toFetch = pendingAssets.filter { it.isImage && it.cachedFile(cacheDir) == null }
+        if (toFetch.isEmpty()) return@LaunchedEffect
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            toFetch.forEach { asset ->
+                runCatching { vm.api.downloadAsset(botId, asset, asset.cachedTarget(cacheDir)) }
+                    .onFailure { failure ->
+                        com.newoether.agora.util.CrashReporter.note(
+                            "memoh asset download failed: ${asset.name} role=${asset.role} " +
+                                "hash=${asset.contentHash.take(12)} ordinal=${asset.ordinal} " +
+                                "cause=${failure::class.java.simpleName}: ${failure.message?.take(120)}",
+                        )
+                    }
+            }
+        }
+        attachmentCacheRevision++
+    }
     val hasLive = vm.liveBlocks.isNotEmpty() || vm.running
     val messages = remember(
         vm.turns, vm.liveUserTurns, vm.pendingUserText, vm.pendingUserAttachments,

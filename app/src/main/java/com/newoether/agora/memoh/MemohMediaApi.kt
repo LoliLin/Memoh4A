@@ -65,6 +65,43 @@ internal suspend fun MemohApi.downloadAttachment(botId: String, attachment: Memo
     throw lastFailure ?: IOException("No downloadable attachment source")
 }
 
+/**
+ * Download one markdown-registered asset.
+ *
+ * The Bot has no attachment API: it writes a container path into its reply, and the server
+ * registers whatever that path referenced as an asset with a `content_hash`. The hash is the
+ * only durable handle, so the media route is tried first and the container path second — a
+ * server that indexes by hash answers the first, an older one answers the second.
+ */
+internal suspend fun MemohApi.downloadAsset(botId: String, asset: MemohAsset, target: File) {
+    val owner = Uri.encode(botId)
+    val sources = mutableListOf<String>()
+    if (asset.contentHash.isNotBlank()) sources += "$baseUrl/bots/$owner/media/${Uri.encode(asset.contentHash)}"
+    if (asset.contentUrl.isNotBlank()) {
+        sources += when {
+            asset.contentUrl.startsWith("http://") || asset.contentUrl.startsWith("https://") -> asset.contentUrl
+            asset.contentUrl.startsWith("/bots/") -> baseUrl + asset.contentUrl
+            else -> scope.identity.endpoints.origin.toHttpUrl()
+                .resolve(asset.contentUrl)?.toString().orEmpty()
+        }
+    }
+    val usable = sources.filter { it.isNotBlank() }.distinct()
+    if (usable.isEmpty()) throw IOException("Asset has no downloadable source")
+    var lastFailure: Exception? = null
+    for (source in usable) {
+        try {
+            downloadMedia(source, target, requireImage = asset.isImage)
+            return
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            lastFailure = failure
+            if (target.isFile) target.delete()
+        }
+    }
+    throw lastFailure ?: IOException("Asset has no downloadable source")
+}
+
 /** Private media carries the current sign-in only on the configured origin, including redirects. */
 internal suspend fun MemohApi.downloadMedia(
     source: String,

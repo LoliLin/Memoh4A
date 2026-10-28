@@ -134,6 +134,27 @@ internal data class MemohAttachment(
     val storageKey: String = "",
 )
 
+/**
+ * A file the server registered by scanning the reply's markdown.
+ *
+ * A Bot has no attachment API: it writes `![alt](/data/x.png)` into its text and the server
+ * walks that text, storing every referenced file as an asset with a `content_hash`. The path in
+ * the markdown is prose, not a URL a client can open — [Ordinal] is the position the reference
+ * appeared in, which is how a link is matched back to the asset that actually holds the bytes.
+ */
+internal data class MemohAsset(
+    val id: String = "",
+    val ordinal: Int = 0,
+    val role: String = "",
+    val mime: String = "",
+    val contentHash: String = "",
+    val sizeBytes: Long = 0,
+    val name: String = "",
+    val contentUrl: String = "",
+) {
+    val isImage: Boolean get() = mime.startsWith("image/")
+}
+
 internal data class MemohBlock(
     val id: Int,
     val type: String,
@@ -169,6 +190,8 @@ internal data class MemohTurn(
     val text: String = "",
     val blocks: List<MemohBlock> = emptyList(),
     val attachments: List<MemohAttachment> = emptyList(),
+    /** Files the server registered by scanning [text]'s markdown, in reference order. */
+    val assets: List<MemohAsset> = emptyList(),
     /** Server turn_id used by retry_message/edit_message; may differ from the row identity. */
     val turnId: String = "",
     /** Server-assigned order, shared by the user and assistant rows of a turn. */
@@ -287,6 +310,45 @@ internal fun decodeSession(obj: JSONObject): MemohSession = MemohSession(
     modelPreferenceRevision = obj.optString("model_preference_revision"),
 )
 
+/**
+ * The files the server registered for one reply by scanning its markdown.
+ *
+ * `ordinal` is the reference's position in the text, so it — not the path in the markdown —
+ * is what ties an asset to a `![](...)` occurrence. A row without assets simply has none.
+ */
+internal fun decodeAssets(array: JSONArray?): List<MemohAsset> {
+    if (array == null) return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val hash = item.optString("content_hash")
+        if (hash.isBlank()) return@mapNotNull null
+        MemohAsset(
+            id = item.optString("id").ifBlank { hash },
+            ordinal = item.optInt("ordinal", index),
+            role = item.optString("role"),
+            mime = item.optString("mime"),
+            contentHash = hash,
+            sizeBytes = item.optLong("size_bytes"),
+            name = item.optString("name"),
+            contentUrl = item.optString("content_url").ifBlank { item.optString("url") },
+        )
+    }.sortedBy { it.ordinal }
+}
+
+/**
+ * Inline-image targets in the order they appear, which is the order the server assigned
+ * ordinals in. `![alt](/data/x.png)` and `![alt](</data/x y.png>)` both count.
+ */
+internal fun markdownImageTargets(text: String): List<String> {
+    if (!text.contains("![")) return emptyList()
+    return MARKDOWN_IMAGE.findAll(text)
+        .map { it.groupValues[1].removeSurrounding("<", ">").trim() }
+        .filter { it.isNotEmpty() }
+        .toList()
+}
+
+private val MARKDOWN_IMAGE = Regex("""!\[[^\]]*\]\(\s*(<[^>]*>|[^)\s]+)""")
+
 internal fun decodeAttachments(array: JSONArray?): List<MemohAttachment> {
     if (array == null) return emptyList()
     return (0 until array.length()).mapNotNull { i ->
@@ -322,6 +384,7 @@ internal fun decodeTurn(obj: JSONObject): MemohTurn {
         text = obj.optString("text"),
         blocks = decodeBlocks(obj.optJSONArray("messages")),
         attachments = decodeAttachments(obj.optJSONArray("attachments")),
+        assets = decodeAssets(obj.optJSONArray("assets")),
         turnId = obj.optString("turn_id"),
         turnPosition = (obj.opt("turn_position") as? Number)?.toLong(),
     )
