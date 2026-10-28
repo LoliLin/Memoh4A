@@ -158,16 +158,19 @@ internal fun MemohAsset.cachedFile(cacheDir: java.io.File): java.io.File? =
     cachedTarget(cacheDir).takeIf { it.isFile && it.length() > 0 }
 
 /**
- * The markdown link this asset answers, when the reply renders it as an inline image.
+ * The markdown link each asset answers, when the reply renders it as an inline image.
  *
  * A Bot cannot name a hash in its text, so the association is positional: the server stores
  * assets in the order the references appear. Pairing by ordinal is what lets the bubble put the
  * downloaded file where the `![](...)` stands instead of dropping the picture.
+ *
+ * [renderedText] must be the exact markdown the bubble will show, not the raw turn text: a reply
+ * may carry its body in blocks, and pairing against a different string shifts every ordinal.
  */
-internal fun markdownImageLinks(turn: MemohTurn): Map<String, MemohAsset> {
-    val images = turn.assets.filter { it.isImage }
+internal fun markdownImageLinks(assets: List<MemohAsset>, renderedText: String): Map<String, MemohAsset> {
+    val images = assets.filter { it.isImage }
     if (images.isEmpty()) return emptyMap()
-    val targets = markdownImageTargets(turn.text)
+    val targets = markdownImageTargets(renderedText)
     if (targets.isEmpty()) return emptyMap()
     val linked = linkedMapOf<String, MemohAsset>()
     images.forEachIndexed { position, asset ->
@@ -229,10 +232,13 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
             mapped
         }
     }
+    // The markdown the bubble will actually render, used both as the message text and as the
+    // string the image references are paired against.
+    val bodyText = if (role == "user") text
+        else segments.filter { it.type == "answer" }.joinToString("\n") { it.content }
     return ChatMessage(
         id = messageId,
-        text = if (role == "user") text else segments.filter { it.type == "answer" }
-            .joinToString("\n") { it.content },
+        text = bodyText,
         images = if (role == "user" && cacheDir != null) {
             attachments.map { att ->
                 if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank() && att.contentHash.isBlank()) ""
@@ -265,7 +271,7 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
         // an asset keyed by content_hash. Without this map the markdown renderer has no local
         // file for the link, so it draws nothing at all and the picture silently disappears.
         markdownImages = if (cacheDir == null) emptyMap() else
-            markdownImageLinks(this).mapValues { (_, asset) ->
+            markdownImageLinks(assets, bodyText).mapValues { (_, asset) ->
                 val file = asset.cachedFile(cacheDir)
                 val attachment = file?.let {
                     com.newoether.agora.model.ToolImageAttachment(

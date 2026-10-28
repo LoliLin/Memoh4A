@@ -80,7 +80,7 @@ class MemohMarkdownAssetTest {
                 "ttnk status\n\n![ttnk status](/data/ttnk-status.png)",
                 """[{"id":"a","ordinal":0,"role":"markdown","mime":"image/png","content_hash":"hash-ttnk","name":"ttnk-status.png","size_bytes":12}]""",
             )
-            val linked = markdownImageLinks(reply)
+            val linked = markdownImageLinks(reply.assets, reply.text)
             assertEquals(setOf("/data/ttnk-status.png"), linked.keys)
             assertEquals("hash-ttnk", linked.values.single().contentHash)
 
@@ -132,7 +132,7 @@ class MemohMarkdownAssetTest {
         // must not invent one from the text.
         val reply = turn("![inline](data:image/png;base64,aGk=)")
         assertTrue(reply.assets.isEmpty())
-        assertTrue(markdownImageLinks(reply).isEmpty())
+        assertTrue(markdownImageLinks(reply.assets, reply.text).isEmpty())
     }
 
     @Test fun anAssetDownloadsIntoItsHashSlotAndRenders() {
@@ -170,6 +170,38 @@ class MemohMarkdownAssetTest {
                         .markdownImages.values.single().attachment?.path,
                 )
             }
+        } finally {
+            cacheDir.deleteRecursively()
+        }
+    }
+
+    @Test fun aBodyHeldInBlocksStillPairsItsPicture() {
+        val cacheDir = cache()
+        try {
+            // The visible markdown can arrive as a text block while `text` stays empty. Pairing
+            // against `text` would then find no reference and drop the picture.
+            val reply = decodeTurn(
+                JSONObject()
+                    .put("id", "a1").put("role", "assistant").put("turn_id", "t1")
+                    .put("messages", JSONArray().put(
+                        JSONObject().put("id", 0).put("type", "text")
+                            .put("content", "status\n\n![ttnk status](/data/ttnk-status.png)"),
+                    ))
+                    .put("assets", JSONArray(
+                        """[{"id":"a","ordinal":0,"role":"markdown","mime":"image/png","content_hash":"hash-blk","name":"t.png","size_bytes":4}]""",
+                    )),
+            )
+            assertEquals("", reply.text)
+            val asset = reply.assets.single()
+            val target = asset.cachedTarget(cacheDir)
+            target.parentFile?.mkdirs()
+            target.writeBytes(ByteArray(4) { 2 })
+
+            val row = memohTranscriptRows(
+                listOf(reply), emptyList(), null, emptyList(), null, "", false, cacheDir,
+            ).single { it.participant == Participant.MODEL }
+            assertEquals("/data/ttnk-status.png", row.markdownImages.keys.single())
+            assertEquals(target.absolutePath, row.markdownImages.values.single().attachment?.path)
         } finally {
             cacheDir.deleteRecursively()
         }
