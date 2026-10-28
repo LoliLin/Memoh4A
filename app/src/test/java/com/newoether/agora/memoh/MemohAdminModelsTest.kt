@@ -168,4 +168,45 @@ class MemohAdminModelsTest {
         assertEquals("1.2k", formatTokens(1234))
         assertEquals("1.50M", formatTokens(1_500_000))
     }
+
+    private fun model(id: String, provider: String, type: String = "chat") = MemohAdminModel(
+        id = id, modelId = id, name = id, providerId = provider, type = type,
+        enabled = true, contextWindow = 0, reasoningEfforts = emptyList(),
+    )
+
+    @Test fun providerShareCountsChatModelsOnly() {
+        val models = listOf(
+            model("a1", "prov-1"), model("a2", "prov-1"),
+            model("b1", "prov-2"),
+            model("e1", "prov-3", type = "embedding"),
+            model("s1", "prov-3", type = "search"),
+        )
+        // Two of three chat models: the embedding and search rows must not dilute the bar.
+        assertEquals(2f / 3f, chatModelShare("prov-1", models), 0.0001f)
+        assertEquals(1f / 3f, chatModelShare("prov-2", models), 0.0001f)
+        assertEquals(0f, chatModelShare("prov-3", models), 0.0001f)
+        assertEquals(3, chatModelCount(models))
+    }
+
+    @Test fun aProviderWithNoChatModelsDrawsNoBarInsteadOfDividingByZero() {
+        val nonChat = listOf(model("e1", "prov-2", type = "embedding"))
+        assertEquals(0f, chatModelShare("prov-2", nonChat), 0.0001f)
+        assertEquals(0f, chatModelShare("prov-1", nonChat), 0.0001f)
+        assertEquals(0, chatModelCount(nonChat))
+    }
+
+    @Test fun shareComesFromTheDecodedServerRowsNotFromAPlaceholder() {
+        val response = JSONObject().put("data", JSONArray()
+            .put(JSONObject().put("id", "m1").put("provider_id", "prov-1").put("type", "chat"))
+            .put(JSONObject().put("id", "m2").put("provider_id", "prov-1").put("type", "chat"))
+            .put(JSONObject().put("id", "m3").put("provider_id", "prov-2").put("type", "chat"))
+            .put(JSONObject().put("id", "e1").put("provider_id", "prov-2").put("type", "embedding")))
+        val models = decodeAdminModels(response)
+        // Three chat models: prov-1 owns two of them, prov-2 one. The embedding row is not a
+        // denominator entry, so a chat-only provider still fills its share of the bar.
+        assertEquals(2f / 3f, chatModelShare("prov-1", models), 0.0001f)
+        assertEquals(1f / 3f, chatModelShare("prov-2", models), 0.0001f)
+        assertEquals(3, chatModelCount(models))
+        assertEquals(0f, chatModelShare("prov-9", models), 0.0001f)
+    }
 }

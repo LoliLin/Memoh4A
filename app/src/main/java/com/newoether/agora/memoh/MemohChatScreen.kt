@@ -195,8 +195,15 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
     // never touch this list; they only replace the streamingMessage overlay (matched by id).
     // Attachment files are pre-materialized off the main thread; composition only reads cache hits.
     var attachmentCacheRevision by remember { mutableStateOf(0) }
-    val pendingAttachments = remember(vm.turns, vm.liveUserTurns, vm.pendingUserAttachments) {
-        vm.pendingUserAttachments + (vm.turns + vm.liveUserTurns).flatMap { it.attachments }
+    val pendingAttachments = remember(vm.turns, vm.liveUserTurns, vm.liveBlocks, vm.pendingUserAttachments) {
+        // A Bot's generated pictures live on its message blocks, not on the turn row. Collecting
+        // only turn-level attachments meant those blocks never reached the downloader, so their
+        // path stayed unresolved and the bubble dropped the image entirely.
+        val blockAttachments = (vm.turns.flatMap { it.blocks } + vm.liveBlocks)
+            .flatMap { it.attachments }
+        (vm.pendingUserAttachments + (vm.turns + vm.liveUserTurns).flatMap { it.attachments } +
+            blockAttachments)
+            .distinctBy { it.cachedTarget(context.cacheDir).absolutePath }
     }
     LaunchedEffect(pendingAttachments) {
         val cacheDir = context.cacheDir

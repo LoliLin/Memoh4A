@@ -29,6 +29,42 @@ class MemohModelsTest {
     }
 
     @Test
+    fun `a bot picture held on a message block reaches the bubble once downloaded`() {
+        val cacheDir = java.nio.file.Files.createTempDirectory("memoh-block-image").toFile()
+        try {
+            val attachment = MemohAttachment(
+                id = "att-1", name = "chart.png", mime = "image/png", type = "image",
+                contentHash = "hash-1", botId = "bot-1",
+            )
+            val block = MemohBlock(
+                id = 3, type = "attachments", text = "",
+                attachments = listOf(attachment),
+            )
+            val turn = MemohTurn("a1", "assistant", turnId = "t1", blocks = listOf(block))
+
+            // Before the download lands there is no file, so the row legitimately has no image.
+            assertTrue(
+                memohTranscriptRows(listOf(turn), emptyList(), null, emptyList(), null, "", false, cacheDir)
+                    .first { it.participant == com.newoether.agora.model.Participant.MODEL }
+                    .segments.orEmpty().flatMap { it.toolImages }.isEmpty(),
+            )
+
+            val target = attachment.cachedTarget(cacheDir)
+            target.parentFile?.mkdirs()
+            target.writeBytes(ByteArray(64) { 7 })
+
+            val images = memohTranscriptRows(
+                listOf(turn), emptyList(), null, emptyList(), null, "", false, cacheDir,
+            ).first { it.participant == com.newoether.agora.model.Participant.MODEL }
+                .segments.orEmpty().flatMap { it.toolImages }
+            assertEquals(listOf(target.absolutePath), images.map { it.path })
+            assertEquals("image/png", images.single().mimeType)
+        } finally {
+            cacheDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `tool block decodes approval user input and detail fields`() {
         val json = JSONObject(
             """{"id":7,"type":"tool","name":"ask_user","input":{"prompt":"Choose"},""" +

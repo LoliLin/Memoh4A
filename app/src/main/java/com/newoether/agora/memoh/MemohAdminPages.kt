@@ -218,9 +218,12 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                                         val tint = if (managedOAuth) MaterialTheme.colorScheme.onSurfaceVariant
                                         else if (configured) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                        val owned = models.count { it.providerId == provider.id }
-                                        val share = if (models.isEmpty()) 0f
-                                        else owned.toFloat() / models.size.toFloat()
+                                        // The bar means "share of this team's chat models", so the
+                                        // denominator is chat models only. Counting embedding,
+                                        // search and image models here made a chat-only provider
+                                        // read as a small slice of a list it does not belong to.
+                                        val share = chatModelShare(provider.id, models)
+                                        val owned = models.count { it.providerId == provider.id && it.type == "chat" }
                                         // Managed rows name the state that is actually true; a
                                         // platform provider has no key here to be "missing".
                                         val statusText = when {
@@ -268,7 +271,7 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                                                             fraction = share,
                                                             modifier = Modifier.semantics {
                                                                 contentDescription = uiResources.getString(
-                                                                    R.string.memoh_ui_model_share, owned, models.size,
+                                                                    R.string.memoh_ui_model_share, owned, chatModelCount(models),
                                                                 )
                                                             },
                                                         )

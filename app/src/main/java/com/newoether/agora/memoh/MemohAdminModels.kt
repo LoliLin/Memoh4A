@@ -111,6 +111,22 @@ internal data class MemohAdminModel(
     val label: String get() = name.ifBlank { modelId }
 }
 
+/**
+ * Share of the team's **chat** models one provider serves, for the row's gradient bar.
+ *
+ * The bar sits next to the provider's chat-model count, so the denominator must be chat models
+ * too. Dividing by every configured model (embeddings, search, image...) made a provider that
+ * owns two of three chat models draw a fifth of the bar. Zero chat models means no bar: an
+ * empty catalog is not the same claim as "this provider serves nothing".
+ */
+internal fun chatModelShare(providerId: String, models: List<MemohAdminModel>): Float {
+    val chatModels = models.filter { it.type == "chat" }
+    if (chatModels.isEmpty()) return 0f
+    return chatModels.count { it.providerId == providerId }.toFloat() / chatModels.size.toFloat()
+}
+
+internal fun chatModelCount(models: List<MemohAdminModel>): Int = models.count { it.type == "chat" }
+
 internal fun decodeAdminModels(response: JSONObject): List<MemohAdminModel> {
     val array = response.optJSONArray("data") ?: response.optJSONArray("items")
         ?: response.optJSONArray("models") ?: return emptyList()
