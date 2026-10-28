@@ -221,6 +221,14 @@ internal fun MemohConversationScreen(vm: MemohViewModel) {
                         // A server row carries content_hash far more often than a container path,
                         // so resolve whichever source it actually has instead of assuming `path`.
                         vm.api.downloadAttachment(botId!!, att, att.cachedTarget(cacheDir))
+                    }.onFailure { failure ->
+                        // A picture that never arrives currently looks like a layout bug. Keep the
+                        // reason in the debug trail so the next report names the failing source.
+                        com.newoether.agora.util.CrashReporter.note(
+                            "memoh attachment download failed: ${att.name} " +
+                                "hash=${att.contentHash.take(12)} path=${att.path.take(60)} " +
+                                "cause=${failure::class.java.simpleName}: ${failure.message?.take(120)}",
+                        )
                     }
                 }
             }

@@ -29,6 +29,34 @@ class MemohModelsTest {
     }
 
     @Test
+    fun `a server-relative url is never handed to the image loader as a path`() {
+        val cacheDir = java.nio.file.Files.createTempDirectory("memoh-rel-url").toFile()
+        try {
+            // Coil cannot open `/bots/.../media/...`; passing it through produced a card whose
+            // picture slot stayed empty forever.
+            val relative = MemohAttachment(
+                id = "att-rel", name = "shot.png", mime = "image/png", type = "image",
+                url = "/bots/bot-1/media/abc",
+            )
+            val absolute = MemohAttachment(
+                id = "att-abs", name = "shot2.png", mime = "image/png", type = "image",
+                url = "https://cdn.test/shot2.png",
+            )
+            val turn = MemohTurn(
+                "a1", "assistant", turnId = "t1",
+                blocks = listOf(MemohBlock(1, "attachments", "", attachments = listOf(relative, absolute))),
+            )
+            val images = memohTranscriptRows(
+                listOf(turn), emptyList(), null, emptyList(), null, "", false, cacheDir,
+            ).first { it.participant == com.newoether.agora.model.Participant.MODEL }
+                .segments.orEmpty().flatMap { it.toolImages }
+            assertEquals(listOf("https://cdn.test/shot2.png"), images.map { it.path })
+        } finally {
+            cacheDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `a bot picture held on a message block reaches the bubble once downloaded`() {
         val cacheDir = java.nio.file.Files.createTempDirectory("memoh-block-image").toFile()
         try {

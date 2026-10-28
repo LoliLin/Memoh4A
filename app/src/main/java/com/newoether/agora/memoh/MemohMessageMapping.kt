@@ -176,7 +176,12 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
                 toolState = ToolExecutionStates.SUCCEEDED,
                 toolImages = block.attachments.filter { it.type == "image" || it.mime.startsWith("image/") }.mapNotNull { att ->
                     val file = cacheDir?.let { dir -> att.cachedFile(dir) }
-                    val path = file?.absolutePath ?: att.url.takeIf(String::isNotBlank)
+                    // Coil can only open a real file or an absolute URL. A server-relative path
+                    // like `/bots/{id}/media/{hash}` is not something it can resolve, and handing
+                    // it over produced a card with a permanently empty picture slot. Until the
+                    // scoped download lands there is simply nothing to show yet.
+                    val path = file?.absolutePath
+                        ?: att.url.takeIf { it.startsWith("http://") || it.startsWith("https://") }
                         ?: return@mapNotNull null
                     com.newoether.agora.model.ToolImageAttachment(
                         path = path, mimeType = att.mime.ifBlank { "application/octet-stream" },
@@ -202,7 +207,7 @@ private fun MemohTurn.toChatMessage(messageId: String, running: Boolean = false,
             attachments.map { att ->
                 if (att.base64.isBlank() && att.url.isBlank() && att.path.isBlank() && att.contentHash.isBlank()) ""
                 else att.cachedFile(cacheDir)?.absolutePath
-                    ?: att.url.takeIf(String::isNotBlank) ?: ""
+                    ?: att.url.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: ""
             }
         } else emptyList(),
         attachmentMeta = if (role == "user" && attachments.isNotEmpty()) {
