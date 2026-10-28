@@ -7,6 +7,8 @@ import com.newoether.agora.R
  * Returns 0 for unknown / custom providers (callers fall back to a generic Cloud icon).
  */
 fun providerIcon(name: String): Int = when (name.lowercase()) {
+    // The platform's own managed provider is Memoh, not a generic cloud.
+    "memoh", "memoh cloud", "memoh built-in", "builtin", "built-in" -> R.drawable.memoh_logo
     "google" -> R.drawable.provider_google
     "openai" -> R.drawable.provider_openai
     "anthropic" -> R.drawable.provider_anthropic

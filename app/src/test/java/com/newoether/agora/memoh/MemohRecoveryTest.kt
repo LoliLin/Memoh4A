@@ -140,12 +140,46 @@ class MemohRecoveryTest {
         assertFalse(vm.signedIn)
         assertFalse(vm.restoringSession)
         assertTrue(vm.sessionRestoreFailed)
+        // A failed check must end the splash; otherwise the retry lives behind a spinner
+        // that never stops.
+        assertFalse(vm.sessionOnDisk)
         assertTrue(vm.workspaceApi.hasSessionCookie())
         server.handler = null
         vm.retrySessionRestore()
         awaitState { vm.signedIn && !vm.restoringSession && vm.bot != null }
         assertFalse(vm.sessionRestoreFailed)
+        assertFalse(vm.sessionOnDisk)
         assertTrue(server.requests.none { it.path.endsWith("/email-code/verify") })
+    }
+
+    @Test
+    fun `a launch with a saved cookie shows the restoring surface and not the sign-in form`() = withCloud { vm, server ->
+        awaitState { vm.login.method == MemohLoginMethod.EmailCode }
+        val url = vm.workspaceApi.authUrl.toHttpUrl()
+        vm.workspaceApi.scope.identity.cookies.saveFromResponse(
+            url,
+            listOf(Cookie.Builder().name("sid").value("returning-user").hostOnlyDomain(url.host).path("/").build()),
+        )
+        vm.resumeCookieSession()
+        awaitState { vm.signedIn }
+        assertFalse(vm.restoringSession)
+        // The splash hands over to chat, and the returning user never saw a login code.
+        assertFalse(vm.sessionOnDisk)
+        assertTrue(server.requests.none { it.path.endsWith("/email-code/verify") })
+    }
+
+    @Test
+    fun `a first launch has no session to restore so the sign-in form stands`() = withCloud { vm, _ ->
+        awaitState { vm.login.method == MemohLoginMethod.EmailCode }
+        assertFalse(vm.workspaceApi.hasSessionCookie())
+        assertFalse(vm.sessionOnDisk)
+        vm.resumeCookieSession()
+        // Nothing on disk: the form is the correct surface and the flag never turns on.
+        assertFalse(vm.sessionOnDisk)
+        assertFalse(vm.restoringSession)
+        // The restoring splash is gated on these two flags only, so a first launch can never
+        // render it — not even for the frames where the check itself is running.
+        assertFalse(vm.sessionRestoreFailed)
     }
 
     @Test

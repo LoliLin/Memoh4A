@@ -768,4 +768,7 @@
     <string name="memoh_ui_default_model_reasoning_memory_and_media">Standardmodell, Denkleistung, Gedächtnis und Medien</string>
     <string name="memoh_ui_template_configuration">Vorlagenkonfiguration</string>
     <string name="memoh_ui_invalid_field_value">Gib einen gültigen Wert ein</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">Von der Plattform verwaltet</string>
+    <string name="memoh_ui_model_share">%1$d von %2$d Modellen</string>
 </resources>

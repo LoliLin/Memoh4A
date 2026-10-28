@@ -768,4 +768,7 @@
     <string name="memoh_ui_default_model_reasoning_memory_and_media">النموذج الافتراضي والاستدلال والذاكرة والوسائط</string>
     <string name="memoh_ui_template_configuration">إعداد القالب</string>
     <string name="memoh_ui_invalid_field_value">أدخل قيمة صالحة</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">تديره المنصة</string>
+    <string name="memoh_ui_model_share">%1$d من %2$d نموذج</string>
 </resources>

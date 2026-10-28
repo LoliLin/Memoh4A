@@ -519,8 +519,17 @@ internal fun MessageList(
             lifecycleAppearanceRegistry.markKnown(message.id)
         }
 
-        val reservedHydrationHeight = messageHeights[message.id]
-            ?.takeIf { hydrationPending && it > 0 }
+        // The reservation exists only to stop a hydrated row from collapsing for one frame.
+        //
+        // It is captured before the payload lands and released after the row's first real
+        // measurement. Reading the live map (as this once did) kept whatever height the row
+        // last had — including the height it had while a tool or thinking group was open — so
+        // collapsing the group left its space standing as a gap between the two messages.
+        var measuredOnce by remember(messageStub.id) { mutableStateOf(false) }
+        val reservedHydrationHeight = remember(messageStub.id) {
+            messageHeights[message.id]?.takeIf { it > 0 }
+        }
+            ?.takeIf { hydrationPending && !measuredOnce }
             ?.let { heightPx -> with(density) { heightPx.toDp() } }
         val hydrationHeightModifier = reservedHydrationHeight
             ?.let { height -> Modifier.heightIn(min = height) }
@@ -674,6 +683,9 @@ internal fun MessageList(
                 if (!isRetainedBranchReplacementExit) onToggleMessageSelection(message.id)
             },
             onHeightChanged = { height ->
+                // The row has laid out for real; the hydration reservation has done its job
+                // and must never apply again, or it would outlive every later collapse.
+                if (height > 0) measuredOnce = true
                 if (height > 0 && messageHeights[message.id] != height) {
                     val mode = messageListLayoutMode(
                         isSwitching = isSwitching,

@@ -7,14 +7,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,18 +60,46 @@ internal fun MemohTeamPicker(teams: MemohTeamController) {
 internal fun MemohTeamSetup(vm: MemohViewModel) {
     val uiResources = LocalContext.current.resources
     var creating by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(uiResources.getString(R.string.memoh_ui_memoh_teams), style = MaterialTheme.typography.headlineSmall)
-        if (vm.teams.busy) CircularProgressIndicator()
-        else {
-            Text(uiResources.getString(R.string.memoh_ui_no_team_is_selected_refresh_your_memberships_or_create_a_team_to_continu))
-            MemohTeamPicker(vm.teams)
-            Button(onClick = vm.teams::load) { Text(uiResources.getString(R.string.memoh_ui_retry)) }
-            if (vm.teams.creationAllowed) Button(onClick = { creating = true }) { Text(uiResources.getString(R.string.memoh_ui_create_team)) }
+    // Same centered, width-capped column as the entry surface. The card is Agora's own
+    // onboarding container: 28 dp corners on surfaceContainer, nothing brighter on top.
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            tonalElevation = 2.dp,
+            modifier = Modifier.widthIn(max = 420.dp),
+        ) {
+            Column(
+                Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(uiResources.getString(R.string.memoh_ui_memoh_teams), style = MaterialTheme.typography.headlineSmall)
+                if (vm.teams.busy) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                else {
+                    Text(
+                        uiResources.getString(R.string.memoh_ui_no_team_is_selected_refresh_your_memberships_or_create_a_team_to_continu),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    MemohTeamPicker(vm.teams)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = vm.teams::load, modifier = Modifier.weight(1f)) {
+                            Text(uiResources.getString(R.string.memoh_ui_retry))
+                        }
+                        if (vm.teams.creationAllowed) Button(
+                            onClick = { creating = true },
+                            modifier = Modifier.weight(1f),
+                        ) { Text(uiResources.getString(R.string.memoh_ui_create_team)) }
+                    }
+                }
+                if (vm.error.isNotBlank()) Text(
+                    vm.error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = vm::logout) { Text(uiResources.getString(R.string.memoh_ui_sign_out)) }
+            }
         }
-        if (vm.error.isNotBlank()) Text(vm.error, color = MaterialTheme.colorScheme.error)
-        TextButton(onClick = vm::logout) { Text(uiResources.getString(R.string.memoh_ui_sign_out)) }
     }
     if (creating) MemohCreateTeam(vm.teams) { creating = false }
 }

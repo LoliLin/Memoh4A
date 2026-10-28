@@ -1,6 +1,7 @@
 package com.newoether.agora.memoh
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -62,11 +63,16 @@ import com.newoether.agora.ui.settings.SettingsGroup
 import com.newoether.agora.ui.settings.SettingsGroupColumn
 import com.newoether.agora.ui.settings.SettingsItem
 
-/** Server endpoint, team scope, current bot and the live socket state. */
+/**
+ * Server endpoint, team scope and the live socket state.
+ *
+ * The current bot is deliberately not here: it belongs to the conversation you are reading,
+ * and the drawer picks it. A settings page that also switched bots made the same choice in
+ * two places with different scope.
+ */
 @Composable
 internal fun MemohServerSettingsPage(viewModel: MemohViewModel, onBack: () -> Unit) {
     var teamMenu by remember { mutableStateOf(false) }
-    var botMenu by remember { mutableStateOf(false) }
     val teams = viewModel.teams
 
     CollapsingSettingsScaffold(title = stringResource(R.string.memoh_settings_server), onBack = onBack) {
@@ -108,75 +114,44 @@ internal fun MemohServerSettingsPage(viewModel: MemohViewModel, onBack: () -> Un
                 SettingsGroup(
                     title = stringResource(R.string.memoh_settings_team),
                     items = listOf({
-                        SettingsItem(
-                            headlineContent = { Text(teams.current?.title ?: stringResource(R.string.memoh_settings_choose_team)) },
-                            supportingContent = { Text(stringResource(R.string.memoh_settings_team_desc)) },
-                            leadingContent = { Icon(Icons.Default.SwapHoriz, null, tint = MaterialTheme.colorScheme.primary) },
-                            trailingContent = {
-                                TextButton(onClick = { teamMenu = true }, enabled = !teams.busy) {
-                                    Text(stringResource(R.string.memoh_settings_choose_team))
+                        // The menu is anchored to this row (inside its own Box), so it opens
+                        // under the row the user tapped instead of at the host's origin.
+                        Box {
+                            SettingsItem(
+                                headlineContent = { Text(teams.current?.title ?: stringResource(R.string.memoh_settings_choose_team)) },
+                                supportingContent = { Text(stringResource(R.string.memoh_settings_team_desc)) },
+                                leadingContent = { Icon(Icons.Default.SwapHoriz, null, tint = MaterialTheme.colorScheme.primary) },
+                                trailingContent = {
+                                    TextButton(onClick = { teamMenu = true }, enabled = !teams.busy) {
+                                        Text(stringResource(R.string.memoh_settings_choose_team))
+                                    }
+                                },
+                                modifier = Modifier.clickable(enabled = !teams.busy) { teamMenu = true },
+                            )
+                            AgoraDropdownMenu(
+                                expanded = teamMenu,
+                                onDismissRequest = { teamMenu = false },
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                tonalElevation = 16.dp,
+                            ) {
+                                teams.items.forEach { team ->
+                                    AgoraDropdownMenuItem(
+                                        text = { Text(if (team.id == teams.selectedId) "✓ ${team.title}" else team.title) },
+                                        onClick = { teamMenu = false; teams.select(team.id) },
+                                    )
                                 }
-                            },
-                            modifier = Modifier.clickable(enabled = !teams.busy) { teamMenu = true },
-                        )
+                                AgoraDropdownMenuItem(
+                                    text = { Text(stringResource(R.string.memoh_settings_refresh_team)) },
+                                    onClick = { teamMenu = false; teams.load() },
+                                )
+                            }
+                        }
                     }),
                 )
             }
-
-            SettingsGroup(
-                title = stringResource(R.string.memoh_settings_bot_current),
-                items = listOf({
-                    SettingsItem(
-                        headlineContent = { Text(viewModel.bot?.title ?: stringResource(R.string.memoh_settings_no_bots)) },
-                        supportingContent = { Text(stringResource(R.string.memoh_settings_bot_current_desc)) },
-                        leadingContent = { Icon(Icons.Default.SmartToy, null, tint = MaterialTheme.colorScheme.primary) },
-                        trailingContent = if (viewModel.bots.size > 1) {
-                            {
-                                TextButton(onClick = { botMenu = true }) {
-                                    Text(stringResource(R.string.memoh_settings_switch_bot))
-                                }
-                            }
-                        } else {
-                            null
-                        },
-                        modifier = if (viewModel.bots.size > 1) {
-                            Modifier.clickable { botMenu = true }
-                        } else {
-                            Modifier
-                        },
-                    )
-                }),
-            )
         }
     }
 
-    if (teamMenu) {
-        AgoraDropdownMenu(expanded = true, onDismissRequest = { teamMenu = false }) {
-            teams.items.forEach { team ->
-                AgoraDropdownMenuItem(
-                    text = { Text(if (team.id == teams.selectedId) "✓ ${team.title}" else team.title) },
-                    onClick = { teamMenu = false; teams.select(team.id) },
-                )
-            }
-            AgoraDropdownMenuItem(
-                text = { Text(stringResource(R.string.memoh_settings_refresh_team)) },
-                onClick = { teamMenu = false; teams.load() },
-            )
-        }
-    }
-    if (botMenu) {
-        AgoraDropdownMenu(expanded = true, onDismissRequest = { botMenu = false }) {
-            viewModel.bots.forEach { candidate ->
-                AgoraDropdownMenuItem(
-                    text = { Text(if (candidate.id == viewModel.bot?.id) "✓ ${candidate.title}" else candidate.title) },
-                    leadingIcon = {
-                        MemohBotAvatar(candidate, size = 22.dp)
-                    },
-                    onClick = { botMenu = false; viewModel.switchBotFromSettings(candidate) },
-                )
-            }
-        }
-    }
 }
 
 /** Signed-in identity and the one destructive session action. */
@@ -300,6 +275,33 @@ private fun MemohAccountHome(
 
 }
 
+/** Avatar preview: the picture when it loads, the name's first letter underneath otherwise. */
+@Composable
+private fun ProfileAvatarPreview(avatarUrl: String, displayName: String) {
+    val letter = displayName.trim().take(1).uppercase().ifBlank { "?" }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            letter,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        if (avatarUrl.isNotBlank()) {
+            MemohAvatarImage(
+                url = avatarUrl,
+                contentDescription = displayName,
+                modifier = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape),
+            )
+        }
+    }
+}
+
 /** 显示名/头像写回平台身份；头像留空表示沿用服务端已有的头像。 */
 @Composable
 private fun MemohProfilePage(viewModel: MemohViewModel, onBack: () -> Unit) {
@@ -317,9 +319,36 @@ private fun MemohProfilePage(viewModel: MemohViewModel, onBack: () -> Unit) {
         scrollState = scrollState,
     ) {
         SettingsGroupColumn {
+            // The preview is the point of this page: a name and a picture the user can see
+            // before saving, instead of two text fields that only change elsewhere.
             SettingsGroup(
                 title = uiResources.getString(R.string.memoh_ui_identity),
                 items = listOf(
+                    {
+                        SettingsItem(
+                            headlineContent = {
+                                Text(
+                                    displayName.ifBlank {
+                                        uiResources.getString(R.string.memoh_ui_display_name)
+                                    },
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    avatarUrl.ifBlank {
+                                        uiResources.getString(R.string.memoh_ui_avatar_url)
+                                    },
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                            },
+                            leadingContent = {
+                                ProfileAvatarPreview(avatarUrl, displayName)
+                            },
+                            modifier = Modifier.heightIn(min = 72.dp),
+                        )
+                    },
                     {
                         MemohFieldRow(
                             value = displayName,
@@ -607,7 +636,8 @@ internal fun MemohBotSettingsPage(
                     SettingsItem(
                         headlineContent = { Text(bot?.title ?: stringResource(R.string.memoh_settings_no_bots)) },
                         supportingContent = { Text(stringResource(R.string.memoh_settings_bot_desc)) },
-                        leadingContent = { Icon(Icons.Default.SmartToy, null, tint = MaterialTheme.colorScheme.primary) },
+                        // The bot's own avatar, not a generic robot glyph: this row is the bot.
+                        leadingContent = { MemohBotAvatar(bot, size = 32.dp) },
                         trailingContent = if (bot != null) {
                             { TextButton(onClick = onOpenBotSettings) { Text(uiResources.getString(R.string.memoh_ui_open)) } }
                         } else {

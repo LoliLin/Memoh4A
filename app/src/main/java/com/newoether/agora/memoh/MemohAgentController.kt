@@ -21,6 +21,8 @@ internal class MemohAgentController(
     private val api: MemohApi,
     private val agentsFallback: () -> String = { "Failed to load Agents" },
     private val profilesFallback: () -> String = { "ACP Agent profiles are unavailable" },
+    /** The last catalog that came back, so the first frame after a restart has models. */
+    private val onCatalogLoaded: (org.json.JSONObject) -> Unit = {},
 ) {
     var agents by mutableStateOf<List<MemohAgent>>(emptyList())
         private set
@@ -200,6 +202,7 @@ internal class MemohAgentController(
             val catalog = api.teamChatModels()
             if (generation == catalogGeneration && api.scope === identity) {
                 models = catalog
+                onCatalogLoaded(catalog)
                 // The catalog carries each model's resolved efforts; a restored preference
                 // can only be checked once they are here.
                 reconcileComposerPreference()
@@ -210,6 +213,14 @@ internal class MemohAgentController(
             // Keep the server's remembered model usable without model-list permission.
         } finally {
             if (generation == catalogGeneration && api.scope === identity) modelsLoading = false
+        }
+    }
+
+    /** Paint the last catalog until the server's own list arrives (or fails). */
+    fun restoreCachedModels(catalog: JSONObject?) {
+        if (models == null && catalog != null) {
+            models = catalog
+            reconcileComposerPreference()
         }
     }
 

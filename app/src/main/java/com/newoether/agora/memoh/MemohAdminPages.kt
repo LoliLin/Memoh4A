@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -207,21 +211,28 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                                 providers.forEach { provider ->
                                     add {
                                         val managedOAuth = provider.clientType == "openai-codex" || provider.clientType == "github-copilot"
-                                        val configured = provider.hasApiKey || provider.baseUrl.isNotBlank()
+                                        // A managed provider is configured by definition: its
+                                        // credential lives with the platform, not in this config.
+                                        val configured = managedOAuth || provider.managed ||
+                                            provider.hasApiKey || provider.baseUrl.isNotBlank()
                                         val tint = if (managedOAuth) MaterialTheme.colorScheme.onSurfaceVariant
                                         else if (configured) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        val owned = models.count { it.providerId == provider.id }
+                                        val share = if (models.isEmpty()) 0f
+                                        else owned.toFloat() / models.size.toFloat()
+                                        // Managed rows name the state that is actually true; a
+                                        // platform provider has no key here to be "missing".
+                                        val statusText = when {
+                                            provider.managed &&
+                                                uiResources.getString(R.string.memoh_ui_platform_managed).isNotBlank() ->
+                                                uiResources.getString(R.string.memoh_ui_platform_managed)
+                                            managedOAuth -> uiResources.getString(R.string.memoh_ui_oauth_account)
+                                            provider.baseUrl.isNotBlank() -> provider.baseUrl
+                                            else -> uiResources.getString(R.string.memoh_ui_not_configured)
+                                        }
                                         SettingsItem(
                                             headlineContent = { Text(provider.name, fontWeight = FontWeight.Medium) },
-                                            supportingContent = {
-                                                Text(
-                                                    provider.baseUrl.ifBlank {
-                                                        uiResources.getString(if (managedOAuth) R.string.memoh_ui_oauth_account else R.string.memoh_ui_not_configured)
-                                                    },
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                            },
                                             leadingContent = {
                                                 val iconRes = providerIcon(provider.name)
                                                 if (iconRes != 0) {
@@ -238,6 +249,30 @@ internal fun MemohProvidersPage(viewModel: MemohViewModel, onBack: () -> Unit) {
                                                         tint = tint,
                                                         modifier = Modifier.size(24.dp),
                                                     )
+                                                }
+                                            },
+                                            supportingContent = {
+                                                Column {
+                                                    Text(
+                                                        statusText,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                    // Share of the team's chat models this provider
+                                                    // serves, drawn light-at-top to deep-at-bottom.
+                                                    // It is a real ratio, not a plan quota: the OSS
+                                                    // server has no credits endpoint to read.
+                                                    if (share > 0f) {
+                                                        Spacer(Modifier.height(6.dp))
+                                                        MemohGradientBar(
+                                                            fraction = share,
+                                                            modifier = Modifier.semantics {
+                                                                contentDescription = uiResources.getString(
+                                                                    R.string.memoh_ui_model_share, owned, models.size,
+                                                                )
+                                                            },
+                                                        )
+                                                    }
                                                 }
                                             },
                                             trailingContent = {
@@ -278,6 +313,35 @@ private fun MemohSecondaryPane(content: @Composable () -> Unit) {
         com.newoether.agora.ui.settings.LocalSettingsPaneBackButtonVisible provides true,
         content = content,
     )
+}
+
+/**
+ * A thin progress bar painted with a vertical gradient: light at the top edge, deep at the
+ * bottom. Used where a provider row needs to show how much of the team's setup it carries.
+ */
+@Composable
+private fun MemohGradientBar(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 4.dp,
+) {
+    val track = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    val top = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+    val bottom = MaterialTheme.colorScheme.primary
+    androidx.compose.foundation.Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(50)),
+    ) {
+        drawRect(track)
+        val filled = (size.width * fraction.coerceIn(0f, 1f))
+        if (filled <= 0f) return@Canvas
+        drawRect(
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(top, bottom)),
+            size = androidx.compose.ui.geometry.Size(filled, size.height),
+        )
+    }
 }
 
 /** Small rounded label, matching the protocol badges Agora puts on provider rows. */
@@ -332,13 +396,55 @@ internal fun MemohProviderDetailPage(
     CollapsingSettingsScaffold(title = provider.name, onBack = onBack, scrollState = scrollState) {
         SettingsGroupColumn {
             val managedOAuth = provider.clientType == "openai-codex" || provider.clientType == "github-copilot"
+            // A platform provider has no key on this device; calling it "not configured"
+            // describes the wrong thing entirely.
+            val platformManaged = provider.managed
             if (managedOAuth) {
                 MemohProviderOAuthSection(admin, provider, canManage, onChanged)
             }
+            // Named "Identity", not "Models": this page already has a Models group below, and
+            // two identically titled groups read as a duplicate.
+            SettingsGroup(
+                title = uiResources.getString(R.string.memoh_ui_identity),
+                items = listOf({
+                    SettingsItem(
+                        headlineContent = { Text(provider.name, fontWeight = FontWeight.Medium) },
+                        supportingContent = {
+                            Column {
+                                Text(
+                                    when {
+                                        platformManaged -> uiResources.getString(R.string.memoh_ui_platform_managed)
+                                        provider.baseUrl.isNotBlank() -> provider.baseUrl
+                                        else -> uiResources.getString(R.string.memoh_ui_not_configured)
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                // This page only receives this provider's own models, so a share
+                                // cannot be derived here; the list row carries that bar.
+                            }
+                        },
+                        leadingContent = {
+                            val iconRes = providerIcon(provider.name)
+                            if (iconRes != 0) Icon(
+                                painterResource(iconRes), null,
+                                tint = if (platformManaged) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp),
+                            ) else Icon(
+                                Icons.Default.Cloud, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        },
+                        modifier = Modifier.heightIn(min = 72.dp),
+                    )
+                }),
+            )
             SettingsGroup(
                 title = uiResources.getString(R.string.memoh_ui_connection),
                 items = buildList {
-                    if (!managedOAuth) add {
+                    if (!managedOAuth && !platformManaged) add {
                         SettingsItem(
                             headlineContent = { Text(uiResources.getString(R.string.memoh_ui_api_key)) },
                             supportingContent = {
@@ -350,7 +456,8 @@ internal fun MemohProviderDetailPage(
                             modifier = Modifier.heightIn(min = 64.dp),
                         )
                     }
-                    if (provider.clientType != "github-copilot") add {
+                    // A platform provider has no endpoint of its own to show or edit.
+                    if (provider.clientType != "github-copilot" && !platformManaged) add {
                         SettingsItem(
                             headlineContent = { Text(uiResources.getString(R.string.memoh_ui_base_url)) },
                             supportingContent = {

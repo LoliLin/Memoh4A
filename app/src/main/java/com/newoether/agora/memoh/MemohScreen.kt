@@ -45,9 +45,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.Image
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -64,6 +67,7 @@ private fun MemohLogin(vm: MemohViewModel) {
     LaunchedEffect(vm.login.server) { vm.probeLoginMethod() }
     var passwordVisible by remember { mutableStateOf(false) }
     val idle = !vm.login.signingIn && !vm.login.sendingCode && !vm.restoringSession
+    val motion = com.newoether.agora.ui.motion.LocalAgoraMotionPolicy.current
 
     Box(
         Modifier
@@ -77,23 +81,40 @@ private fun MemohLogin(vm: MemohViewModel) {
             modifier = Modifier
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 48.dp)
+                .padding(horizontal = 24.dp, vertical = 40.dp)
                 .widthIn(max = 420.dp),
         ) {
-            Spacer(Modifier.height(32.dp))
-            Text(
-                "Memoh",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+            Spacer(Modifier.height(24.dp))
+            // The mark is the wordmark's companion, not an ornament: it sits centred above the
+            // typed product name, at the size Agora gives its welcome title.
+            Image(
+                painter = painterResource(R.drawable.memoh_logo),
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(18.dp))
+            // "Memoh for Android" types itself in once, the way Agora opens a surface.
+            com.newoether.agora.ui.components.TypewriterText(
+                text = uiResources.getString(R.string.memoh_ui_memoh_for_android),
+                animationKey = "memoh-login-brand",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                typeSpeedMs = 70,
+                initialDelayMs = 220,
+                animate = motion.allowContinuousMotion,
+                mode = com.newoether.agora.ui.components.TypewriterMode.TEXT_GRADIENT,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(10.dp))
             Text(
                 uiResources.getString(R.string.memoh_ui_your_bots_in_a_native_android_chat),
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(28.dp))
 
             if (vm.restoringSession) {
                 Row(verticalAlignment = Alignment.CenterVertically,
@@ -110,6 +131,15 @@ private fun MemohLogin(vm: MemohViewModel) {
                 Spacer(Modifier.height(16.dp))
             }
 
+            // Agora's onboarding card: 28 dp on surfaceContainer, 2 dp tonal lift. The form
+            // reads as one object instead of a stack of fields floating on the background.
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 22.dp)) {
             OutlinedTextField(
                 value = vm.login.server,
                 onValueChange = { vm.login.server = it },
@@ -156,12 +186,14 @@ private fun MemohLogin(vm: MemohViewModel) {
                 Spacer(Modifier.height(20.dp))
                 if (!vm.login.codeSent) {
                     Button(onClick = vm::sendLoginCode, enabled = idle,
+                        shape = RoundedCornerShape(50),
                         modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         if (vm.login.sendingCode) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         else Text(uiResources.getString(R.string.memoh_ui_send_code))
                     }
                 } else {
                     Button(onClick = vm::loginWithCode, enabled = idle,
+                        shape = RoundedCornerShape(50),
                         modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         else Text(uiResources.getString(R.string.memoh_ui_verify_and_sign_in))
@@ -220,20 +252,85 @@ private fun MemohLogin(vm: MemohViewModel) {
                 }
                 Spacer(Modifier.height(20.dp))
                 Button(onClick = vm::login, enabled = idle,
+                    shape = RoundedCornerShape(50),
                     modifier = Modifier.fillMaxWidth().height(48.dp)) {
                     if (vm.login.signingIn) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Text(uiResources.getString(R.string.memoh_ui_connect))
                 }
             }
+                }
+            }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(24.dp))
             Text(
                 uiResources.getString(R.string.memoh_ui_the_memoh_server_owns_every_conversation_and_tool_run_password_tokens_ar) +
                     uiResources.getString(R.string.memoh_ui_encrypted_on_this_device_an_email_code_session_ends_when_you_sign_out),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * What a returning launch shows while the saved session is verified: the same mark and
+ * centred column as the entry surface, with the product name typed once. No fields, no
+ * buttons — and once the server refuses the session, a retry instead of a silent rebuild.
+ */
+@Composable
+private fun MemohRestoring(vm: MemohViewModel) {
+    val uiResources = LocalContext.current.resources
+    val motion = com.newoether.agora.ui.motion.LocalAgoraMotionPolicy.current
+    Box(
+        Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(
+                painter = painterResource(R.drawable.memoh_logo),
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+            )
+            Spacer(Modifier.height(18.dp))
+            com.newoether.agora.ui.components.TypewriterText(
+                text = uiResources.getString(R.string.memoh_ui_memoh_for_android),
+                animationKey = "memoh-restore-brand",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                typeSpeedMs = 60,
+                animate = motion.allowContinuousMotion,
+                mode = com.newoether.agora.ui.components.TypewriterMode.TEXT_GRADIENT,
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (vm.restoringSession) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                }
+                Text(
+                    uiResources.getString(
+                        if (vm.restoringSession) R.string.memoh_ui_restoring_your_saved_session
+                        else R.string.memoh_ui_retry_saved_session,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (vm.sessionRestoreFailed) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = vm::retrySessionRestore) {
+                    Text(uiResources.getString(R.string.memoh_ui_retry))
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = vm::logout) {
+                    Text(uiResources.getString(R.string.memoh_ui_sign_out))
+                }
+            }
         }
     }
 }
@@ -241,13 +338,28 @@ private fun MemohLogin(vm: MemohViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MemohScreen(vm: MemohViewModel) {
+    // Every avatar in this tree needs the signed-in client to read a private file.
+    androidx.compose.runtime.CompositionLocalProvider(LocalMemohApi provides vm.api) {
+        MemohScreenContent(vm)
+    }
+}
+
+@Composable
+private fun MemohScreenContent(vm: MemohViewModel) {
     if (!vm.signedIn) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            MemohLogin(vm)
+            // Both flags are decided synchronously, so a first launch never renders this at
+            // all: `sessionOnDisk` is known at construction, and a failed check deliberately
+            // keeps the retry surface. Keying off `restoringSession` would flash the splash
+            // for every launch, including one with nothing saved.
+            if (vm.sessionOnDisk || vm.sessionRestoreFailed) MemohRestoring(vm) else MemohLogin(vm)
         }
         return
     }
-    if (vm.teams.enabled && vm.teams.selectedId.isEmpty()) {
+    // A returning user already has a team on disk, or none at all. Only surface team setup
+    // once the server's membership page has actually arrived and left nothing selected —
+    // otherwise a cold start flashes the picker before the chat it is about to open.
+    if (vm.teams.enabled && vm.teams.loaded && vm.teams.selectedId.isEmpty()) {
         MemohTeamSetup(vm)
         return
     }

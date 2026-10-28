@@ -768,4 +768,7 @@
     <string name="memoh_ui_default_model_reasoning_memory_and_media">預設模型、推理強度、記憶與媒體</string>
     <string name="memoh_ui_template_configuration">範本設定</string>
     <string name="memoh_ui_invalid_field_value">請輸入有效的值</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">平台託管</string>
+    <string name="memoh_ui_model_share">%1$d / %2$d 個模型</string>
 </resources>

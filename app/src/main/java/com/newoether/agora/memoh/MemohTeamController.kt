@@ -16,13 +16,21 @@ internal data class MemohTeam(val id: String, val name: String, val slug: String
 /** Platform discovery is deliberately unscoped; business and ticket calls require a team. */
 internal suspend fun MemohApi.platformProfile(): JSONObject = authRequest("/users/me")
 
-/** Display identity for the account page lives in platform user_profile (avatar included). */
+/**
+ * `/users/me` answers the account row itself, so `display_name` and `avatar_url` are top-level
+ * fields. Older deployments nested a `user_profile` (and a `user`); both are still read as a
+ * fallback, but reading only the nested shape left a signed-in account with no name and no
+ * avatar at all.
+ */
 internal fun platformDisplayName(profile: JSONObject): String =
-    profile.optJSONObject("user_profile")?.optString("display_name").orEmpty()
+    profile.optString("display_name").orEmpty()
+        .ifBlank { profile.optJSONObject("user_profile")?.optString("display_name").orEmpty() }
+        .ifBlank { profile.optString("username").orEmpty() }
         .ifBlank { profile.optJSONObject("user")?.optString("username").orEmpty() }
 
 internal fun platformAvatarUrl(profile: JSONObject): String =
-    profile.optJSONObject("user_profile")?.optString("avatar_url").orEmpty()
+    profile.optString("avatar_url").orEmpty()
+        .ifBlank { profile.optJSONObject("user_profile")?.optString("avatar_url").orEmpty() }
 
 internal fun platformUserId(profile: JSONObject): String {
     val user = profile.optJSONObject("user")
@@ -58,6 +66,8 @@ internal class MemohTeamController(
     var selectedId by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
     var creationAllowed by mutableStateOf(false); private set
+    /** True once a membership page has arrived, so an empty list is a real answer. */
+    var loaded by mutableStateOf(false); private set
     val current: MemohTeam? get() = items.firstOrNull { it.id == selectedId }
     val enabled: Boolean get() = api.usesSessionCookie
     private var revision = 0
@@ -65,7 +75,7 @@ internal class MemohTeamController(
 
     fun reset() {
         revision++; items = emptyList(); selectedId = ""; busy = false
-        creationAllowed = false; preferenceKey = ""
+        creationAllowed = false; preferenceKey = ""; loaded = false
     }
     fun load() {
         if (busy || !enabled) return
@@ -89,7 +99,14 @@ internal class MemohTeamController(
                 applySelection(selected?.id.orEmpty())
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) { if (request == revision) onError(e.message ?: "Unable to load teams") }
-            finally { if (request == revision) busy = false }
+            finally {
+                if (request == revision) {
+                    busy = false
+                    // A failed page still ends the wait: the caller must not sit on a blank
+                    // screen because a membership request never came back.
+                    loaded = true
+                }
+            }
         }
     }
     fun select(id: String) {

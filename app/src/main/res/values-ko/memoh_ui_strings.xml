@@ -768,4 +768,7 @@
     <string name="memoh_ui_default_model_reasoning_memory_and_media">기본 모델, 추론, 메모리 및 미디어</string>
     <string name="memoh_ui_template_configuration">템플릿 구성</string>
     <string name="memoh_ui_invalid_field_value">올바른 값을 입력하세요</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">플랫폼 관리</string>
+    <string name="memoh_ui_model_share">모델 %2$d개 중 %1$d개</string>
 </resources>

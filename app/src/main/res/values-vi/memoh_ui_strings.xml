@@ -768,4 +768,7 @@
     <string name="memoh_ui_default_model_reasoning_memory_and_media">Mô hình mặc định, suy luận, ghi nhớ và đa phương tiện</string>
     <string name="memoh_ui_template_configuration">Cấu hình mẫu</string>
     <string name="memoh_ui_invalid_field_value">Hãy nhập giá trị hợp lệ</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">Nền tảng quản lý</string>
+    <string name="memoh_ui_model_share">%1$d trên %2$d mô hình</string>
 </resources>
