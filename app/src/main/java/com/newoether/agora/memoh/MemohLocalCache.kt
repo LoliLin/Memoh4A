@@ -14,17 +14,18 @@ import org.json.JSONObject
  */
 internal class MemohLocalCache(private val prefs: SharedPreferences) {
 
-    private fun key(scope: String): String {
-        // Bots and history belong to one identity AND one team; a cache that outlived a team
-        // switch would show another team's conversations for a frame.
-        val identity = prefs.getString(KEY_IDENTITY, "").orEmpty()
-        return "$scope:$identity"
-    }
+    // A cache is opt-in only after the current account has been verified. Never trust the
+    // previous process's last-selected account, including legacy server/team-only keys.
+    private var identity: String? = null
+
+    private fun key(scope: String): String? = identity?.let { "$scope:v2:$it" }
 
     fun rememberIdentity(scopeKey: String) {
-        if (prefs.getString(KEY_IDENTITY, "").orEmpty() == scopeKey) return
-        // A different account or server: nothing cached under the old key may survive it.
-        prefs.edit().putString(KEY_IDENTITY, scopeKey).apply()
+        identity = scopeKey.takeIf { it.isNotBlank() }
+    }
+
+    fun forgetIdentity() {
+        identity = null
     }
 
     fun bots(): List<MemohBot> = read(KEY_BOTS).mapNotNull { row ->
@@ -100,26 +101,33 @@ internal class MemohLocalCache(private val prefs: SharedPreferences) {
      * volatile, so it is kept as one blob. A parse failure reads as "nothing cached".
      */
     fun models(): JSONObject? {
-        val raw = prefs.getString(key(KEY_MODELS), null) ?: return null
+        val raw = readValue(KEY_MODELS) ?: return null
         return runCatching { JSONObject(raw) }.getOrNull()
     }
 
     fun storeModels(catalog: JSONObject) {
-        prefs.edit().putString(key(KEY_MODELS), catalog.toString()).apply()
+        writeValue(KEY_MODELS, catalog.toString())
     }
 
     private fun read(scope: String): List<JSONObject> {
-        val raw = prefs.getString(key(scope), null) ?: return emptyList()
+        val raw = readValue(scope) ?: return emptyList()
         val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
         return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
     }
 
-    private fun write(scope: String, rows: JSONArray) {
-        prefs.edit().putString(key(scope), rows.toString()).apply()
+    private fun readValue(scope: String): String? {
+        val cacheKey = key(scope) ?: return null
+        return try { prefs.getString(cacheKey, null) } catch (_: RuntimeException) { null }
     }
 
+    private fun writeValue(scope: String, value: String) {
+        val cacheKey = key(scope) ?: return
+        try { prefs.edit().putString(cacheKey, value).apply() } catch (_: RuntimeException) { }
+    }
+
+    private fun write(scope: String, rows: JSONArray) = writeValue(scope, rows.toString())
+
     private companion object {
-        const val KEY_IDENTITY = "cache_identity"
         const val KEY_BOTS = "cache_bots"
         const val KEY_SESSIONS = "cache_sessions"
         const val KEY_MODELS = "cache_models"

@@ -65,7 +65,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         profilesFallback = { text(R.string.memoh_error_acp_unavailable) },
         onCatalogLoaded = { catalog -> localCache.storeModels(catalog) },
     )
-    private val botConnections = mutableMapOf<String, MemohConnection>()
+    // Socket callbacks run off the main thread, so this table (and the close-during-iteration
+    // in closeSocket) must tolerate concurrent access instead of racing a plain HashMap.
+    private val botConnections = java.util.concurrent.ConcurrentHashMap<String, MemohConnection>()
     private val idleConnection by lazy { createConnection("") }
     internal val connection: MemohConnection
         get() = bot?.id?.let(::connectionFor) ?: idleConnection
@@ -127,10 +129,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     val login = MemohLoginForm(prefs.getString("server", MemohEndpoints.CLOUD_ORIGIN).orEmpty())
 
     internal val teams = MemohTeamController(api, prefs, viewModelScope,
-        onChanged = {
+        onChanged = { accountId ->
             resetNavigation()
-            // Cached rows belong to the team that was selected when they were written.
-            localCache.rememberIdentity(api.authUrl + "#" + api.teamId)
+            bindCacheIdentity(accountId)
             if (api.teamId.isNotEmpty()) refreshBots()
         },
         onError = { error = it })
@@ -156,11 +157,26 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         profileAvatarUrl = avatarUrl
     }
 
+    private fun bindCacheIdentity(accountId: String) {
+        if (accountId.isBlank()) {
+            localCache.forgetIdentity()
+        } else {
+            localCache.rememberIdentity(JSONArray().put(api.authUrl).put(accountId).put(api.teamId).toString())
+        }
+    }
+
     private fun loadPlatformProfile() {
+        val captured = api.scope
+        val revision = authRevision
         navigationScope.launch {
             runCatching { api.platformProfile() }.onSuccess { profile ->
+                if (revision != authRevision || api.scope !== captured) return@onSuccess
                 profileDisplayName = platformDisplayName(profile)
                 profileAvatarUrl = platformAvatarUrl(profile)
+                if (!api.usesSessionCookie) {
+                    bindCacheIdentity(platformUserId(profile))
+                    if (bots.isNotEmpty()) localCache.storeBots(bots)
+                }
             }
         }
     }
@@ -252,6 +268,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
     private fun resetNavigation() {
         navigationScope.coroutineContext[Job]?.cancelChildren()
+        localCache.forgetIdentity()
         authRevision++; botRevision++; navigationRevision++
         attachmentDraftRevision++; historyRevision++; queueRevision++
         runtimeControlsRevision++
@@ -275,10 +292,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     private suspend fun loadBots() {
         val revision = authRevision
-        // Paint the last known bot list first; the network answer replaces it below.
+        // Show cached rows, but do not start a socket for an unverified/stale Bot.
         if (bots.isEmpty()) localCache.bots().takeIf { it.isNotEmpty() }?.let { cached ->
             bots = cached
-            if (bot == null) cached.firstOrNull()?.let(::selectBot)
         }
         try {
             val results = api.bots()
@@ -352,20 +368,19 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         refreshWelcomePreferences(value.id)
         navigationScope.launch {
             loadingSessions = true
-            // A cached page keeps the drawer populated while the first request is in flight,
-            // so switching bots does not blank the conversation list for a round trip.
-            localCache.sessions(value.id).takeIf { it.isNotEmpty() }?.let { cached ->
-                if (revision == botRevision && bot?.id == value.id && sessions.isEmpty()) {
-                    sessions = cached
-                }
+            // Cached rows are temporary; only conversations created during this request
+            // survive the authoritative first page when it arrives.
+            val cached = localCache.sessions(value.id)
+            val cachedIds = cached.mapTo(mutableSetOf()) { it.id }
+            if (revision == botRevision && bot?.id == value.id && sessions.isEmpty()) {
+                sessions = cached
             }
             try {
                 val page = api.sessionsPage(value.id)
                 if (revision == botRevision && bot?.id == value.id) {
                     localCache.storeSessions(value.id, page.items)
-                    // A new or forked conversation may have been added while this initial page
-                    // was in flight. Keep those local rows and append only unseen server rows.
-                    sessions = (sessions + page.items).distinctBy { it.id }
+                    val locallyAdded = sessions.filterNot { it.id in cachedIds }
+                    sessions = (locallyAdded + page.items).distinctBy { it.id }
                     nextSessionCursor = page.nextCursor
                     olderSessionsAvailable = page.nextCursor != null
                 }
@@ -1456,7 +1471,9 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private fun closeSocket() {
-        botConnections.values.toList().forEach { it.close() }
+        // Snapshot before closing: a callback may still add or drop an entry while this runs,
+        // and a removed/null slot must never stop the remaining sockets from being closed.
+        botConnections.values.toList().forEach { runCatching { it.close() } }
         botConnections.clear()
         sendStates.clear()
         resetCursor()

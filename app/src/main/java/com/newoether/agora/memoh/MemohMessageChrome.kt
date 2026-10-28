@@ -12,7 +12,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,8 +25,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import okhttp3.OkHttpClient
 import com.newoether.agora.R
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Bot 头像复用 Agora 共享头像组件的圆角形态；私有头像 URL 只在服务器源内加载，
@@ -31,32 +40,22 @@ import com.newoether.agora.R
 @Composable
 internal fun MemohBotAvatar(bot: MemohBot?, size: androidx.compose.ui.unit.Dp = 28.dp) {
     val title = bot?.title.orEmpty().ifBlank { "M" }
-    val showLetter = bot?.avatarUrl.isNullOrBlank()
     Box(
         modifier = Modifier.size(size).clip(CircleShape)
             .background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center,
     ) {
-        if (!showLetter) {
-            // The initial stays underneath the image: a failed load then degrades to it
-            // instead of leaving an empty circle.
+        Text(
+            text = title.take(1).uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        if (!bot?.avatarUrl.isNullOrBlank()) {
             MemohAvatarImage(
                 url = bot.avatarUrl,
                 contentDescription = title,
                 modifier = Modifier.size(size),
-            )
-            Text(
-                text = title.take(1).uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        } else {
-            Text(
-                text = title.take(1).uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
     }
@@ -66,9 +65,8 @@ internal fun MemohBotAvatar(bot: MemohBot?, size: androidx.compose.ui.unit.Dp = 
 internal val LocalMemohApi = androidx.compose.runtime.staticCompositionLocalOf<MemohApi?> { null }
 
 /**
- * Server avatar URLs can be same-origin private files, so the request must carry the session
- * allowed to read them. Coil's default client sends none, which is why a configured avatar
- * rendered as blank while the same URL opened in a browser.
+ * Fetch private avatars through the scoped media API. Coil only sees the downloaded file;
+ * its untagged requests must never be sent through Memoh's scope-enforcing HTTP client.
  */
 @Composable
 internal fun MemohAvatarImage(
@@ -78,22 +76,39 @@ internal fun MemohAvatarImage(
     api: MemohApi? = LocalMemohApi.current,
 ) {
     val context = LocalContext.current
-    // Absolute URLs keep their own origin; a path is resolved against the configured server.
-    val resolved = remember(url, api?.authUrl) {
-        if (url.startsWith("http://") || url.startsWith("https://")) url
-        else api?.authUrl?.trimEnd('/')?.let { it + "/" + url.trimStart('/') } ?: url
+    val captured = api?.scope
+    val resolved = remember(url, captured) {
+        if (captured == null) url else {
+            val base = if (url.startsWith("/")) captured.identity.endpoints.origin
+                else captured.identity.endpoints.auth.trimEnd('/') + "/"
+            base.toHttpUrlOrNull()?.resolve(url)?.toString() ?: url
+        }
     }
-    // The process image loader resolves the active identity's OkHttp client per request, so
-    // this carries the same cookie and bearer the API does. See MemohApplication.
-    if (api != null) {
-        remember(api) {
-            MemohImageHttp.install { runCatching { api.scope.identity.client }.getOrNull() }
-            true
+    var imageFile by remember(api, captured, resolved) { mutableStateOf<File?>(null) }
+    LaunchedEffect(api, captured, resolved) {
+        if (api == null || captured == null || resolved.isBlank()) return@LaunchedEffect
+        try {
+            val file = withContext(Dispatchers.IO) {
+                api.requireCurrent(captured)
+                val hash = MessageDigest.getInstance("SHA-256").digest(resolved.toByteArray())
+                    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                val target = File(api.mediaCacheDirectory(context.cacheDir, "avatars"), hash)
+                if (!target.isFile || target.length() == 0L) {
+                    api.downloadMedia(resolved, target, maxBytes = 8L * 1024 * 1024)
+                }
+                api.requireCurrent(captured)
+                target.takeIf { it.isFile && it.length() > 0L }
+            }
+            if (api.scope === captured) imageFile = file
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // An unavailable or corrupt avatar must not keep the app from opening.
         }
     }
     AsyncImage(
         model = ImageRequest.Builder(context)
-            .data(resolved)
+            .data(if (api == null) resolved else imageFile)
             .crossfade(true)
             .build(),
         contentDescription = contentDescription,

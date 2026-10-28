@@ -59,7 +59,7 @@ internal class MemohTeamController(
     private val api: MemohApi,
     private val prefs: SharedPreferences,
     private val scope: CoroutineScope,
-    private val onChanged: () -> Unit,
+    private val onChanged: (String) -> Unit,
     private val onError: (String) -> Unit,
 ) {
     var items by mutableStateOf<List<MemohTeam>>(emptyList()); private set
@@ -72,10 +72,11 @@ internal class MemohTeamController(
     val enabled: Boolean get() = api.usesSessionCookie
     private var revision = 0
     private var preferenceKey = ""
+    private var accountId = ""
 
     fun reset() {
         revision++; items = emptyList(); selectedId = ""; busy = false
-        creationAllowed = false; preferenceKey = ""; loaded = false
+        creationAllowed = false; preferenceKey = ""; accountId = ""; loaded = false
     }
     fun load() {
         if (busy || !enabled) return
@@ -90,6 +91,7 @@ internal class MemohTeamController(
                 if (request != revision) return@launch
                 val id = platformUserId(profile)
                 check(id.isNotBlank()) { "Memoh returned no platform user identity" }
+                accountId = id
                 preferenceKey = "team:${api.authUrl}:$id"
                 creationAllowed = profile.optBoolean("team_creation_allowed", true)
                 items = teams
@@ -117,7 +119,7 @@ internal class MemohTeamController(
         selectedId = id
         api.selectTeam(id)
         if (preferenceKey.isNotBlank()) prefs.edit().putString(preferenceKey, id).apply()
-        onChanged()
+        onChanged(accountId)
     }
     fun create(name: String, slug: String) {
         if (busy || !creationAllowed || name.isBlank()) return
