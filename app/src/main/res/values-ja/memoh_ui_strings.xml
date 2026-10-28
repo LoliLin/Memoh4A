@@ -768,4 +768,7 @@
     <string name="memoh_ui_default_model_reasoning_memory_and_media">既定のモデル、推論、メモリ、メディア</string>
     <string name="memoh_ui_template_configuration">テンプレート設定</string>
     <string name="memoh_ui_invalid_field_value">有効な値を入力してください</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">プラットフォーム管理</string>
+    <string name="memoh_ui_model_share">%1$d / %2$d モデル</string>
 </resources>

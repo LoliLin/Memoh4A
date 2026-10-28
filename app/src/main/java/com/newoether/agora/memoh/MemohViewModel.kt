@@ -42,6 +42,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     private var authRevision = 0
     private var botRevision = 0
     private var welcomeSeedRevision = 0
+    internal val localCache by lazy { MemohLocalCache(prefs) }
     private val modelPreferenceMutex = Mutex()
     internal var attachmentDraftRevision by mutableStateOf(0); private set
     internal var historyRevision = 0; private set
@@ -62,6 +63,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         api,
         agentsFallback = { text(R.string.memoh_error_load_agents) },
         profilesFallback = { text(R.string.memoh_error_acp_unavailable) },
+        onCatalogLoaded = { catalog -> localCache.storeModels(catalog) },
     )
     private val botConnections = mutableMapOf<String, MemohConnection>()
     private val idleConnection by lazy { createConnection("") }
@@ -125,7 +127,13 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
     val login = MemohLoginForm(prefs.getString("server", MemohEndpoints.CLOUD_ORIGIN).orEmpty())
 
     internal val teams = MemohTeamController(api, prefs, viewModelScope,
-        onChanged = { resetNavigation(); if (api.teamId.isNotEmpty()) refreshBots() }, onError = { error = it })
+        onChanged = {
+            resetNavigation()
+            // Cached rows belong to the team that was selected when they were written.
+            localCache.rememberIdentity(api.authUrl + "#" + api.teamId)
+            if (api.teamId.isNotEmpty()) refreshBots()
+        },
+        onError = { error = it })
     private val signIn = MemohSignIn(
         api = api,
         prefs = prefs,
@@ -156,6 +164,12 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             }
         }
     }
+    /**
+     * A credential is on disk, so this launch is a return visit rather than a first run.
+     * [MemohScreen] shows the typed splash while this is true: the sign-in form is for a
+     * first launch, not for someone whose session is simply still being checked.
+     */
+    internal var sessionOnDisk by mutableStateOf(false)
     internal var restoringSession by mutableStateOf(false)
     internal var sessionRestoreGeneration = 0
     internal var sessionRestoreFailed by mutableStateOf(false)
@@ -194,6 +208,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         val saved = runCatching { MemohTokenStore.read(prefs.getString("jwt", "").orEmpty()) }
             .getOrDefault("")
         if (saved.isNotEmpty()) {
+            sessionOnDisk = true
             runCatching { api.configure(login.server, saved) }
                 .onSuccess { signedIn = true; loadPlatformProfile(); refreshBots() }
                 .onFailure { error = it.message.orEmpty() }
@@ -202,6 +217,7 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
             // server whether it still belongs to someone before showing the sign-in form; an
             // expired cookie answers 401 and falls through to the form.
             runCatching { api.configure(login.server) }
+            sessionOnDisk = api.hasSessionCookie()
             viewModelScope.launch { resumeCookieSession() }
         }
     }
@@ -259,10 +275,16 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
 
     private suspend fun loadBots() {
         val revision = authRevision
+        // Paint the last known bot list first; the network answer replaces it below.
+        if (bots.isEmpty()) localCache.bots().takeIf { it.isNotEmpty() }?.let { cached ->
+            bots = cached
+            if (bot == null) cached.firstOrNull()?.let(::selectBot)
+        }
         try {
             val results = api.bots()
             if (!signedIn || revision != authRevision) return
             bots = results
+            localCache.storeBots(results)
             error = ""
             if (bot == null || results.none { it.id == bot?.id }) {
                 results.firstOrNull()?.let(::selectBot)
@@ -321,15 +343,26 @@ internal class MemohViewModel(application: Application) : AndroidViewModel(appli
         navigationScope.launch {
             runCatching { agentController.refresh(value.id) }
         }
+        // The catalog is the slowest first-frame dependency: show the cached one immediately
+        // and let the network call replace it when it answers.
+        agentController.restoreCachedModels(localCache.models())
         navigationScope.launch { agentController.loadModels() }
         // One request, not two: the default pair and the welcome seed feed the same picker,
         // and reading them back to back keeps the new-chat composer settled in one step.
         refreshWelcomePreferences(value.id)
         navigationScope.launch {
             loadingSessions = true
+            // A cached page keeps the drawer populated while the first request is in flight,
+            // so switching bots does not blank the conversation list for a round trip.
+            localCache.sessions(value.id).takeIf { it.isNotEmpty() }?.let { cached ->
+                if (revision == botRevision && bot?.id == value.id && sessions.isEmpty()) {
+                    sessions = cached
+                }
+            }
             try {
                 val page = api.sessionsPage(value.id)
                 if (revision == botRevision && bot?.id == value.id) {
+                    localCache.storeSessions(value.id, page.items)
                     // A new or forked conversation may have been added while this initial page
                     // was in flight. Keep those local rows and append only unseen server rows.
                     sessions = (sessions + page.items).distinctBy { it.id }

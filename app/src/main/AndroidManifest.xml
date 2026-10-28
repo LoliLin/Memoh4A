@@ -15,7 +15,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
-        android:label="Memoh4A"
+        android:label="Memoh"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
@@ -23,7 +23,7 @@
         <activity
             android:name=".memoh.MemohActivity"
             android:exported="true"
-            android:label="Memoh4A"
+            android:label="Memoh"
             android:theme="@style/Theme.Agora"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

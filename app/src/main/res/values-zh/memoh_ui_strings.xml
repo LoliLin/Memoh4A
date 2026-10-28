@@ -768,4 +768,7 @@
     <string name="memoh_ui_video_model">生视频模型</string>
     <string name="memoh_ui_none">无</string>
     <string name="memoh_ui_default_model_reasoning_memory_and_media">默认模型、推理强度、记忆与媒体</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">平台托管</string>
+    <string name="memoh_ui_model_share">%1$d / %2$d 个模型</string>
 </resources>

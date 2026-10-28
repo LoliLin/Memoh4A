@@ -768,4 +768,7 @@
     <string name="memoh_ui_default_model_reasoning_memory_and_media">Modèle par défaut, raisonnement, mémoire et médias</string>
     <string name="memoh_ui_template_configuration">Configuration du modèle</string>
     <string name="memoh_ui_invalid_field_value">Saisissez une valeur valide</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">Géré par la plateforme</string>
+    <string name="memoh_ui_model_share">%1$d modèle(s) sur %2$d</string>
 </resources>

@@ -768,4 +768,7 @@
     <string name="memoh_ui_video_model">Video generation model</string>
     <string name="memoh_ui_none">None</string>
     <string name="memoh_ui_default_model_reasoning_memory_and_media">Default model, reasoning, memory and media</string>
+    <string name="memoh_ui_memoh_for_android">Memoh for Android</string>
+    <string name="memoh_ui_platform_managed">Platform-managed</string>
+    <string name="memoh_ui_model_share">%1$d of %2$d models</string>
 </resources>

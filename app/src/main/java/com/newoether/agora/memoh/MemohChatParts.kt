@@ -19,7 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +31,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Code
@@ -146,8 +151,9 @@ internal fun MemohDrawerContent(
                 .imePadding()
                 .padding(horizontal = 16.dp, vertical = 20.dp),
         ) {
-            MemohDrawerBotRow(vm)
-            if (vm.teams.enabled) MemohTeamPicker(vm.teams)
+            // Bot and team share one line: they answer "where am I" together, and two stacked
+            // rows spent drawer height on the thing the conversation list needs most.
+            MemohDrawerIdentityRow(vm)
             Spacer(Modifier.height(12.dp))
 
             Button(
@@ -454,14 +460,102 @@ internal fun MemohDialogs(
 
 /** The drawer's bot identity: same avatar + name pair the web sidebar shows. */
 @Composable
-private fun MemohDrawerBotRow(vm: MemohViewModel) {
-    val bot = vm.bot ?: return
+private fun MemohDrawerIdentityRow(vm: MemohViewModel) {
+    val bot = vm.bot
+    var botMenu by remember { mutableStateOf(false) }
+    var teamMenu by remember { mutableStateOf(false) }
+
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MemohBotAvatar(bot, size = 26.dp)
-        Spacer(Modifier.width(10.dp))
-        Text(bot.title, style = ChatType.drawerButton, maxLines = 1)
+        // The bot owns the row: its avatar and name are what a conversation is held with.
+        Box(Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(enabled = vm.bots.size > 1) { botMenu = true }
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MemohBotAvatar(bot, size = 26.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    bot?.title ?: stringResource(R.string.memoh_settings_no_bots),
+                    style = ChatType.drawerButton,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (vm.bots.size > 1) {
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = stringResource(R.string.memoh_settings_switch_bot),
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            AgoraDropdownMenu(
+                expanded = botMenu,
+                onDismissRequest = { botMenu = false },
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 16.dp,
+            ) {
+                vm.bots.forEach { option ->
+                    AgoraDropdownMenuItem(
+                        text = { Text(if (option.id == vm.bot?.id) "● ${option.title}" else option.title) },
+                        leadingIcon = { MemohBotAvatar(option, size = 22.dp) },
+                        onClick = { botMenu = false; vm.selectBot(option) },
+                    )
+                }
+            }
+        }
+
+        if (vm.teams.enabled) {
+            Spacer(Modifier.width(4.dp))
+            // Team is the quieter half: a compact chip on the same baseline, so the row still
+            // reads as one line even with a long bot title.
+            Box {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(enabled = !vm.teams.busy) { teamMenu = true }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        vm.teams.current?.title ?: stringResource(R.string.memoh_settings_choose_team),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 88.dp),
+                    )
+                    Icon(
+                        Icons.Default.UnfoldMore,
+                        contentDescription = stringResource(R.string.memoh_settings_team),
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AgoraDropdownMenu(
+                    expanded = teamMenu,
+                    onDismissRequest = { teamMenu = false },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    tonalElevation = 16.dp,
+                ) {
+                    vm.teams.items.forEach { team ->
+                        AgoraDropdownMenuItem(
+                            text = { Text(if (team.id == vm.teams.selectedId) "✓ ${team.title}" else team.title) },
+                            onClick = { teamMenu = false; vm.teams.select(team.id) },
+                        )
+                    }
+                    AgoraDropdownMenuItem(
+                        text = { Text(stringResource(R.string.memoh_settings_refresh_team)) },
+                        onClick = { teamMenu = false; vm.teams.load() },
+                    )
+                }
+            }
+        }
     }
 }
